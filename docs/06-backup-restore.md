@@ -11,7 +11,7 @@ the 3-2-1 rule: 3 copies, on 2 kinds of storage, with 1 off-device.
 | 2. Automatic local backup | client | Encrypted `.kosh` file in app storage. Keeps the last 7 daily and 4 weekly copies. | Daily (WorkManager) and before every app upgrade or restore |
 | 3. User-chosen location | client | Same `.kosh` file written to a folder the user picks (Google Drive, OneDrive, SD card, Nextcloud, through Android's Storage Access Framework) | Daily or weekly, user's choice |
 | 4. Sync server | server | Full ledger copy. A new phone can rebuild from it. | Continuous |
-| 5. Server snapshots | server | SQLite `VACUUM INTO` snapshots, or `pg_dump` for PostgreSQL | Scheduled (`KOSH_BACKUP_INTERVAL`), kept by `KOSH_BACKUP_KEEP` |
+| 5. Server snapshots | server | SQLite `VACUUM INTO` snapshots, or `pg_dump` for PostgreSQL | Scheduled (`LEKHAMINT_BACKUP_INTERVAL`), kept by `LEKHAMINT_BACKUP_KEEP` |
 | 6. Portable export | both | JSON snapshot of one ledger (API, CLI or app) | On demand |
 | 7. Human-readable export | client | CSV of transactions, for spreadsheets or a move to another app | On demand |
 
@@ -71,9 +71,9 @@ Restore safety checks:
 
 ### SQLite (default)
 
-- `kosh backup --out /backups/kosh-2026-10-24.db` makes a consistent online snapshot with `VACUUM INTO`. It is safe while the server is running, and the result is compacted.
-- The built-in scheduler runs the same command every `KOSH_BACKUP_INTERVAL` (for example `24h`) into `KOSH_BACKUP_DIR` and keeps the newest `KOSH_BACKUP_KEEP` files.
-- `kosh restore --from file.db` checks the snapshot (`PRAGMA integrity_check`, schema version), moves the current database aside as `kosh.db.pre-restore-<ts>`, and installs the snapshot. The server must be stopped first.
+- `lekhamint backup --out /backups/lekhamint-2026-10-24.db` makes a consistent online snapshot with `VACUUM INTO`. It is safe while the server is running, and the result is compacted.
+- The built-in scheduler runs the same command every `LEKHAMINT_BACKUP_INTERVAL` (for example `24h`) into `LEKHAMINT_BACKUP_DIR` and keeps the newest `LEKHAMINT_BACKUP_KEEP` files.
+- `lekhamint restore --from file.db` checks the snapshot (`PRAGMA integrity_check`, schema version), moves the current database aside as `lekhamint.db.pre-restore-<ts>`, and installs the snapshot. The server must be stopped first.
 - For continuous off-site replication, run [Litestream](https://litestream.io) next to the server. This is optional.
 
 ### PostgreSQL
@@ -85,7 +85,7 @@ Restore safety checks:
 
 ```bash
 kosh backup --format json --out kosh-dump.ndjson.gz                      # from SQLite
-KOSH_DB_DRIVER=postgres KOSH_DB_DSN=… kosh restore --format json --from kosh-dump.ndjson.gz
+LEKHAMINT_DB_DRIVER=postgres LEKHAMINT_DB_DSN=… kosh restore --format json --from kosh-dump.ndjson.gz
 ```
 
 Because the dump keeps each record's `seq`, clients that are already synced keep their cursors and do not need to re-download anything.

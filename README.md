@@ -1,77 +1,130 @@
-# LekhaMint — a modern, local-first money manager
+<p align="center"><img src="docs/images/dashboard.png" alt="LekhaMint home screen with balances, insights, spending pace and budgets"></p>
+
+<h1 align="center">LekhaMint</h1>
+
+<p align="center"><b>A modern, private money manager you host yourself.</b><br>
+Android app, web app and a tiny sync server. Exact to the paisa, works offline, no cloud, no tracking.</p>
+
+<p align="center">
+<a href="https://anand34577.github.io/lekhamint/"><b>Live demo</b></a> ·
+<a href="#install">Install</a> ·
+<a href="https://github.com/anand34577/lekhamint/wiki">Docs</a> ·
+<a href="https://github.com/anand34577/lekhamint/releases/latest">Download</a>
+</p>
+
+<p align="center">
+<a href="https://github.com/anand34577/lekhamint/actions/workflows/ci.yml"><img src="https://github.com/anand34577/lekhamint/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+<a href="https://github.com/anand34577/lekhamint/releases/latest"><img src="https://img.shields.io/github/v/release/anand34577/lekhamint" alt="Latest release"></a>
+<a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"></a>
+</p>
 
 > *Lekha* (लेखा) means "account" or "record": LekhaMint keeps a clear, exact record of your money.
 
-LekhaMint tracks money across accounts, currencies and devices. The Android app works fully
-offline with no account. A self-hosted server is optional: it adds sync between devices,
-a web app, and off-device backups.
+## Try it now
 
-| Part | Tech | Status |
+**[Open the live demo](https://anand34577.github.io/lekhamint/)** and sign in with **`demo@example.com`** / **`demo1234`**. It is the real server compiled to WebAssembly, running in your browser on a year of sample household data. Nothing is sent anywhere, and it resets when you reload.
+
+## Screenshots
+
+| Transactions | Reports |
+| --- | --- |
+| ![Transactions](docs/images/transactions.png) | ![Reports](docs/images/reports.png) |
+| **Budgets** | **Accounts** |
+| ![Budgets](docs/images/budgets.png) | ![Accounts](docs/images/accounts.png) |
+| **Bills & recurring** | **Dark theme** |
+| ![Bills and recurring](docs/images/recurring.png) | ![Dark theme](docs/images/dashboard-dark.png) |
+
+<p align="center">
+<img src="docs/images/android-home.png" width="19%" alt="Android home">
+<img src="docs/images/android-activity.png" width="19%" alt="Android activity">
+<img src="docs/images/android-budgets.png" width="19%" alt="Android budgets">
+<img src="docs/images/android-reports.png" width="19%" alt="Android reports">
+<img src="docs/images/android-accounts.png" width="19%" alt="Android accounts">
+</p>
+
+## Features
+
+- **Fast entry.** Add an expense in about five seconds: a calculator keypad on Android, and quick add in plain words on the web (`450 swiggy dinner yesterday #work @hdfc`).
+- **Correct accounting.** Transfers and card payments are not spending, refunds reduce spending, and loans to friends never count as income or expense. Balances are always calculated from transactions, never typed in.
+- **Budgets** per category or account, weekly to yearly, with rollover, a daily allowance and a pace warning.
+- **Reports:** category breakdown, 12-month trend, needs/wants/savings, income sources, top payees and tags.
+- **Bills & recurring** items that remind you or record themselves, without duplicates across devices.
+- **Lent & borrowed** with partial repayments and due dates.
+- **Multi-currency** accounts, transfers between currencies, and totals converted with your own exchange rates.
+- **Splits, tags and auto-categorise rules** that also clean up messy payee names.
+- **Bank statement import** (CSV): importing the same file twice adds nothing.
+- **Family sharing** with owner, editor and viewer roles; see and sign out devices.
+- **Android app that works fully offline**, with a home-screen widget, quick settings tile, app lock, hide amounts, Material You and true-black themes, and encrypted automatic backups.
+- **Web app** with a command palette (Ctrl/⌘ K), keyboard shortcuts, insights and a spending-pace chart. It installs like an app.
+- **Self-hosting made easy:** one small program or one Docker image, SQLite built in (PostgreSQL optional), automatic backups, health checks and structured logs. It runs happily on a Raspberry Pi.
+
+## Install
+
+The server includes the web app. Run one of these on the computer that will host it, then open the address it prints and create your account.
+
+**Linux and macOS**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/anand34577/lekhamint/main/install.sh | sh
+```
+
+**Windows** (PowerShell; run as Administrator to start it with Windows)
+
+```powershell
+irm https://raw.githubusercontent.com/anand34577/lekhamint/main/install.ps1 | iex
+```
+
+**Docker**
+
+```sh
+docker run -d --name lekhamint --restart unless-stopped -p 8080:8080 -v lekhamint-data:/data ghcr.io/anand34577/lekhamint:latest
+```
+
+or with Compose: `curl -fsSLO https://raw.githubusercontent.com/anand34577/lekhamint/main/docker-compose.yml && docker compose up -d`. No Docker yet? `curl -fsSL https://get.docker.com | sh`, or add `--docker` to the Linux one-liner and it installs Docker for you.
+
+The installers check the download's SHA-256, set up a service that starts on boot and restarts on failure, and upgrade in place when you run them again. Details, options and manual installs: **[Installation](https://github.com/anand34577/lekhamint/wiki/Installation)** · [Docker](https://github.com/anand34577/lekhamint/wiki/Docker) · [HTTPS and remote access](https://github.com/anand34577/lekhamint/wiki/Reverse-Proxy) · [Configuration](https://github.com/anand34577/lekhamint/wiki/Configuration).
+
+**Android:** download `LekhaMint.apk` from the [latest release](https://github.com/anand34577/lekhamint/releases/latest) and install it. Use it on its own, or connect it to your server under **More → Sync** ([guide](https://github.com/anand34577/lekhamint/wiki/Android-App)).
+
+## How it fits together
+
+```
+  Android app (offline-first)           Web app (any browser)
+            │                                    │
+            └────────── sync over HTTPS ─────────┘
+                              │
+                 LekhaMint server (Go, one binary)
+                 SQLite or PostgreSQL · daily backups
+```
+
+Every device keeps a full copy of the books and syncs changes through your server with hybrid logical clocks, so it works offline and never creates duplicates. Amounts are integers in minor units (paise, cents); floating point is never used for money.
+
+| Part | Folder | Built with |
 |---|---|---|
-| `server/` | Go, SQLite (default) or PostgreSQL, one static binary (~16 MB) that also serves the web app | **Working**, tested |
-| `android/` | Kotlin, Jetpack Compose, Room, WorkManager | **Working**, tested on an emulator; 4 MB release APK |
-| `web/` | React + TypeScript, built into the server binary; installable PWA | **Working**, tested end to end in Chrome |
-| iOS | SwiftUI on the same sync protocol | Future |
-
-**What you can do today:** log expenses, income and transfers in seconds (with a calculator
-pad), manage accounts with exact calculated balances, reconcile, budgets with pace and
-rollover, reports (category donut, 12-month trend, needs/wants/savings), recurring bills
-with reminders or auto-entry, lent/borrowed tracking, Trash with undo, app lock, hide
-amounts, dark/AMOLED themes, encrypted `.kosh` backups (daily, plus a folder of your choice),
-CSV/JSON export, and two-way sync between phones and the web.
-
-Also: splits, tags, auto-categorise rules, CSV statement import with duplicate detection, lent &
-borrowed with repayments, multi-currency totals with your own exchange rates, book sharing with
-family (editor or viewer), and a home-screen widget. The web app adds a command palette
-(Ctrl/⌘ K), natural-language quick add ("450 swiggy dinner yesterday #work @hdfc"), dashboard
-insights with a spending-pace chart, an uncategorised review queue and keyboard shortcuts (press ?).
-
-## Principles
-
-1. **Local-first.** Every client keeps the full ledger on the device. The server is a sync hub and backup target. It is never required.
-2. **Money is exact.** Amounts are integers in minor units (paise, cents). Floats are never used.
-3. **Correct accounting.** Transfers, card payments and investments move money; they are not spending. Refunds reduce spending. Balances are calculated, never stored.
-4. **History is never lost.** Records are soft-deleted (tombstones), every change is versioned, and backups are automatic.
-5. **Fast entry.** Adding an expense takes about 3 taps and 5 seconds. Everything else comes second.
-6. **Few dependencies, no lock-in.** Runs on Linux, macOS, Windows, Docker or a Raspberry Pi with no internet. Every byte can be exported.
+| Server | [`server/`](server) | Go, SQLite (pure Go) or PostgreSQL; serves the web app; also compiles to WebAssembly for the demo |
+| Web app | [`web/`](web) | React, TypeScript, TanStack Query, Vite |
+| Android app | [`android/`](android) | Kotlin, Jetpack Compose, Room, WorkManager |
 
 ## Documentation
 
-| Doc | What it covers |
-|---|---|
-| [01 – Product & UX](docs/01-product-and-ux.md) | Personas, screens, interaction rules, accessibility |
-| [02 – Expense domain study](docs/02-expense-domain.md) | How personal expenses work: types, transfers, refunds, credit cards, categories, budgets |
-| [03 – Architecture](docs/03-architecture.md) | System overview, server, Android and web layering, scaling plan |
-| [04 – Data model](docs/04-data-model.md) | Every entity and field, with the rules behind them |
-| [05 – Sync protocol](docs/05-sync-protocol.md) | Offline-first sync with hybrid logical clocks |
-| [06 – Backup & restore](docs/06-backup-restore.md) | Client and server backup strategy, file format, encryption |
-| [07 – API reference](docs/07-api.md) | HTTP endpoints |
-| [08 – Deployment](docs/08-deployment.md) | Docker, bare metal (systemd), Windows, configuration, building the apps |
-| [09 – Roadmap](docs/09-roadmap.md) | What is done and what comes next, phase by phase |
-| [10 – Product vision](docs/10-product-vision.md) | From expense tracker to personal finance manager: goals, investments, net worth, automation, AI |
+- **[Wiki](https://github.com/anand34577/lekhamint/wiki)**: installing, configuring, using, backing up, upgrading and troubleshooting.
+- **[Design notes](docs)**: the product, how personal finance is modelled, architecture, data model, sync protocol, backups and the [HTTP API](docs/07-api.md).
+- **[Changelog](CHANGELOG.md)**.
 
-## Quick start
+## Development
 
-```bash
-# Server + web app (open http://localhost:8080 and create your account)
-cd server
-go run ./cmd/kosh serve
-# or: docker compose up -d
-
-# Android app (Android SDK + JDK 17)
-cd android
-./gradlew assembleRelease          # app/build/outputs/apk/release/app-release.apk
+```sh
+cd server && make demo                 # server with sample data on :8080 (demo@example.com / demo1234)
+cd web && npm ci && npm run dev        # web app with hot reload on :5173
+cd android && ./gradlew assembleDebug  # Android app
 ```
 
-In the app, go to **More → Sync**, enter the server address, sign in, and choose
-"Upload this book". The same data then appears in the web app.
+Tests: `make test` in `server/` (set `LEKHAMINT_TEST_PG_DSN` to include PostgreSQL), `npm test` in `web/`, `./gradlew testDebugUnitTest` in `android/`. CI runs all of them, builds the Docker image and tests the Linux installer on every pull request. See [Building from Source](https://github.com/anand34577/lekhamint/wiki/Building-from-Source) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Tests
+## Security and privacy
 
-| Part | Command | Covers |
-|---|---|---|
-| Server | `cd server && make test` (add `KOSH_TEST_PG_DSN` for PostgreSQL) | Sync semantics, full API journey with exact amounts, auth hardening, backups, web serving, reports (budgets, tags, payees, FX), filters |
-| Android | `cd android && ./gradlew testDebugUnitTest` (34 tests) and `connectedDebugAndroidTest` (3, on an emulator) | Money, calculator, HLC and UUIDv5 (cross-checked with the server), recurrence, budgets, reports, rules, splits, debts, sync codec, backup encryption, CSV; Room migration 1→2 |
-| Web | `cd web && npm test` (31 tests) | Money, calculator, budget periods, IDs, CSV import, rules, recurrence (same cases as Android), quick-add parsing, insights |
+No telemetry, no analytics, no third-party calls. Passwords use Argon2id, sessions are stored hashed, and Android backups are encrypted. Please report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
 
-CI (`.github/workflows/ci.yml`) runs all of these, plus the server suite on PostgreSQL 17.
+## License
+
+[MIT](LICENSE)
