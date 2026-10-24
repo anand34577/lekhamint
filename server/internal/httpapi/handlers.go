@@ -8,13 +8,13 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/backup"
-	"github.com/kosh-app/kosh/server/internal/db"
-	"github.com/kosh-app/kosh/server/internal/entity"
-	"github.com/kosh-app/kosh/server/internal/ids"
-	"github.com/kosh-app/kosh/server/internal/ledger"
-	"github.com/kosh-app/kosh/server/internal/store"
-	"github.com/kosh-app/kosh/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/backup"
+	"github.com/anand34577/lekhamint/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/entity"
+	"github.com/anand34577/lekhamint/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/ledger"
+	"github.com/anand34577/lekhamint/server/internal/store"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
 )
 
 // --- health & meta ---
@@ -40,7 +40,7 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"name": "kosh", "version": s.Version, "api_version": 1,
+		"name": "lekhamint", "version": s.Version, "api_version": 1,
 		"schema_version": db.LatestSchemaVersion(), "database": s.DB.Dialect().String(),
 		"signup_allowed": signup, "entities": entity.Names(),
 		"limits":      map[string]int{"push_batch": syncer.MaxPushBatch, "pull_page": syncer.MaxPullLimit, "batch_ops": MaxBatchOps},
@@ -620,7 +620,7 @@ func (s *Server) exportLedger(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	name := fmt.Sprintf("kosh-ledger-%s-%s.json", lid[:8], time.Now().UTC().Format("20060102-150405"))
+	name := fmt.Sprintf("lekhamint-ledger-%s-%s.json", lid[:8], time.Now().UTC().Format("20060102-150405"))
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	if err := backup.ExportLedger(r.Context(), s.DB, l, w); err != nil {

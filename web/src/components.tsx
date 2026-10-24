@@ -1,4 +1,5 @@
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, createContext, useContext, useEffect, useRef, useState, type ErrorInfo, type ReactNode } from 'react'
+import { ApiError } from './lib/api'
 import { compactMoney, currencies, formatMoney } from './lib/money'
 import { Icon } from './icons'
 
@@ -195,8 +196,38 @@ export function Toaster() {
   )
 }
 
+/** A message a person can act on. Server faults carry the request ID that is also in the server log. */
 export function errorText(e: unknown): string {
-  return e instanceof Error ? e.message : 'Something went wrong'
+  if (e instanceof ApiError) {
+    if (e.status === 429) return 'Too many attempts. Wait a minute and try again.'
+    if (e.status >= 500) {
+      const ref = e.requestId ? ` (reference ${e.requestId.slice(-8)})` : ''
+      return `The server had a problem${ref}. Try again; if it keeps happening, check the server log for that reference.`
+    }
+  }
+  return e instanceof Error && e.message ? e.message : 'Something went wrong'
+}
+
+/** Keeps a crash in one page from blanking the whole app; offers a retry and shows what broke. */
+export class ErrorBoundary extends Component<{ children: ReactNode; resetKey?: string }, { error: Error | null }> {
+  state = { error: null as Error | null }
+  static getDerivedStateFromError(error: Error) { return { error } }
+  componentDidCatch(error: Error, info: ErrorInfo) { console.error('LekhaMint page error', error, info.componentStack) }
+  componentDidUpdate(prev: { resetKey?: string }) { if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null }) }
+  render() {
+    if (!this.state.error) return this.props.children
+    return (
+      <div className="card pad" role="alert">
+        <h2>This page ran into a problem</h2>
+        <p className="muted">Your data is safe; nothing was lost. Try again, or open another page.</p>
+        <details><summary className="muted small">Details</summary><pre className="small" style={{ whiteSpace: 'pre-wrap' }}>{String(this.state.error.stack || this.state.error)}</pre></details>
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="primary" onClick={() => this.setState({ error: null })}>Try again</button>
+          <button onClick={() => location.reload()}>Reload</button>
+        </div>
+      </div>
+    )
+  }
 }
 
 export function Kbd({ children }: { children: ReactNode }) {

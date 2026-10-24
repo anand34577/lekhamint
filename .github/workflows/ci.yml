@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   server:
     name: Server (SQLite)
@@ -17,9 +20,12 @@ jobs:
       - name: gofmt
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
+      - run: GOOS=js GOARCH=wasm go vet ./cmd/lekhamint-wasm ./internal/db
       - run: go test ./... -count=1
       - name: Cross-compile every release target
         run: make release VERSION=ci
+      - name: Build the in-browser demo server
+        run: GOOS=js GOARCH=wasm go build -o /tmp/lekhamint.wasm ./cmd/lekhamint-wasm
 
   server-postgres:
     name: Server (PostgreSQL 17)
@@ -28,11 +34,11 @@ jobs:
     services:
       postgres:
         image: postgres:17
-        env: { POSTGRES_USER: kosh, POSTGRES_PASSWORD: kosh, POSTGRES_DB: kosh_test }
+        env: { POSTGRES_USER: lekhamint, POSTGRES_PASSWORD: lekhamint, POSTGRES_DB: lekhamint_test }
         ports: ["5432:5432"]
-        options: --health-cmd "pg_isready -U kosh" --health-interval 5s --health-timeout 5s --health-retries 10
+        options: --health-cmd "pg_isready -U lekhamint" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
-      KOSH_TEST_PG_DSN: postgres://kosh:kosh@localhost:5432/kosh_test?sslmode=disable
+      LEKHAMINT_TEST_PG_DSN: postgres://lekhamint:lekhamint@localhost:5432/lekhamint_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -50,6 +56,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+      - run: npm run build:demo
 
   android:
     name: Android (unit tests, release build)
@@ -75,3 +82,77 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew testDebugUnitTest assembleRelease --console=plain
+
+  docker:
+    name: Docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: lekhamint:ci
+          build-args: VERSION=ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Start it and check health, sign-up and the web app
+        run: |
+          docker run -d --name lm -p 8080:8080 --read-only --tmpfs /tmp lekhamint:ci
+          for i in $(seq 1 30); do curl -fsS localhost:8080/healthz && break; sleep 1; done
+          curl -fsS localhost:8080/api/v1/meta
+          curl -fsS localhost:8080/ | grep -q '<div id="root">'
+          curl -fsS -X POST localhost:8080/api/v1/auth/register -H 'Content-Type: application/json' \
+            -d '{"email":"ci@example.com","password":"ci-password-1","name":"CI"}' | grep -q token
+          docker logs lm
+
+  scripts:
+    name: Install scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: shellcheck -s sh install.sh scripts/*.sh
+      - name: Parse install.ps1
+        shell: pwsh
+        run: |
+          $errs = $null
+          [System.Management.Automation.Language.Parser]::ParseFile("$PWD/install.ps1", [ref]$null, [ref]$errs) | Out-Null
+          if ($errs) { $errs; exit 1 }
+      - name: Validate compose files
+        run: |
+          cp .env.example .env
+          docker compose -f docker-compose.yml config -q
+          docker compose --env-file .env -f deploy/docker-compose.postgres.yml config -q
+          docker compose --env-file .env -f deploy/docker-compose.caddy.yml config -q
+
+  install-linux:
+    name: One-line install on Linux (systemd)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version-file: server/go.mod, cache-dependency-path: server/go.sum }
+      - name: Serve a local release and the repository files
+        run: |
+          mkdir -p /tmp/rel
+          (cd server && CGO_ENABLED=0 go build -ldflags "-X main.version=ci" -o /tmp/rel/lekhamint-linux-amd64 ./cmd/lekhamint)
+          (cd /tmp/rel && sha256sum * > SHA256SUMS.txt)
+          nohup python3 -m http.server 8777 --directory /tmp/rel > /dev/null 2>&1 &
+          nohup python3 -m http.server 8778 --directory "$PWD" > /dev/null 2>&1 &
+          sleep 1
+      - name: Install, upgrade, uninstall
+        env:
+          LEKHAMINT_DOWNLOAD_BASE: http://127.0.0.1:8777
+          LEKHAMINT_RAW_BASE: http://127.0.0.1:8778
+        run: |
+          sh install.sh --yes --port 8085
+          curl -fsS localhost:8085/healthz
+          systemctl is-active lekhamint
+          sh install.sh --yes                       # upgrade keeps the port from the settings file
+          curl -fsS localhost:8085/healthz
+          sudo grep -q 'LEKHAMINT_ADDR=:8085' /etc/lekhamint/lekhamint.env
+          sh install.sh --uninstall
+          if systemctl is-active --quiet lekhamint; then echo 'still running'; exit 1; fi
+          sudo test -d /var/lib/lekhamint           # data is kept

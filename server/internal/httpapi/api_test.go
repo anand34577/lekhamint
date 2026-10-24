@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/auth"
-	"github.com/kosh-app/kosh/server/internal/hlc"
-	"github.com/kosh-app/kosh/server/internal/httpapi"
-	"github.com/kosh-app/kosh/server/internal/ids"
-	"github.com/kosh-app/kosh/server/internal/ledger"
-	"github.com/kosh-app/kosh/server/internal/report"
-	"github.com/kosh-app/kosh/server/internal/syncer"
-	"github.com/kosh-app/kosh/server/internal/testutil"
+	"github.com/anand34577/lekhamint/server/internal/auth"
+	"github.com/anand34577/lekhamint/server/internal/hlc"
+	"github.com/anand34577/lekhamint/server/internal/httpapi"
+	"github.com/anand34577/lekhamint/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/ledger"
+	"github.com/anand34577/lekhamint/server/internal/report"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/testutil"
 )
 
 type client struct {
@@ -349,7 +349,7 @@ func TestAuthHardening(t *testing.T) {
 
 	meta := anon.do("GET", "/api/v1/meta", nil, http.StatusOK)
 	wantDB := "sqlite"
-	if os.Getenv("KOSH_TEST_PG_DSN") != "" {
+	if os.Getenv("LEKHAMINT_TEST_PG_DSN") != "" {
 		wantDB = "postgres"
 	}
 	if meta["signup_allowed"] != true || meta["database"] != wantDB {

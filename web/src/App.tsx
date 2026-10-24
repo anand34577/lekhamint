@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, session, setUnauthorizedHandler, type Ledger } from './lib/api'
 import { LedgerContext } from './lib/data'
 import { defaultCurrency } from './lib/money'
-import { CurrencySelect, Field, HideAmounts, Kbd, Toaster, errorText } from './components'
+import { CurrencySelect, ErrorBoundary, Field, HideAmounts, Kbd, Toaster, errorText } from './components'
 import { Icon } from './icons'
 import { Login } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
@@ -96,7 +96,7 @@ function Signed({ theme, setTheme, onSignOut }: { theme: string; setTheme: (t: s
   const [creating, setCreating] = useState(false)
   const [route, params, go] = useHashRoute()
 
-  if (ledgers.isPending) return <div className="splash"><img src="/favicon.svg" alt="" className="splash-logo" /><span className="muted">Loading your books…</span></div>
+  if (ledgers.isPending) return <div className="splash"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="splash-logo" /><span className="muted">Loading your books…</span></div>
   if (ledgers.isError) return <div className="splash"><p>{errorText(ledgers.error)}</p><button className="primary" onClick={() => ledgers.refetch()}>Retry</button></div>
   const list = ledgers.data
   const created = (l: Ledger) => { setPref('kosh.ledger', l.id); setLedgerId(l.id); setCreating(false); ledgers.refetch(); go('dashboard') }
@@ -176,7 +176,7 @@ function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden,
   return (
     <div className="shell">
       <aside className={`side ${menu ? 'open' : ''}`} aria-label="Main">
-        <div className="brand"><img src="/favicon.svg" alt="" /> <span>LekhaMint</span></div>
+        <div className="brand"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" /> <span>LekhaMint</span></div>
         <select className="ledger-pick" value={ledger.id} onChange={(e) => pick(e.target.value)} aria-label="Book">
           {ledgers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.role && l.role !== 'owner' ? ` (${l.role})` : ''}</option>)}
           <option value="__new">+ New book…</option>
@@ -208,7 +208,7 @@ function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden,
         </div>
         {!online && <div className="banner warn"><Icon name="alert" size={16} /> You are offline. LekhaMint will reconnect by itself; changes need a connection to save.</div>}
         {ledger.role === 'viewer' && <div className="banner"><Icon name="eye" size={16} /> You can view this shared book but not change it.</div>}
-        <Page {...props} />
+        <ErrorBoundary resetKey={route}><Page {...props} /></ErrorBoundary>
       </main>
       <nav className="tabbar" aria-label="Quick navigation">
         {MOBILE_TABS.slice(0, 2).map((r) => <TabLink key={r} r={r} route={route} />)}
@@ -261,7 +261,7 @@ function CreateLedger({ first, onCreated, onCancel }: { first: boolean; onCreate
         e.preventDefault(); setBusy(true)
         try { onCreated(await api.createLedger(name.trim(), cur)) } catch (x) { setErr(errorText(x)) } finally { setBusy(false) }
       }}>
-        <img className="auth-logo" src="/favicon.svg" alt="" />
+        <img className="auth-logo" src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" />
         <h1>{first ? 'Create your first book' : 'New book'}</h1>
         <p className="muted">A book holds accounts, categories and transactions{first ? ', for example Personal or Household' : ''}. We add common categories for you.</p>
         <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus placeholder="Household, Business…" /></Field>

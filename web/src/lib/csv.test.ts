@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { detectDateFormat, detectDelimiter, findDuplicates, fingerprints, guessRoles, matchCategory, parseAmount, parseCsv, parseDateIn, toRows } from './csv'
-import { KOSH_NAMESPACE, uuidv5 } from './util'
+import { ID_NAMESPACE, uuidv5 } from './util'
 
 describe('csv parsing', () => {
   it('handles quotes, embedded commas, newlines and a BOM', () => {
@@ -67,12 +67,12 @@ describe('rows, duplicates and ids', () => {
     const f = fingerprints(rows)
     expect(f[1]).not.toBe(f[2])
     expect(fingerprints(rows)).toEqual(f)
-    const id = await uuidv5(KOSH_NAMESPACE, 'import:acc:' + f[1])
+    const id = await uuidv5(ID_NAMESPACE, 'import:acc:' + f[1])
     expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
-    expect(await uuidv5(KOSH_NAMESPACE, 'import:acc:' + f[1])).toBe(id)
+    expect(await uuidv5(ID_NAMESPACE, 'import:acc:' + f[1])).toBe(id)
   })
   it('matches the server and Android UUIDv5', async () => {
-    expect(await uuidv5(KOSH_NAMESPACE, '0192f0c4-0000-7000-8000-000000000001:2026-01-31')).toBe('1e0966bb-cefe-5d1f-ab05-ff19e702f91b')
+    expect(await uuidv5(ID_NAMESPACE, '0192f0c4-0000-7000-8000-000000000001:2026-01-31')).toBe('1e0966bb-cefe-5d1f-ab05-ff19e702f91b')
   })
   it('pairs duplicates one-to-one within two days', () => {
     const { rows } = toRows(table, o)

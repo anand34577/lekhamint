@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/db"
 )
 
 // SnapshotSQLite writes a consistent, compacted copy of a live SQLite
@@ -122,7 +122,7 @@ type Scheduler struct {
 	Log      *slog.Logger
 }
 
-const backupPrefix = "kosh-"
+const backupPrefix = "lekhamint-"
 
 // Run blocks until ctx is cancelled, taking one backup per interval.
 // SQLite gets a VACUUM INTO snapshot; PostgreSQL gets a JSON dump.

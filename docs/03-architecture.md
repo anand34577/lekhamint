@@ -12,7 +12,7 @@
              └──────────────┬──────────┴──────────────────────┘
                             ▼   (optional)
               ┌──────────────────────────────┐
-              │  kosh server (Go, 1 binary)  │
+              │ lekhamint server (Go binary) │
               │  auth · sync · REST · reports│
               │  backups · scheduler         │
               └───────┬──────────────────────┘
@@ -32,7 +32,7 @@ covers HTTP, JSON, logging and crypto.
 ### Layers (dependencies point down only)
 
 ```
-cmd/kosh            CLI: serve · migrate · backup · restore · user · healthcheck
+cmd/lekhamint       CLI: serve · migrate · backup · restore · user · healthcheck
 internal/httpapi    HTTP transport: routing, middleware, JSON, error mapping
 internal/ledger     use cases: ledgers, members, access control
 internal/syncer     use cases: push/pull, LWW, server-stamped writes, import
@@ -87,7 +87,7 @@ app.kosh.core               Money, currencies, calculator, HLC, UUIDv7/v5, dates
 
 - Vite, React 18 and TanStack Query (cache, refetch on focus). No UI library: one CSS file with the same design tokens as Android, light and dark.
 - Online client: talks to `/records`, `/transactions` and `/reports`. Server-stamped writes enter the same change feed, so phones receive them on their next pull.
-- Built into the server binary (`internal/webui`, refreshed with `make web`), so a self-hoster runs one process and there is no CORS. `KOSH_WEB_DIR` serves another build; `KOSH_NO_WEB` disables it.
+- Built into the server binary (`internal/webui`, refreshed with `make web`), so a self-hoster runs one process and there is no CORS. `LEKHAMINT_WEB_DIR` serves another build; `LEKHAMINT_NO_WEB` disables it.
 - Roadmap: local-first web with SQLite-WASM on OPFS using the same push/pull protocol, as an installable PWA.
 
 ## Scaling
@@ -98,7 +98,7 @@ Data grows mainly in `transactions`, at roughly 2–10k rows per user per year.
 |---|---|
 | 1–50 users (family, small team) | SQLite on one small VPS or a Raspberry Pi. WAL mode handles hundreds of writes per second. |
 | 50–10k users | PostgreSQL, one server process (stateless), connection pool |
-| 10k+ users | Several stateless `kosh` instances behind a load balancer, PostgreSQL with read replicas for reports, and **hash partitioning on `ledger_id`** (every table and index already leads with it). Rate limiting moves to the proxy or Redis. |
+| 10k+ users | Several stateless `lekhamint` instances behind a load balancer, PostgreSQL with read replicas for reports, and **hash partitioning on `ledger_id`** (every table and index already leads with it). Rate limiting moves to the proxy or Redis. |
 
 Why it scales:
 

@@ -14,7 +14,7 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/kosh-app/kosh/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/ids"
 )
 
 // Kind is a field's logical type.

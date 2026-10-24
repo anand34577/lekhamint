@@ -1,5 +1,5 @@
 // Package webui serves the browser app. A build embedded in the binary is used
-// by default (see `make web`); KOSH_WEB_DIR serves a folder instead.
+// by default (see `make web`); LEKHAMINT_WEB_DIR serves a folder instead.
 package webui
 
 import (

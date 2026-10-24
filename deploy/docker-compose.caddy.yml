@@ -1,0 +1,33 @@
+# LekhaMint behind Caddy with automatic HTTPS. Point your domain's DNS at this machine,
+# open ports 80 and 443, set LEKHAMINT_DOMAIN in .env, then from the repository root:
+#   docker compose --env-file .env -f deploy/docker-compose.caddy.yml up -d
+
+services:
+  lekhamint:
+    image: ghcr.io/anand34577/lekhamint:${LEKHAMINT_VERSION:-latest}
+    container_name: lekhamint
+    restart: unless-stopped
+    environment:
+      LEKHAMINT_TRUST_PROXY: "true"
+      LEKHAMINT_ALLOW_SIGNUP: ${LEKHAMINT_ALLOW_SIGNUP:-false}
+      LEKHAMINT_BACKUP_INTERVAL: ${LEKHAMINT_BACKUP_INTERVAL:-24h}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - lekhamint-data:/data
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: lekhamint-caddy
+    restart: unless-stopped
+    command: caddy reverse-proxy --from ${LEKHAMINT_DOMAIN:?set LEKHAMINT_DOMAIN in .env} --to lekhamint:8080
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes:
+      - caddy-data:/data
+
+volumes:
+  lekhamint-data:
+  caddy-data:

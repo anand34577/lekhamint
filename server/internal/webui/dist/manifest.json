@@ -2,17 +2,17 @@
   "name": "LekhaMint — money manager",
   "short_name": "LekhaMint",
   "description": "Local-first money manager: expenses, budgets, accounts and reports.",
-  "start_url": "/#/dashboard",
-  "scope": "/",
+  "start_url": "./#/dashboard",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#0b1211",
   "theme_color": "#0f766e",
   "icons": [
-    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
-    { "src": "/icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+    { "src": "favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon-maskable.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "Add transaction", "url": "/#/transactions?add=1" },
-    { "name": "Budgets", "url": "/#/budgets" }
+    { "name": "Add transaction", "url": "./#/transactions?add=1" },
+    { "name": "Budgets", "url": "./#/budgets" }
   ]
 }

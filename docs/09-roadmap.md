@@ -13,7 +13,7 @@ This page tracks concrete status.
 - [x] REST records API with Trash and restore, a filtered and keyset-paginated transaction list
 - [x] Reports: balances, summary (refunds, splits, exclusions), trend
 - [x] Backups: SQLite snapshots, streaming full dumps, ledger export/import, scheduler with retention
-- [x] Serves the web app from the same binary (embedded build, or `KOSH_WEB_DIR`), with SPA routing, CSP and asset caching
+- [x] Serves the web app from the same binary (embedded build, or `LEKHAMINT_WEB_DIR`), with SPA routing, CSP and asset caching
 - [x] Docker (distroless, non-root), systemd unit, cross-platform release builds
 
 ### Android v1.0

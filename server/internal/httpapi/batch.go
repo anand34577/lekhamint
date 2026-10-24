@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/entity"
-	"github.com/kosh-app/kosh/server/internal/ids"
-	"github.com/kosh-app/kosh/server/internal/ledger"
-	"github.com/kosh-app/kosh/server/internal/store"
-	"github.com/kosh-app/kosh/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/entity"
+	"github.com/anand34577/lekhamint/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/ledger"
+	"github.com/anand34577/lekhamint/server/internal/store"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
 )
 
 // MaxBatchOps bounds one batch request.

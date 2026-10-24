@@ -12,15 +12,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/auth"
-	"github.com/kosh-app/kosh/server/internal/backup"
-	"github.com/kosh-app/kosh/server/internal/db"
-	"github.com/kosh-app/kosh/server/internal/hlc"
-	"github.com/kosh-app/kosh/server/internal/ids"
-	"github.com/kosh-app/kosh/server/internal/ledger"
-	"github.com/kosh-app/kosh/server/internal/store"
-	"github.com/kosh-app/kosh/server/internal/syncer"
-	"github.com/kosh-app/kosh/server/internal/testutil"
+	"github.com/anand34577/lekhamint/server/internal/auth"
+	"github.com/anand34577/lekhamint/server/internal/backup"
+	"github.com/anand34577/lekhamint/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/hlc"
+	"github.com/anand34577/lekhamint/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/ledger"
+	"github.com/anand34577/lekhamint/server/internal/store"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/testutil"
 )
 
 var ctx = context.Background()
@@ -208,7 +208,7 @@ func TestSnapshotVerifyRestoreAndPrune(t *testing.T) {
 	bdir := filepath.Join(dir, "backups")
 	os.MkdirAll(bdir, 0o750)
 	for i := 0; i < 5; i++ {
-		os.WriteFile(filepath.Join(bdir, fmt.Sprintf("kosh-2026010%d-000000.db", i)), nil, 0o600)
+		os.WriteFile(filepath.Join(bdir, fmt.Sprintf("lekhamint-2026010%d-000000.db", i)), nil, 0o600)
 	}
 	os.WriteFile(filepath.Join(bdir, "keep-me.txt"), nil, 0o600)
 	if err := backup.Prune(bdir, 2); err != nil {
@@ -219,7 +219,7 @@ func TestSnapshotVerifyRestoreAndPrune(t *testing.T) {
 	for _, e := range entries {
 		names = append(names, e.Name())
 	}
-	if strings.Join(names, ",") != "keep-me.txt,kosh-20260103-000000.db,kosh-20260104-000000.db" {
+	if strings.Join(names, ",") != "keep-me.txt,lekhamint-20260103-000000.db,lekhamint-20260104-000000.db" {
 		t.Fatalf("after prune: %v", names)
 	}
 }

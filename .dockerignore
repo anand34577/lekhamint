@@ -1,0 +1,13 @@
+.git
+.github
+android
+docs
+deploy
+**/node_modules
+web/dist
+web/dist-demo
+server/dist
+server/data
+**/*.db
+**/*.db-*
+*.md

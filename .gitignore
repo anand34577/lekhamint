@@ -31,3 +31,7 @@ web/dist/
 # Private working notes and generated release output
 HANDOFF.md
 out/
+
+# Local settings and demo build
+.env
+web/dist-demo/

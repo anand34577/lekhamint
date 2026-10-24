@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/ids"
-	"github.com/kosh-app/kosh/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
 )
 
 //go:embed default-categories.json

@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/db"
-	"github.com/kosh-app/kosh/server/internal/entity"
-	"github.com/kosh-app/kosh/server/internal/hlc"
-	"github.com/kosh-app/kosh/server/internal/ids"
-	"github.com/kosh-app/kosh/server/internal/store"
-	"github.com/kosh-app/kosh/server/internal/syncer"
-	"github.com/kosh-app/kosh/server/internal/testutil"
+	"github.com/anand34577/lekhamint/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/entity"
+	"github.com/anand34577/lekhamint/server/internal/hlc"
+	"github.com/anand34577/lekhamint/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/store"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/testutil"
 )
 
 var ctx = context.Background()

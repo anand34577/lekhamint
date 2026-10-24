@@ -62,11 +62,12 @@ export function Transactions({ params, go }: PageProps) {
   // Selection only ever holds rows that are on screen.
   useEffect(() => { setSelected((s) => (s.size ? new Set([...s].filter((id) => rows.some((r) => r.id === id))) : s)) }, [rows])
 
-  // Same rules as the reports: refunds reduce spending, an expense in an income category reduces income.
+  // Same rules as the reports: refunds reduce spending, an expense in an income category reduces income,
+  // and money lent, borrowed or repaid is neither.
   const totals = useMemo(() => {
     let inc = 0, exp = 0
     for (const t of rows) {
-      if (t.type === 'transfer' || t.is_adjustment || t.excluded_from_reports || t.status === 'planned' || cur(t.account_id) !== l.base_currency) continue
+      if (t.type === 'transfer' || t.debt_id || t.is_adjustment || t.excluded_from_reports || t.status === 'planned' || cur(t.account_id) !== l.base_currency) continue
       const kind = t.category_id ? cats.byId.get(t.category_id)?.kind : undefined
       if (t.type === 'expense') { if (kind === 'income') inc -= t.amount; else exp += t.amount }
       else if (kind === 'expense') exp -= t.amount

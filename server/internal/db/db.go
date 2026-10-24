@@ -12,9 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	_ "github.com/jackc/pgx/v5/stdlib" // registers "pgx"
-	_ "modernc.org/sqlite"             // registers "sqlite" (pure Go, no CGO)
 )
 
 // Dialect identifies the SQL flavour.
@@ -70,23 +67,14 @@ func Open(ctx context.Context, dialect Dialect, dsn string) (*DB, error) {
 	switch dialect {
 	case SQLite:
 		path = dsn
-		if dir := filepath.Dir(path); dir != "" {
+		if dir := filepath.Dir(path); dir != "" && dir != "." {
 			if err := os.MkdirAll(dir, 0o750); err != nil {
 				return nil, fmt.Errorf("create database directory: %w", err)
 			}
 		}
-		// WAL: readers never block the writer. busy_timeout: wait instead of
-		// failing under contention. _txlock=immediate: take the write lock at
-		// BEGIN, which avoids SQLITE_BUSY when a read transaction upgrades.
-		q := "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=foreign_keys(ON)" +
-			"&_pragma=synchronous(NORMAL)&_txlock=immediate"
-		raw, err = sql.Open("sqlite", "file:"+filepath.ToSlash(path)+q)
-		if err == nil {
-			// One writer at a time is SQLite's model; a small pool serves reads.
-			raw.SetMaxOpenConns(8)
-		}
+		raw, err = openSQLite(path)
 	case Postgres:
-		raw, err = sql.Open("pgx", dsn)
+		raw, err = openPostgres(dsn)
 		if err == nil {
 			raw.SetMaxOpenConns(25)
 			raw.SetMaxIdleConns(10)

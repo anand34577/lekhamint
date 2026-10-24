@@ -1,0 +1,37 @@
+name: Bug report
+description: Something does not work as it should
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for taking the time. Please check [Troubleshooting](https://github.com/anand34577/lekhamint/wiki/Troubleshooting) first. Never paste passwords or real financial data.
+  - type: dropdown
+    id: part
+    attributes:
+      label: Where does it happen?
+      options: [Web app, Android app, Server, Installer, Docker image, Online demo]
+    validations: { required: true }
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: "`lekhamint version`, or the version under More in the Android app"
+      placeholder: "1.1.0"
+    validations: { required: true }
+  - type: input
+    id: setup
+    attributes:
+      label: How is it installed?
+      placeholder: "install.sh on Ubuntu 24.04 / Docker on Synology / Windows 11 installer / Android 14"
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+      description: Steps to reproduce help a lot.
+    validations: { required: true }
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log lines
+      description: From `journalctl -u lekhamint`, `docker compose logs` or the log file. Remove anything private.
+      render: text

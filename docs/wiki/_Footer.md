@@ -1,0 +1,1 @@
+LekhaMint is open source under the MIT licence · [Repository](https://github.com/anand34577/lekhamint) · [Releases](https://github.com/anand34577/lekhamint/releases) · [Report a problem](https://github.com/anand34577/lekhamint/issues) · This wiki is generated from [docs/wiki](https://github.com/anand34577/lekhamint/tree/main/docs/wiki); edit it there.

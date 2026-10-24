@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import { isLiability, useAccounts, useBalances, useBudgetProgress, useBudgets, useCanWrite, useCategoryIndex, useLedger, useRules, useSummary } from '../lib/data'
+import { isLiability, useAccounts, useBalances, useBudgetProgress, useBudgets, useCanWrite, useCategoryIndex, useLedger, useRules, useSplitIndex, useSummary } from '../lib/data'
 import { dueDates } from '../lib/recurrence'
 import { insights } from '../lib/insights'
 import { addDays, dayLabel, isoDate, monthRange, parseDate } from '../lib/util'
@@ -31,6 +31,7 @@ export function Dashboard({ go, openAdd }: PageProps) {
   const summary = useSummary(from, to)
   const prevSummary = useSummary(prevFrom, prevSame)
   const cats = useCategoryIndex()
+  const splits = useSplitIndex()
   const budgets = useBudgets()
   const progress = useBudgetProgress()
   const rules = useRules()
@@ -174,11 +175,13 @@ export function Dashboard({ go, openAdd }: PageProps) {
                 {recent.data?.transactions.map((r) => {
                   const t = r.data
                   const transfer = t.type === 'transfer'
-                  const title = transfer ? `${accName(t.account_id)} → ${accName(t.to_account_id)}` : t.payee || cats.name(t.category_id)
+                  const split = !transfer && !t.category_id ? splits.get(r.id) : undefined
+                  const label = transfer ? 'Transfer' : split ? `Split · ${split.map((s) => cats.name(s.category_id)).join(', ')}` : cats.name(t.category_id)
+                  const title = transfer ? `${accName(t.account_id)} → ${accName(t.to_account_id)}` : t.payee || label
                   return (
                     <li key={r.id}>
-                      <Dot color={transfer ? 'var(--transfer)' : cats.color(t.category_id)} />
-                      <div className="grow"><div className="ellipsis">{title}</div><div className="sub">{dayLabel(t.local_date)} · {transfer ? 'Transfer' : cats.name(t.category_id)}</div></div>
+                      <Dot color={transfer ? 'var(--transfer)' : split ? '#7C3AED' : cats.color(t.category_id)} />
+                      <div className="grow"><div className="ellipsis">{title}</div><div className="sub ellipsis">{dayLabel(t.local_date)} · {label}</div></div>
                       <Money value={t.type === 'income' ? t.amount : -t.amount} currency={accCur(t.account_id)} signed={!transfer} />
                     </li>
                   )

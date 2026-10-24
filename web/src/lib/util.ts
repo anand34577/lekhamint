@@ -78,7 +78,7 @@ export function tagColor(name: string): string {
 }
 
 /** Namespace for deterministic LekhaMint IDs (same as server/internal/ids and Android Ids.kt). */
-export const KOSH_NAMESPACE = '6f1a3c52-8d2e-4b7a-9c41-0e5d7b2a9f13'
+export const ID_NAMESPACE = '6f1a3c52-8d2e-4b7a-9c41-0e5d7b2a9f13'
 
 /** RFC 4122 UUIDv5 (SHA-1 of namespace + name). */
 export async function uuidv5(namespace: string, name: string): Promise<string> {

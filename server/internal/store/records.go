@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/db"
-	"github.com/kosh-app/kosh/server/internal/entity"
+	"github.com/anand34577/lekhamint/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/entity"
 )
 
 // ErrNotFound is returned when a row does not exist.

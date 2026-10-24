@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/auth"
-	"github.com/kosh-app/kosh/server/internal/entity"
-	"github.com/kosh-app/kosh/server/internal/ledger"
-	"github.com/kosh-app/kosh/server/internal/store"
-	"github.com/kosh-app/kosh/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/auth"
+	"github.com/anand34577/lekhamint/server/internal/entity"
+	"github.com/anand34577/lekhamint/server/internal/ledger"
+	"github.com/anand34577/lekhamint/server/internal/store"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
 )
 
 type errorBody struct {

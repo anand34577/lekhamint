@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Installation and setup help
+    url: https://github.com/anand34577/lekhamint/wiki
+    about: Step-by-step guides for installing, configuring, upgrading and troubleshooting.
+  - name: Report a security problem
+    url: https://github.com/anand34577/lekhamint/security/advisories/new
+    about: Please report security issues privately.

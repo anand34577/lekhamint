@@ -100,7 +100,7 @@ func (d *DB) Migrate(ctx context.Context) (applied int, err error) {
 		return 0, err
 	}
 	if current > len(migs) {
-		return 0, fmt.Errorf("database schema version %d is newer than this binary supports (%d); upgrade kosh", current, len(migs))
+		return 0, fmt.Errorf("database schema version %d is newer than this binary supports (%d); upgrade LekhaMint", current, len(migs))
 	}
 	for _, m := range migs[current:] {
 		err := d.InTx(ctx, func(tx *Tx) error {

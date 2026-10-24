@@ -7,17 +7,18 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/auth"
-	"github.com/kosh-app/kosh/server/internal/db"
-	"github.com/kosh-app/kosh/server/internal/ids"
-	"github.com/kosh-app/kosh/server/internal/ledger"
-	"github.com/kosh-app/kosh/server/internal/report"
-	"github.com/kosh-app/kosh/server/internal/store"
-	"github.com/kosh-app/kosh/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/auth"
+	"github.com/anand34577/lekhamint/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/ledger"
+	"github.com/anand34577/lekhamint/server/internal/report"
+	"github.com/anand34577/lekhamint/server/internal/store"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
 )
 
 // Server holds the HTTP layer's dependencies.
@@ -260,7 +261,8 @@ func (s *Server) recoverPanics(next http.Handler) http.Handler {
 				if p == http.ErrAbortHandler {
 					panic(p)
 				}
-				s.Log.Error("panic", "err", p, "path", r.URL.Path)
+				s.Log.Error("panic", "err", p, "method", r.Method, "path", r.URL.Path,
+					"request_id", w.Header().Get("X-Request-ID"), "stack", string(debug.Stack()))
 				writeError(w, http.StatusInternalServerError, "internal", "internal server error", nil)
 			}
 		}()

@@ -1,9 +1,9 @@
 name: Release
 
-# Pushing a tag like v1.2.0 builds a signed Android APK and server binaries for every
-# platform, then publishes them as a GitHub release. The APK must be signed with the
-# release key: the job fails rather than publish a debug-signed build.
-# One job, no workflow artifacts: files go straight to the release.
+# Pushing a tag like v1.2.0 builds a signed Android APK, server binaries for every
+# platform and a multi-arch Docker image, then publishes them as a GitHub release and
+# to ghcr.io/anand34577/lekhamint. The APK must be signed with the release key: the job
+# fails rather than publish a debug-signed build.
 
 on:
   push:
@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   release:
@@ -51,7 +52,7 @@ jobs:
           certs=$("$signer" verify --print-certs "$apk")
           echo "$certs"
           if echo "$certs" | grep -q "CN=Android Debug"; then echo "::error::APK is debug-signed"; exit 1; fi
-          mkdir -p out && cp "$apk" "out/LekhaMint-${GITHUB_REF_NAME}.apk"
+          mkdir -p out && cp "$apk" out/LekhaMint.apk
 
       - name: Build server binaries (web app embedded)
         working-directory: server
@@ -66,9 +67,46 @@ jobs:
           version="${GITHUB_REF_NAME#v}"
           awk -v v="$version" '$0 ~ "^## " { if (found) exit; found = ($2 == v) } found' CHANGELOG.md | tail -n +2 > notes.md
           [ -s notes.md ] || echo "LekhaMint $GITHUB_REF_NAME" > notes.md
+          cat >> notes.md <<EOF
 
-      - name: Publish
+          ### Install
+          - **Server, Linux or macOS:** \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`
+          - **Server, Windows (PowerShell):** \`irm https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.ps1 | iex\`
+          - **Docker:** \`docker run -d -p 8080:8080 -v lekhamint-data:/data ghcr.io/${GITHUB_REPOSITORY}:${version}\`
+          - **Android:** download \`LekhaMint.apk\` below.
+
+          Step-by-step guides are in the [wiki](https://github.com/${GITHUB_REPOSITORY}/wiki). Check downloads against \`SHA256SUMS.txt\`.
+          EOF
+
+      - name: Publish the GitHub release
         env: { GH_TOKEN: "${{ github.token }}" }
         run: |
           (cd out && sha256sum * > SHA256SUMS.txt)
           gh release create "$GITHUB_REF_NAME" out/* --title "LekhaMint $GITHUB_REF_NAME" --notes-file notes.md
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+      - name: Build and push the Docker image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          build-args: VERSION=${{ github.ref_name }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

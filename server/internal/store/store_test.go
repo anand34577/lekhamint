@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kosh-app/kosh/server/internal/entity"
-	"github.com/kosh-app/kosh/server/internal/testutil"
+	"github.com/anand34577/lekhamint/server/internal/entity"
+	"github.com/anand34577/lekhamint/server/internal/testutil"
 )
 
 // TestSchemaMatchesSpecs fails if a spec field has no column in the
