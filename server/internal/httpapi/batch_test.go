@@ -106,6 +106,10 @@ func TestBatchImportRulesBudgetsAndConversion(t *testing.T) {
 	}
 	c.do("GET", L+"/reports/payees?from=2026-10-01&to=2026-10-31&limit=0", nil, http.StatusBadRequest)
 
+	// Amount filters take int64 minor units, beyond 32-bit range.
+	c.do("GET", L+"/transactions?min_amount=1&max_amount=900000000000000", nil, http.StatusOK)
+	c.do("GET", L+"/transactions?min_amount=-5", nil, http.StatusBadRequest)
+
 	// Viewers cannot batch.
 	viewer := signUp(t, base, "viewer@example.com", http.StatusCreated)
 	c.do("POST", L+"/members", map[string]any{"email": "viewer@example.com", "role": "viewer"}, http.StatusOK)

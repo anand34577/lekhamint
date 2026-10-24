@@ -121,6 +121,20 @@ func queryInt(r *http.Request, key string, def, max int) (int, error) {
 	return n, nil
 }
 
+// queryAmount reads an optional amount in minor units (0 when absent). Amounts are
+// int64 on every platform, including 32-bit builds where int is too small.
+func queryAmount(r *http.Request, key string) (int64, error) {
+	v := r.URL.Query().Get(key)
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		return 0, badReq(key + " must be a non-negative amount in minor units")
+	}
+	return n, nil
+}
+
 func queryDate(r *http.Request, key string, required bool) (string, error) {
 	v := r.URL.Query().Get(key)
 	if v == "" {
