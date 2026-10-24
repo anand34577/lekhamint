@@ -73,5 +73,3 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew testDebugUnitTest assembleRelease --console=plain
-      - uses: actions/upload-artifact@v4
-        with: { name: LekhaMint-apk, path: android/app/build/outputs/apk/release/*.apk, retention-days: 14 }
