@@ -1,0 +1,45 @@
+# LekhaMint with PostgreSQL. Set POSTGRES_PASSWORD in .env first, then from the repository root:
+#   docker compose --env-file .env -f deploy/docker-compose.postgres.yml up -d
+
+services:
+  lekhamint:
+    image: ghcr.io/anand34577/lekhamint:${LEKHAMINT_VERSION:-latest}
+    container_name: lekhamint
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    ports:
+      - "${LEKHAMINT_PORT:-8080}:8080"
+    environment:
+      LEKHAMINT_DB_DRIVER: postgres
+      LEKHAMINT_DB_DSN: postgres://lekhamint:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/lekhamint?sslmode=disable
+      LEKHAMINT_ALLOW_SIGNUP: ${LEKHAMINT_ALLOW_SIGNUP:-false}
+      LEKHAMINT_TRUST_PROXY: ${LEKHAMINT_TRUST_PROXY:-false}
+      LEKHAMINT_BACKUP_INTERVAL: ${LEKHAMINT_BACKUP_INTERVAL:-24h}
+      LEKHAMINT_BACKUP_KEEP: ${LEKHAMINT_BACKUP_KEEP:-14}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - lekhamint-data:/data   # scheduled JSON backups land in /data/backups
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+  postgres:
+    image: postgres:17-alpine
+    container_name: lekhamint-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: lekhamint
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: lekhamint
+    volumes:
+      - lekhamint-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lekhamint"]
+      interval: 10s
+      retries: 6
+
+volumes:
+  lekhamint-data:
+  lekhamint-pg:

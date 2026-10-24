@@ -1,0 +1,29 @@
+# LekhaMint with SQLite. Start:  docker compose up -d   then open http://localhost:8080
+# The first account you create becomes the admin. Settings: copy .env.example to .env.
+# PostgreSQL instead: docker compose -f deploy/docker-compose.postgres.yml up -d
+
+services:
+  lekhamint:
+    image: ghcr.io/anand34577/lekhamint:${LEKHAMINT_VERSION:-latest}
+    container_name: lekhamint
+    restart: unless-stopped
+    ports:
+      - "${LEKHAMINT_PORT:-8080}:8080"
+    environment:
+      LEKHAMINT_ALLOW_SIGNUP: ${LEKHAMINT_ALLOW_SIGNUP:-false}
+      LEKHAMINT_TRUST_PROXY: ${LEKHAMINT_TRUST_PROXY:-false}
+      LEKHAMINT_BACKUP_INTERVAL: ${LEKHAMINT_BACKUP_INTERVAL:-24h}
+      LEKHAMINT_BACKUP_KEEP: ${LEKHAMINT_BACKUP_KEEP:-14}
+      LEKHAMINT_LOG_LEVEL: ${LEKHAMINT_LOG_LEVEL:-info}
+      TZ: ${TZ:-UTC}
+    volumes:
+      - lekhamint-data:/data
+      # Keep backups on another disk too (3-2-1 rule):
+      # - /mnt/backup/lekhamint:/data/backups
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+
+volumes:
+  lekhamint-data:
