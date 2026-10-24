@@ -409,3 +409,16 @@ table.tx tbody tr.clickable:focus-visible { outline: 2px solid var(--brand); out
   .shell { display: block; }
   .card { box-shadow: none; break-inside: avoid; }
 }
+
+/* Online demo: a fixed-height bar above the app; the sidebar and drawers sit below it. */
+.demo { --demo-bar: 36px; }
+.demo .side { top: var(--demo-bar); height: calc(100vh - var(--demo-bar)); }
+.demo .shell { min-height: calc(100vh - var(--demo-bar)); }
+.demo-banner { position: sticky; top: 0; z-index: 60; height: var(--demo-bar); overflow: hidden; display: flex; align-items: center; justify-content: center;
+  padding: 0 16px; text-align: center; font-size: 13px; line-height: 1.25;
+  background: var(--brand-soft); color: var(--ink); border-bottom: 1px solid var(--line); }
+.demo-banner a { font-weight: 600; white-space: nowrap; }
+.demo-creds { display: grid; gap: 4px; margin: 14px 0 6px; padding: 12px 14px; border-radius: 14px; font-size: 14px;
+  background: var(--brand-soft); border: 1px dashed var(--line); }
+.demo-creds code { font-size: 13px; }
+.demo .topbar { top: var(--demo-bar); }

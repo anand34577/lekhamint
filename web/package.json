@@ -1,13 +1,14 @@
 {
-  "name": "kosh-web",
+  "name": "lekhamint-web",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build:demo": "tsc --noEmit && vite build --mode demo --base=./ --outDir dist-demo"
   },
   "dependencies": {
     "@tanstack/react-query": "5.66.0",

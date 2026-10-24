@@ -5,7 +5,7 @@
 // that record the same occurrence create one record, never two.
 
 import type { RecurringRule, Transaction } from './api'
-import { KOSH_NAMESPACE, addDays, addMonths, parseDate, uuidv5 } from './util'
+import { ID_NAMESPACE, addDays, addMonths, parseDate, uuidv5 } from './util'
 
 export function occurrence(start: string, frequency: string, every: number, index: number): string {
   const step = Math.max(1, every) * index
@@ -61,7 +61,7 @@ export function initialNextDate(start: string, frequency: string, every: number,
   return occurrence(start, frequency, every, firstIndexOnOrAfter(start, frequency, every, start > today ? start : today))
 }
 
-export const occurrenceId = (ruleId: string, date: string) => uuidv5(KOSH_NAMESPACE, `${ruleId}:${date}`)
+export const occurrenceId = (ruleId: string, date: string) => uuidv5(ID_NAMESPACE, `${ruleId}:${date}`)
 
 export type RuleWithId = RecurringRule & { id: string; note?: string | null; to_account_id?: string | null; to_amount?: number | null; tag_ids?: string[] }
 

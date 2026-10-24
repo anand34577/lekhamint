@@ -7,7 +7,7 @@ import {
   parseCsv, toRows, type DateFormat, type Existing, type ParsedRow, type Role,
 } from '../lib/csv'
 import { applyRules } from '../lib/rules'
-import { KOSH_NAMESPACE, uuidv5 } from '../lib/util'
+import { ID_NAMESPACE, uuidv5 } from '../lib/util'
 import { Card, Field, Money, errorText, toast } from '../components'
 import { CategorySelect } from './Transactions'
 import type { PageProps } from '../App'
@@ -100,7 +100,7 @@ export function Import({ go }: PageProps) {
         if (!p.include) continue
         const at = new Date(p.row.date + 'T12:00:00').getTime()
         ops.push({
-          op: 'create_if_missing', entity: 'transactions', id: await uuidv5(KOSH_NAMESPACE, `import:${accountId}:${fp[i]}`),
+          op: 'create_if_missing', entity: 'transactions', id: await uuidv5(ID_NAMESPACE, `import:${accountId}:${fp[i]}`),
           data: {
             type: p.row.type, account_id: accountId, amount: p.row.amount, category_id: p.categoryId || null,
             payee: p.payee.slice(0, 200) || null, note: p.row.note.slice(0, 2000) || null, local_date: p.row.date, occurred_at: at,

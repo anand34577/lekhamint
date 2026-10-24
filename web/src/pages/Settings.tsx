@@ -50,7 +50,7 @@ export function Settings({ theme, setTheme, onSignOut, params }: PageProps) {
         <Card title={<><Icon name="download" size={16} /> Your data</>}>
           <p className="muted small">Exports use the same format as the Android app and server, so you can move data anywhere.</p>
           <div className="row">
-            <button disabled={!!busy} onClick={() => run('export', async () => { download(`kosh-${l.name}-${isoDate()}.json`, await api.exportLedger(l.id)); return 'Export downloaded' })}>Export (JSON)</button>
+            <button disabled={!!busy} onClick={() => run('export', async () => { download(`lekhamint-${l.name}-${isoDate()}.json`, await api.exportLedger(l.id)); return 'Export downloaded' })}>Export (JSON)</button>
             <button disabled={!!busy || !canWrite} onClick={() => file.current?.click()}>Import (JSON)…</button>
             <input ref={file} type="file" accept=".json,application/json" hidden onChange={(e) => {
               const f = e.target.files?.[0]; e.target.value = ''

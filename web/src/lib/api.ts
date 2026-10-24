@@ -1,6 +1,8 @@
 // Typed client for the LekhaMint REST API (docs/07-api.md). The web app talks to the
 // server it is served from, so there is no CORS and no configuration.
 
+import { DEMO, demoFetch } from './demo'
+
 export interface User { id: string; email: string; name: string; is_admin: boolean }
 export interface Ledger { id: string; name: string; base_currency: string; seq: number; role?: string }
 
@@ -20,6 +22,7 @@ export interface Transaction {
   to_account_id: string | null; to_amount: number | null; category_id: string | null
   payee: string | null; note: string | null; occurred_at: number; local_date: string; tz_offset_min: number
   tag_ids: string[]; is_adjustment: boolean; excluded_from_reports: boolean; recurring_rule_id: string | null
+  debt_id?: string | null
 }
 export interface Budget {
   name: string; amount: number; currency: string; period: string; start_date: string; end_date: string | null
@@ -62,7 +65,7 @@ export interface CurrencySummary { currency: string; income: number; expense: nu
 export interface TrendPoint { period: string; currency: string; income: number; expense: number }
 
 export class ApiError extends Error {
-  constructor(public status: number, public code: string, message: string, public fields?: Record<string, string>) { super(message) }
+  constructor(public status: number, public code: string, message: string, public fields?: Record<string, string>, public requestId?: string) { super(message) }
 }
 
 const TOKEN_KEY = 'kosh.token'
@@ -86,7 +89,8 @@ async function call<T>(method: string, path: string, body?: unknown, raw = false
   else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body) }
   let res: Response
   try {
-    res = await fetch(`/api/v1${path}`, { method, headers, body: payload })
+    const init = { method, headers, body: payload }
+    res = await (DEMO ? demoFetch(`/api/v1${path}`, init) : fetch(`/api/v1${path}`, init))
   } catch {
     throw new ApiError(0, 'network', "Can't reach the LekhaMint server. Check your connection.")
   }
@@ -94,7 +98,7 @@ async function call<T>(method: string, path: string, body?: unknown, raw = false
   if (!res.ok) {
     let code = `http_${res.status}`, message = res.statusText, fields
     try { const e = (await res.json()).error; code = e.code; message = e.message; fields = e.fields } catch { /* not JSON */ }
-    throw new ApiError(res.status, code, message, fields)
+    throw new ApiError(res.status, code, message, fields, res.headers.get('X-Request-ID') ?? undefined)
   }
   if (raw) return res as unknown as T
   if (res.status === 204) return undefined as T
