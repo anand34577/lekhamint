@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
 done
 
 case "$PORT" in ''|*[!0-9]*) die "--port must be a number" ;; esac
-[ "$PORT" -ge 1 ] && [ "$PORT" -le 65535 ] || die "--port must be between 1 and 65535"
+if [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then die "--port must be between 1 and 65535"; fi
 
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 case "$OS" in
@@ -140,7 +140,7 @@ install_docker_mode() {
         -e "s|^TZ=.*|TZ=$(cat /etc/timezone 2>/dev/null || echo UTC)|" "$tmp/.env" > "$tmp/.env.new"
     $SUDO cp "$tmp/.env.new" "$DIR/.env"
   else
-    PORT=$(sed -n 's/^LEKHAMINT_PORT=//p' "$DIR/.env" | head -1); PORT=${PORT:-8080}
+    PORT=$($SUDO sed -n 's/^LEKHAMINT_PORT=//p' "$DIR/.env" | head -1); PORT=${PORT:-8080}
     [ -n "$VERSION" ] && $SUDO sed -i.bak "s/^LEKHAMINT_VERSION=.*/LEKHAMINT_VERSION=$VERSION/" "$DIR/.env"
     say "Keeping your settings in $DIR/.env"
   fi
@@ -199,7 +199,8 @@ install_linux() {
     $SUDO chmod 0640 /etc/lekhamint/lekhamint.env
     $SUDO chgrp lekhamint /etc/lekhamint/lekhamint.env 2>/dev/null || true
   else
-    PORT=$(sed -n 's/^LEKHAMINT_ADDR=.*://p' /etc/lekhamint/lekhamint.env | head -1); PORT=${PORT:-8080}
+    # The file is readable only by root and the service, hence sudo.
+    PORT=$($SUDO sed -n 's/^LEKHAMINT_ADDR=.*://p' /etc/lekhamint/lekhamint.env | head -1); PORT=${PORT:-8080}
     say "Keeping your settings in /etc/lekhamint/lekhamint.env"
   fi
   tmp=$(mktemp)
