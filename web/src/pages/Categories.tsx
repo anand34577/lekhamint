@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Category } from '../lib/api'
-import { useCategoryIndex, useWrite, type WithId } from '../lib/data'
+import { useCategoryIndex, useStableId, useWrite, type WithId } from '../lib/data'
 import { Card, Dot, Field, Modal, errorText, toast } from '../components'
 import type { PageProps } from '../App'
 
@@ -37,6 +37,7 @@ export function Categories(_: PageProps) {
 function CategoryForm({ cat, kind, parent, onClose }: Edit & { onClose: () => void }) {
   const cats = useCategoryIndex()
   const write = useWrite()
+  const newId = useStableId()
   const parentCat = parent ? cats.byId.get(parent) : undefined
   const [name, setName] = useState(cat?.name ?? '')
   const [parentId, setParentId] = useState(parent ?? '')
@@ -53,11 +54,11 @@ function CategoryForm({ cat, kind, parent, onClose }: Edit & { onClose: () => vo
           { label: 'Undo', run: () => write.batch.mutate(ids.map((id) => ({ op: 'restore' as const, entity: 'categories', id }))) })
         onClose()
       }}>Delete</button>}
-      <span className="spacer" /><button onClick={onClose}>Cancel</button><button className="primary" form="catform">Save</button></>}>
+      <span className="spacer" /><button onClick={onClose}>Cancel</button><button className="primary" form="catform" disabled={write.save.isPending}>Save</button></>}>
       <form id="catform" onSubmit={async (e) => {
         e.preventDefault()
         try {
-          await write.save.mutateAsync({ entity: 'categories', id: cat?.id, data: {
+          await write.save.mutateAsync({ entity: 'categories', id: cat?.id, newId, data: {
             name: name.trim(), kind: kind as Category['kind'], parent_id: parentId || null, nature: kind === 'expense' ? nature || null : null, color,
             ...(cat ? {} : { sort_order: 999, icon: parentCat?.icon ?? 'dots' }),
           } satisfies Partial<Category> })

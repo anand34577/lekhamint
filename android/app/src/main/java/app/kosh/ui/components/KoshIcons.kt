@@ -130,6 +130,7 @@ object KoshIcons {
         "credit_card" -> "card"
         "savings" -> "savings"
         "investment" -> "invest"
+        "deposit" -> "savings"
         "loan" -> "percent"
         else -> "dots"
     }

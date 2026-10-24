@@ -210,7 +210,7 @@ private fun ReconcileDialog(a: AccountEntity, current: Long, onDismiss: () -> Un
     )
 }
 
-private val accountTypes = listOf("cash", "bank", "wallet", "credit_card", "savings", "investment", "loan", "other")
+private val accountTypes = listOf("cash", "bank", "wallet", "credit_card", "savings", "investment", "deposit", "loan", "other")
 
 @OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable

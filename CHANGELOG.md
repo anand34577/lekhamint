@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.0 (unreleased)
+
+**Fixes**
+- Net worth now counts money others owe you and money you owe people (web, Android and a new server `reports/position`). Lending to a friend no longer lowers net worth.
+- Saves can no longer create duplicates on double click or a retried request: forms keep one record ID and create with `create_if_missing`; Android does the same.
+- Repayments above what is owed are refused with an explanation; overpaid debts show clearly and count on the other side. Web and Android now agree.
+- Reminders no longer show amounts on the lock screen.
+
+**New**
+- Loans & EMIs: new or running loans, EMI split into principal and interest, schedules, prepayment (keep EMI or keep tenure), rate changes, foreclosure, reminders.
+- Fixed and recurring deposits: maturity estimates, payouts, RD instalments, maturity calendar, recording maturity or early closure.
+- Lent & borrowed by person, with statements, oldest-first repayment, interest, write-off confirmation.
+- Calculators: EMI, affordability, FD/RD, bill splitter (saves your share and what others owe), household & budget planner, savings goal, emergency fund, debt payoff, subscriptions, net worth over time.
+- Statements & export: income & spending, account statement, transactions, loans, deposits, person, net worth, budgets, as PDF (print view on web, native on Android) and Excel; full-data Excel export.
+- Dashboard: everything due (bills, EMIs, RD, maturities, debts), "safe to spend", shortfall warnings. Transaction form warns before overdrawing, passing a card limit or a likely duplicate.
+- Assistant with any OpenAI-compatible model (cloud, home server, on-phone), read-only tools, consent prompt and optional server proxy. See docs/11-assistant.md.
+- Schema 3: `loans`, `deposits`, and `transactions.loan_id / deposit_id / part`; account type `deposit`.
+
 ## 1.1.0
 
 LekhaMint is now open source, with a live demo, one-line installers and Docker images.

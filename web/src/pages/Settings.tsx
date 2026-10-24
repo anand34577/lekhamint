@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ExchangeRate } from '../lib/api'
-import { useCanWrite, useExchangeRates, useLedger, useWrite, type WithId } from '../lib/data'
+import { useCanWrite, useExchangeRates, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
 import { download, isoDate, shortDate } from '../lib/util'
 import { Card, Confirm, CurrencySelect, Field, Modal, Segmented, errorText, toast } from '../components'
 import { Icon } from '../icons'
@@ -126,20 +126,21 @@ function Rates() {
 function RateForm({ rate, onClose }: { rate?: WithId<ExchangeRate>; onClose: () => void }) {
   const l = useLedger()
   const write = useWrite()
+  const newId = useStableId()
   const [base, setBase] = useState(rate?.base ?? (l.base_currency === 'USD' ? 'EUR' : 'USD'))
   const [quote, setQuote] = useState(rate?.quote ?? l.base_currency)
   const [value, setValue] = useState(rate?.rate ?? '')
   const [date, setDate] = useState(rate?.effective_date ?? isoDate())
   const [err, setErr] = useState('')
   return (
-    <Modal title={rate ? 'Edit rate' : 'New exchange rate'} onClose={onClose} footer={<><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="rateform">Save</button></>}>
+    <Modal title={rate ? 'Edit rate' : 'New exchange rate'} onClose={onClose} footer={<><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="rateform" disabled={write.save.isPending}>Save</button></>}>
       <form id="rateform" onSubmit={async (e) => {
         e.preventDefault()
         const v = value.trim().replace(/,/g, '')
         if (base === quote) return setErr('Pick two different currencies')
         if (!/^\d+(\.\d+)?$/.test(v) || Number(v) <= 0) return setErr('Enter a positive number, e.g. 83.25')
         try {
-          await write.save.mutateAsync({ entity: 'exchange_rates', id: rate?.id, data: { base, quote, rate: v, effective_date: date, source: 'manual' } })
+          await write.save.mutateAsync({ entity: 'exchange_rates', id: rate?.id, newId, data: { base, quote, rate: v, effective_date: date, source: 'manual' } })
           toast('Rate saved'); onClose()
         } catch (x) { setErr(errorText(x)) }
       }}>

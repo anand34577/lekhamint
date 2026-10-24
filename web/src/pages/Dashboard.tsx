@@ -1,15 +1,18 @@
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
-import { isLiability, useAccounts, useBalances, useBudgetProgress, useBudgets, useCanWrite, useCategoryIndex, useLedger, useRules, useSplitIndex, useSummary } from '../lib/data'
-import { dueDates } from '../lib/recurrence'
+import { useAccounts, usePosition, useBudgetProgress, useBudgets, useCanWrite, useCategoryIndex, useLedger, useSplitIndex, useSummary } from '../lib/data'
 import { insights } from '../lib/insights'
+import { formatMoney } from '../lib/money'
+import { useObligations, type Obligation } from './obligations'
 import { addDays, dayLabel, isoDate, monthRange, parseDate } from '../lib/util'
 import { Bar, Card, Dot, Empty, Money, PaceChart, Skeleton } from '../components'
 import { Icon } from '../icons'
 import { BudgetCard } from './Budgets'
 import { QuickAddBar } from './QuickAdd'
 import type { PageProps } from '../App'
+
+const OB_ICON: Record<Obligation['kind'], string> = { bill: 'repeat', income: 'coins', emi: 'bank', rd: 'piggy', maturity: 'piggy', payout: 'coins', debt: 'hand' }
 
 function greeting() {
   const h = new Date().getHours()
@@ -26,7 +29,6 @@ export function Dashboard({ go, openAdd }: PageProps) {
   const [prevFrom, prevTo] = monthRange(today, -1)
   // The same days of last month, so a partial month compares fairly.
   const prevSame = addDays(prevFrom, Math.min(day, parseDate(prevTo).getDate()) - 1)
-  const balances = useBalances()
   const accounts = useAccounts()
   const summary = useSummary(from, to)
   const prevSummary = useSummary(prevFrom, prevSame)
@@ -34,7 +36,6 @@ export function Dashboard({ go, openAdd }: PageProps) {
   const splits = useSplitIndex()
   const budgets = useBudgets()
   const progress = useBudgetProgress()
-  const rules = useRules()
   const can = useCanWrite()
   const recent = useQuery({ queryKey: [l.id, 'transactions', 'recent'], queryFn: () => api.transactions(l.id, { limit: '8' }) })
   const uncategorised = useQuery({ queryKey: [l.id, 'transactions', 'uncategorised'], queryFn: () => api.transactions(l.id, { category_id: 'none', limit: '100' }) })
@@ -43,18 +44,13 @@ export function Dashboard({ go, openAdd }: PageProps) {
   const converted = useQuery({ queryKey: [l.id, 'summary-converted', from, to, base], queryFn: () => api.summaryConverted(l.id, from, to, base), enabled: multi })
 
   // Spendable cash, investments, debt and net worth are different things (docs/02).
+  // The server works the position out once, so every screen and device agrees.
+  const position = usePosition()
   const pos = useMemo(() => {
-    const out = { available: 0, investments: 0, debt: 0, net: 0, other: new Map<string, number>() }
-    for (const b of balances.data ?? []) {
-      if (b.archived || !b.include_in_net_worth) continue
-      if (b.currency !== base) { out.other.set(b.currency, (out.other.get(b.currency) ?? 0) + b.balance); continue }
-      out.net += b.balance
-      if (b.type === 'investment') out.investments += b.balance
-      else if (isLiability(b.type)) out.debt += Math.max(0, -b.balance)
-      else out.available += b.balance
-    }
-    return out
-  }, [balances.data, base])
+    const list = position.data ?? []
+    const p = list.find((x) => x.currency === base) ?? { currency: base, cash: 0, investments: 0, liabilities: 0, receivable: 0, payable: 0, net_worth: 0, excluded_accounts: 0, excluded_balance: 0 }
+    return { ...p, other: list.filter((x) => x.currency !== base && x.net_worth !== 0) }
+  }, [position.data, base])
 
   const month = summary.data?.find((s) => s.currency === base)
   const prev = prevSummary.data?.find((s) => s.currency === base)
@@ -85,9 +81,12 @@ export function Dashboard({ go, openAdd }: PageProps) {
     return { now: cum(from, day), prev: cum(prevFrom, parseDate(prevTo).getDate()) }
   }, [daily.data, base, from, prevFrom, prevTo, day])
 
-  const upcoming = useMemo(() => (rules.data ?? []).filter((r) => !r.deleted && !r.paused)
-    .flatMap((r) => dueDates(r, addDays(today, 10), 2).map((d) => ({ r, d })))
-    .sort((a, b) => a.d.localeCompare(b.d)).slice(0, 5), [rules.data, today])
+  // Everything due: bills, EMIs, RD instalments, maturities and personal debts.
+  const obligations = useObligations(Math.max(14, daysInMonth - day + 1))
+  const upcoming = obligations.items.filter((o) => o.date <= addDays(today, 14)).slice(0, 7)
+  // Safe to spend: cash minus what is still due from it before the month ends (expected money in is not counted).
+  const dueThisMonth = obligations.items.filter((o) => o.direction === 'out' && o.currency === base && o.date <= to && o.amount).reduce((a, o) => a + (o.amount ?? 0), 0)
+  const safe = pos.cash - dueThisMonth
   const accCur = (id: string) => accounts.data?.find((a) => a.id === id)?.currency ?? base
   const accName = (id: string | null) => accounts.data?.find((a) => a.id === id)?.name ?? '?'
   const activeBudgets = (budgets.data ?? []).filter((b) => !b.deleted && !b.archived)
@@ -118,8 +117,14 @@ export function Dashboard({ go, openAdd }: PageProps) {
       <div className="grid stats">
         <Card className="stat-card hero-card">
           <div className="stat-label">Available to spend</div>
-          <div className="stat-big">{balances.isPending ? <Skeleton rows={1} height={34} /> : <Money value={pos.available} currency={base} />}</div>
-          <div className="muted small">Cash, bank and wallet accounts</div>
+          <div className="stat-big">{position.isPending ? <Skeleton rows={1} height={34} /> : <Money value={pos.cash} currency={base} />}</div>
+          <div className="muted small">Cash, bank, savings and wallet accounts. Credit limits are not counted.</div>
+          {dueThisMonth > 0 && !position.isPending && (
+            <div className="safe-line small">
+              <span>After bills & EMIs due by {dayLabel(to)}</span>
+              <Money value={safe} currency={base} className={safe < 0 ? 'neg' : ''} />
+            </div>
+          )}
         </Card>
         <Card className="stat-card">
           <div className="stat-label">This month</div>
@@ -134,16 +139,26 @@ export function Dashboard({ go, openAdd }: PageProps) {
         </Card>
         <Card className="stat-card">
           <div className="stat-label">Net worth</div>
-          <div className="stat-big"><Money value={pos.net} currency={base} /></div>
-          <div className="muted small">
-            {pos.investments !== 0 && <>Investments <Money value={pos.investments} currency={base} /> · </>}Owed on cards & loans <Money value={pos.debt} currency={base} />
-            {[...pos.other.entries()].map(([c, v]) => <span key={c}> · <Money value={v} currency={c} /></span>)}
-          </div>
+          <div className="stat-big">{position.isPending ? <Skeleton rows={1} height={34} /> : <Money value={pos.net_worth} currency={base} />}</div>
+          <ul className="nw-lines small">
+            {pos.investments !== 0 && <li><span>Investments & deposits</span><Money value={pos.investments} currency={base} /></li>}
+            {pos.receivable !== 0 && <li><span>Others owe you</span><Money value={pos.receivable} currency={base} /></li>}
+            {pos.liabilities !== 0 && <li><span>Owed on cards & loans</span><Money value={-pos.liabilities} currency={base} /></li>}
+            {pos.payable !== 0 && <li><span>You owe people</span><Money value={-pos.payable} currency={base} /></li>}
+            {pos.other.map((o) => <li key={o.currency}><span>In {o.currency}</span><Money value={o.net_worth} currency={o.currency} /></li>)}
+          </ul>
+          {pos.excluded_accounts > 0 && <div className="muted small">{pos.excluded_accounts} archived or excluded {pos.excluded_accounts === 1 ? 'account holds' : 'accounts hold'} <Money value={pos.excluded_balance} currency={base} /> not counted here.</div>}
         </Card>
       </div>
 
-      {(tips.length > 0 || nUncat > 0) && (
+      {(tips.length > 0 || nUncat > 0 || obligations.shortfalls.length > 0) && (
         <div className="insights">
+          {obligations.shortfalls.map((s) => (
+            <button key={s.accountId} className="insight warn" onClick={() => go('accounts')}>
+              <Icon name="alert" /><div><strong>{s.name} may run short</strong>
+                <span>{formatMoney(s.need, s.currency)} is due from it soon (first on {dayLabel(s.first)}), but it holds {formatMoney(s.have, s.currency)}. Move money in before then.</span></div><Icon name="right" />
+            </button>
+          ))}
           {nUncat > 0 && can && (
             <button className="insight info" onClick={() => go('transactions', { category: 'none', all: '1' })}>
               <Icon name="inbox" /><div><strong>{nUncat >= 100 ? '100+' : nUncat} {nUncat === 1 ? 'transaction needs' : 'transactions need'} a category</strong><span>Sort them in a minute for better reports.</span></div><Icon name="right" />
@@ -198,12 +213,15 @@ export function Dashboard({ go, openAdd }: PageProps) {
           {upcoming.length > 0 && (
             <Card title="Coming up" action={<button className="link" onClick={() => go('recurring')}>All bills</button>}>
               <ul className="list">
-                {upcoming.map(({ r, d }) => (
-                  <li key={r.id + d}><Dot color={r.type === 'transfer' ? 'var(--transfer)' : cats.color(r.category_id)} />
-                    <div className="grow"><div>{r.name || r.payee || cats.name(r.category_id)}</div><div className={`sub ${d < today ? 'error' : ''}`}>{d < today ? 'Overdue · ' : ''}{dayLabel(d)}{r.mode === 'auto' ? ' · automatic' : ''}</div></div>
-                    <Money value={r.type === 'income' ? r.amount : -r.amount} currency={accCur(r.account_id)} signed={r.type !== 'transfer'} /></li>
+                {upcoming.map((o) => (
+                  <li key={o.key} className="clickable" onClick={() => go(o.link.route, o.link.params)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') go(o.link.route, o.link.params) }}>
+                    <span className={`ob-icon ${o.kind}`}><Icon name={OB_ICON[o.kind]} size={14} /></span>
+                    <div className="grow"><div className="ellipsis">{o.title}</div><div className={`sub ${o.overdue ? 'error' : ''}`}>{o.overdue ? 'Overdue · ' : ''}{dayLabel(o.date)} · {o.detail}</div></div>
+                    {o.amount !== null && <Money value={o.direction === 'in' ? o.amount : -o.amount} currency={o.currency || base} signed />}
+                  </li>
                 ))}
               </ul>
+              <p className="muted small">Expected, not yet paid. Record each one when it happens.</p>
             </Card>
           )}
           {top.length > 0 && (

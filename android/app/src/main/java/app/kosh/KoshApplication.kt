@@ -8,6 +8,7 @@ import app.kosh.data.SecretStore
 import app.kosh.data.Settings
 import app.kosh.data.SyncTables
 import app.kosh.data.db.KoshDatabase
+import app.kosh.domain.Debts
 import app.kosh.domain.Lookup
 import app.kosh.domain.RecurringEngine
 import app.kosh.domain.RuleService
@@ -47,11 +48,14 @@ class AppContainer(app: Application) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val lookup: StateFlow<Lookup> = combine(
-        combine(repo.accounts, repo.balances, ::Pair), repo.categories, repo.tags, settings.state, repo.allSplits,
-    ) { (accounts, balances), categories, tags, s, splits ->
+        combine(repo.accounts, repo.balances, ::Pair), repo.categories, repo.tags, settings.state,
+        combine(repo.allSplits, repo.debts, repo.debtMoves, ::Triple),
+    ) { (accounts, balances), categories, tags, s, (splits, debts, moves) ->
+        val (owedToMe, iOwe) = Debts.totals(debts, moves)
         Lookup(
             accounts, balances.associate { it.accountId to it.balance }, categories, tags, s.baseCurrency,
             splitCategories = splits.groupBy({ it.transactionId }, { it.categoryId }),
+            receivable = owedToMe, payable = iOwe,
         )
     }.stateIn(appScope, SharingStarted.Eagerly, Lookup(baseCurrency = settings.current.baseCurrency))
 

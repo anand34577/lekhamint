@@ -17,6 +17,9 @@ data class Lookup(
     val baseCurrency: String = "USD",
     /** Category IDs of each split transaction, by transaction ID. */
     val splitCategories: Map<String, List<String>> = emptyMap(),
+    /** Open personal debts per currency: what others owe you, and what you owe them (Debts.totals). */
+    val receivable: Map<String, Long> = emptyMap(),
+    val payable: Map<String, Long> = emptyMap(),
 ) {
     val tagById: Map<String, TagEntity> = tags.associateBy { it.id }
     val activeTags: List<TagEntity> = tags.filter { !it.archived }
@@ -59,15 +62,20 @@ data class Lookup(
     }
 
     /**
-     * The money picture split the way people think about it: spendable cash is
-     * not the same as investments, and card or loan debt must stay visible
-     * rather than hide inside an expense total. Values are per currency.
+     * The money picture split the way people think about it, computed exactly
+     * like the server's report.Position (docs/02, "Net worth"):
+     *   net worth = cash + investments + owed to you − cards & loans − you owe people.
+     * Credit limits are never assets; money lent is still yours. Per currency.
      */
     data class Position(
         val available: Map<String, Long>,
         val investments: Map<String, Long>,
         val debt: Map<String, Long>,
+        val receivable: Map<String, Long>,
+        val payable: Map<String, Long>,
         val netWorth: Map<String, Long>,
+        /** Unused credit on cards: borrowing power, not money you have. */
+        val creditAvailable: Map<String, Long>,
     )
 
     val position: Position by lazy {
@@ -76,18 +84,34 @@ data class Lookup(
             live.mapNotNull { a -> filter(a, balances[a.id] ?: a.openingBalance)?.let { a.currency to it } }
                 .groupBy({ it.first }, { it.second }).mapValues { it.value.sum() }.filterValues { it != 0L }
         Position(
-            available = sum { a, b -> b.takeIf { a.type in setOf("cash", "bank", "wallet", "savings", "other") } },
-            investments = sum { a, b -> b.takeIf { a.type == "investment" } },
-            // Liabilities: what is owed on cards and loans (and any overdrawn account), shown positive.
-            debt = sum { a, b -> if (a.type == "credit_card" || a.type == "loan") (-b).coerceAtLeast(0) else null },
+            available = sum { a, b -> b.takeIf { !isLiability(a.type) && !isInvestment(a.type) } },
+            investments = sum { a, b -> b.takeIf { isInvestment(a.type) } },
+            // What is owed on cards and loans, shown positive (a card in credit reduces it).
+            debt = sum { a, b -> if (isLiability(a.type)) -b else null },
+            receivable = receivable.filterValues { it != 0L },
+            payable = payable.filterValues { it != 0L },
             netWorth = netWorth,
+            creditAvailable = sum { a, b -> if (a.type == "credit_card" && a.creditLimit != null) (a.creditLimit - (-b).coerceAtLeast(0)).coerceAtLeast(0) else null },
         )
     }
 
-    /** Net worth per currency over accounts that count towards it. */
+    /** Net worth per currency: accounts that count towards it, plus open personal debts. */
     val netWorth: Map<String, Long> by lazy {
-        accounts.filter { it.includeInNetWorth && !it.archived }
+        val m = accounts.filter { it.includeInNetWorth && !it.archived }
             .groupBy { it.currency }
-            .mapValues { (_, list) -> list.sumOf { balances[it.id] ?: it.openingBalance } }
+            .mapValues { (_, list) -> list.sumOf { balances[it.id] ?: it.openingBalance } }.toMutableMap()
+        for ((c, v) in receivable) m[c] = (m[c] ?: 0) + v
+        for ((c, v) in payable) m[c] = (m[c] ?: 0) - v
+        m
+    }
+
+    /** Archived or excluded accounts that still hold money, so screens can say they are not counted. */
+    val excluded: List<app.kosh.data.db.AccountEntity> by lazy {
+        accounts.filter { (it.archived || !it.includeInNetWorth) && (balances[it.id] ?: it.openingBalance) != 0L }
+    }
+
+    companion object {
+        fun isLiability(type: String) = type == "credit_card" || type == "loan"
+        fun isInvestment(type: String) = type == "investment" || type == "deposit"
     }
 }

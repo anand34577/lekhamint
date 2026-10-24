@@ -230,8 +230,8 @@ private fun BalanceCard(s: HomeState, onClick: () -> Unit) {
             for ((cur, v) in p.available.filterKeys { it != base }) {
                 MoneyText(v, cur, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text("Cash, bank and wallet accounts", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (p.investments.isNotEmpty() || p.debt.isNotEmpty()) {
+            Text("Cash, bank and wallet accounts. Credit limits are not counted.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (p.investments.isNotEmpty() || p.debt.isNotEmpty() || p.receivable.isNotEmpty() || p.payable.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                     Column {
@@ -246,6 +246,16 @@ private fun BalanceCard(s: HomeState, onClick: () -> Unit) {
                         Text("Net worth", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         MoneyText(p.netWorth[base] ?: 0, base, style = MaterialTheme.typography.titleMedium)
                     }
+                }
+                if ((p.receivable[base] ?: 0) != 0L || (p.payable[base] ?: 0) != 0L) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        listOfNotNull(
+                            p.receivable[base]?.let { "Others owe you ${app.kosh.core.Money.format(it, base)}" },
+                            p.payable[base]?.let { "you owe people ${app.kosh.core.Money.format(it, base)}" },
+                        ).joinToString(" · ") + " (included in net worth)",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
             Spacer(Modifier.height(12.dp))

@@ -11,6 +11,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"math"
 	"math/rand/v2"
 	"slices"
 	"sort"
@@ -188,10 +189,11 @@ func (g *gen) build() {
 	g.oneOffs()
 	g.cardPayments()
 	g.debts()
+	g.loansAndDeposits()
 	g.budgets()
 	g.rates()
 	// Writes go in dependency order: everything a transaction points at first.
-	order := map[string]int{"accounts": 0, "tags": 1, "rules": 2, "recurring_rules": 3, "debts": 4, "transactions": 5, "transaction_splits": 6, "budgets": 7, "exchange_rates": 8}
+	order := map[string]int{"accounts": 0, "tags": 1, "rules": 2, "recurring_rules": 3, "debts": 4, "loans": 4, "deposits": 4, "transactions": 5, "transaction_splits": 6, "budgets": 7, "exchange_rates": 8}
 	sort.SliceStable(g.ops, func(i, j int) bool { return order[g.ops[i].Entity] < order[g.ops[j].Entity] })
 }
 
@@ -209,7 +211,10 @@ func (g *gen) accounts() {
 		{"SBI Emergency Fund", "savings", "INR", "#6A1B9A", "savings", rupees(300_000), nil},
 		{"Mutual Funds", "investment", "INR", "#EF6C00", "invest", rupees(420_000), nil},
 		{"Wise USD", "bank", "USD", "#00897B", "bank", rupees(640), nil},
-		{"Car Loan", "loan", "INR", "#546E7A", "car", -rupees(340_000), nil},
+		{"Car Loan", "loan", "INR", "#546E7A", "car", 0, nil}, // opening balance set by loansAndDeposits
+		{"SBI FD 2027", "deposit", "INR", "#0F766E", "savings", rupees(150_000), nil},
+		{"HDFC Senior FD", "deposit", "INR", "#00796B", "savings", rupees(100_000), nil},
+		{"Post Office RD", "deposit", "INR", "#4DB6AC", "savings", 0, nil},
 	}
 	for i, x := range list {
 		id := g.id()
@@ -258,7 +263,6 @@ func (g *gen) recurring() {
 		{name: "Rent", typ: "expense", account: "HDFC Savings", category: "Rent", payee: "Mr. Raghavan (landlord)", mode: "auto", amount: rupees(32_000), day: 5},
 		{name: "Mutual fund SIP", typ: "transfer", account: "HDFC Savings", to: "Mutual Funds", mode: "auto", amount: rupees(15_000), day: 7},
 		{name: "Emergency fund top-up", typ: "transfer", account: "HDFC Savings", to: "SBI Emergency Fund", mode: "auto", amount: rupees(5_000), day: 2},
-		{name: "Car loan EMI", typ: "transfer", account: "HDFC Savings", to: "Car Loan", mode: "auto", amount: rupees(9_800), day: 10},
 		{name: "Electricity", typ: "expense", account: "HDFC Savings", category: "Electricity", payee: "BESCOM", mode: "remind", amount: rupees(2_100), day: 12, vary: 600},
 		{name: "Broadband", typ: "expense", account: "ICICI Credit Card", category: "Internet", payee: "Airtel Xstream Fiber", mode: "auto", amount: rupees(1_179), day: 15},
 		{name: "Mobile plan", typ: "expense", account: "ICICI Credit Card", category: "Mobile", payee: "Jio", mode: "auto", amount: rupees(349), day: 20},
@@ -494,4 +498,85 @@ func (g *gen) budgets() {
 func (g *gen) rates() {
 	g.add("exchange_rates", g.id(), map[string]any{"base": "USD", "quote": "INR", "rate": "83.62", "effective_date": g.start.Format(time.DateOnly)})
 	g.add("exchange_rates", g.id(), map[string]any{"base": "USD", "quote": "INR", "rate": "84.07", "effective_date": g.today.AddDate(0, -1, 0).Format(time.DateOnly)})
+}
+
+// loansAndDeposits adds a running car loan with real EMI splits (same maths as
+// web/src/lib/loans.ts), two fixed deposits and a recurring deposit.
+func (g *gen) loansAndDeposits() {
+	const rateNum, rateDen = 925, 100 // 9.25% a year
+	principal, months := rupees(500_000), 60
+	loanStart := time.Date(g.start.Year(), g.start.Month()-8, 10, 0, 0, 0, 0, time.UTC)
+	firstDue := loanStart.AddDate(0, 1, 0)
+	r := float64(rateNum) / float64(rateDen) / 1200
+	f := math.Pow(1+r, float64(months))
+	emi := int64(math.Round(float64(principal) * r * f / (f - 1)))
+	interest := func(b int64) int64 { d := int64(rateDen) * 1200; return (b*rateNum*2 + d) / (2 * d) }
+	due := func(n int) time.Time { return addMonthsClamped(firstDue, n) }
+	// Instalments before the book starts are only counted; later ones are recorded.
+	bal, paidBefore := principal, 0
+	for ; due(paidBefore).Before(g.start); paidBefore++ {
+		bal -= emi - interest(bal)
+	}
+	loanAcct := g.acc["Car Loan"]
+	for i := range g.ops {
+		if g.ops[i].Entity == "accounts" && g.ops[i].ID == loanAcct {
+			g.ops[i].Data["opening_balance"] = -bal
+		}
+	}
+	loan := g.id()
+	g.add("loans", loan, map[string]any{"name": "Car Loan", "lender": "HDFC Bank", "kind": "vehicle", "account_id": loanAcct, "currency": "INR",
+		"principal": principal, "annual_rate": "9.25", "rate_type": "fixed", "start_date": loanStart.Format(time.DateOnly),
+		"first_due_date": firstDue.Format(time.DateOnly), "tenure_months": int64(months), "paid_before": int64(paidBefore),
+		"pay_from_account_id": g.acc["HDFC Savings"], "interest_category_id": g.cat("Interest & fees"), "remind_days": int64(3),
+		"note": "Maruti Swift, loan no. ending 4471"})
+	for n := paidBefore; !due(n).After(g.today); n++ {
+		in := interest(bal)
+		pr := emi - in
+		d := due(n)
+		g.tx(d, "transfer", "HDFC Savings", pr, "", "HDFC Bank", map[string]any{"to_account_id": loanAcct, "to_amount": pr, "loan_id": loan, "part": "principal", "note": "Car Loan EMI · principal"})
+		g.tx(d, "expense", "HDFC Savings", in, "Interest & fees", "HDFC Bank", map[string]any{"loan_id": loan, "part": "interest", "note": "Car Loan EMI · interest"})
+		bal -= pr
+	}
+
+	// A cumulative FD maturing in about two months.
+	fdStart := g.today.AddDate(-2, 2, 0)
+	g.add("deposits", g.id(), map[string]any{"name": "SBI FD 2027", "institution": "SBI", "kind": "fd", "account_id": g.acc["SBI FD 2027"], "currency": "INR",
+		"amount": rupees(150_000), "annual_rate": "7.5", "start_date": fdStart.Format(time.DateOnly), "maturity_date": fdStart.AddDate(2, 0, 0).Format(time.DateOnly),
+		"compounding": "quarterly", "payout": "cumulative", "remind_days": int64(7), "note": "Receipt 00231"})
+	// A quarterly-payout FD for the parents; payouts land in the bank.
+	sfStart := g.start.AddDate(0, -2, 0)
+	sf := g.id()
+	g.add("deposits", sf, map[string]any{"name": "HDFC Senior FD", "institution": "HDFC Bank", "kind": "fd", "account_id": g.acc["HDFC Senior FD"], "currency": "INR",
+		"amount": rupees(100_000), "annual_rate": "7.25", "start_date": sfStart.Format(time.DateOnly), "maturity_date": sfStart.AddDate(3, 0, 0).Format(time.DateOnly),
+		"compounding": "quarterly", "payout": "quarterly", "payout_account_id": g.acc["HDFC Savings"], "tax_percent": "10", "remind_days": int64(7)})
+	for q := 1; ; q++ {
+		d := sfStart.AddDate(0, 3*q, 0)
+		if d.After(g.today) {
+			break
+		}
+		if d.Before(g.start) {
+			continue
+		}
+		g.tx(d, "income", "HDFC Savings", rupees(1_812.50), "Interest", "HDFC Bank", map[string]any{"deposit_id": sf, "part": "interest", "note": "HDFC Senior FD · interest"})
+	}
+	// A recurring deposit of ₹3,000 a month, started ten months ago.
+	rdStart := time.Date(g.today.Year(), g.today.Month()-10, 5, 0, 0, 0, 0, time.UTC)
+	rd := g.id()
+	g.add("deposits", rd, map[string]any{"name": "Post Office RD", "institution": "India Post", "kind": "rd", "account_id": g.acc["Post Office RD"], "currency": "INR",
+		"amount": rupees(3_000), "annual_rate": "6.7", "start_date": rdStart.Format(time.DateOnly), "maturity_date": rdStart.AddDate(2, 0, 0).Format(time.DateOnly),
+		"compounding": "quarterly", "payout": "cumulative", "remind_days": int64(3)})
+	for n := 0; !rdStart.AddDate(0, n, 0).After(g.today); n++ {
+		g.tx(rdStart.AddDate(0, n, 0), "transfer", "HDFC Savings", rupees(3_000), "", "India Post", map[string]any{"to_account_id": g.acc["Post Office RD"], "to_amount": rupees(3_000), "deposit_id": rd, "part": "principal", "note": fmt.Sprintf("Post Office RD · instalment %d", n+1)})
+	}
+}
+
+// addMonthsClamped adds n months to t, landing on the last day of shorter months (like java.time).
+func addMonthsClamped(t time.Time, n int) time.Time {
+	first := time.Date(t.Year(), t.Month()+time.Month(n), 1, 0, 0, 0, 0, time.UTC)
+	last := first.AddDate(0, 1, -1).Day()
+	d := t.Day()
+	if d > last {
+		d = last
+	}
+	return time.Date(first.Year(), first.Month(), d, 0, 0, 0, 0, time.UTC)
 }

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type Tag } from '../lib/api'
-import { useLedger, useTagIndex, useWrite, type WithId } from '../lib/data'
+import { useLedger, useTagIndex, useStableId, useWrite, type WithId } from '../lib/data'
 import { isoDate } from '../lib/util'
 import { Card, Dot, Empty, Field, Modal, Money, errorText, toast } from '../components'
 import { Icon } from '../icons'
@@ -52,6 +52,7 @@ export function Tags({ go }: PageProps) {
 
 function TagForm({ tag, existing, onClose }: { tag?: WithId<Tag>; existing: WithId<Tag>[]; onClose: () => void }) {
   const write = useWrite()
+  const newId = useStableId()
   const [name, setName] = useState(tag?.name ?? '')
   const [color, setColor] = useState(tag?.color ?? PALETTE[Math.floor(Math.random() * PALETTE.length)])
   const [archived, setArchived] = useState(tag?.archived ?? false)
@@ -61,7 +62,7 @@ function TagForm({ tag, existing, onClose }: { tag?: WithId<Tag>; existing: With
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!clean || clash) return
-    try { await write.save.mutateAsync({ entity: 'tags', id: tag?.id, data: { name: clean, color, archived } }); onClose() } catch (x) { setErr(errorText(x)) }
+    try { await write.save.mutateAsync({ entity: 'tags', id: tag?.id, newId, data: { name: clean, color, archived } }); onClose() } catch (x) { setErr(errorText(x)) }
   }
   return (
     <Modal title={tag ? 'Edit tag' : 'New tag'} onClose={onClose} footer={<>
@@ -69,7 +70,7 @@ function TagForm({ tag, existing, onClose }: { tag?: WithId<Tag>; existing: With
         await write.remove.mutateAsync({ entity: 'tags', id: tag.id })
         toast(`#${tag.name} deleted`, { label: 'Undo', run: () => write.restore.mutate({ entity: 'tags', id: tag.id }) }); onClose()
       }}>Delete</button>}
-      <span className="spacer" /><button onClick={onClose}>Cancel</button><button className="primary" form="tagform" disabled={!clean || clash}>Save</button></>}>
+      <span className="spacer" /><button onClick={onClose}>Cancel</button><button className="primary" form="tagform" disabled={!clean || clash || write.save.isPending}>Save</button></>}>
       <form id="tagform" onSubmit={submit}>
         <Field label="Name" error={clash ? 'A tag with this name already exists' : undefined}><input value={name} onChange={(e) => setName(e.target.value)} autoFocus placeholder="goa-trip" /></Field>
         <Field label="Colour">
