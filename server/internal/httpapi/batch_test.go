@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/ids"
 )
 
 func TestBatchImportRulesBudgetsAndConversion(t *testing.T) {

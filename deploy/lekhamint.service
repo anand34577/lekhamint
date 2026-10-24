@@ -1,0 +1,38 @@
+# systemd unit for Linux. install.sh sets this up for you; to do it by hand:
+#   sudo useradd --system --home /var/lib/lekhamint --shell /usr/sbin/nologin lekhamint
+#   sudo install -m 0755 lekhamint-linux-amd64 /usr/local/bin/lekhamint
+#   sudo cp lekhamint.service /etc/systemd/system/ && sudo systemctl enable --now lekhamint
+[Unit]
+Description=LekhaMint money manager server
+Documentation=https://github.com/anand34577/lekhamint/wiki
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=lekhamint
+Group=lekhamint
+ExecStart=/usr/local/bin/lekhamint serve
+Restart=on-failure
+RestartSec=5s
+StateDirectory=lekhamint
+Environment=LEKHAMINT_DATA_DIR=/var/lib/lekhamint
+Environment=LEKHAMINT_ADDR=:8080
+# Your settings (LEKHAMINT_* variables, one per line):
+EnvironmentFile=-/etc/lekhamint/lekhamint.env
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/lib/lekhamint
+
+[Install]
+WantedBy=multi-user.target

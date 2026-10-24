@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/db"
 )
 
 // Roles a ledger member can have.

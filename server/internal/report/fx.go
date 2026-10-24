@@ -5,7 +5,7 @@ import (
 	"math/big"
 	"sort"
 
-	"github.com/kosh-app/kosh/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/db"
 )
 
 // Digits is the number of minor-unit decimals the apps use for a currency

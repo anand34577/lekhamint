@@ -1,12 +1,13 @@
-// Command kosh is the LekhaMint sync and backup server.
+// Command lekhamint is the LekhaMint sync and backup server.
 //
-//	kosh serve                         run the HTTP server
-//	kosh migrate                       apply database migrations and exit
-//	kosh backup  [--format db|json] --out PATH
-//	kosh restore [--format db|json] --from PATH
-//	kosh user add --email E [--name N]          (password from KOSH_PASSWORD or stdin)
-//	kosh user passwd --email E
-//	kosh version
+//	lekhamint serve                         run the HTTP server
+//	lekhamint demo                          try it with sample data; nothing is saved
+//	lekhamint migrate                       apply database migrations and exit
+//	lekhamint backup  [--format db|json] --out PATH
+//	lekhamint restore [--format db|json] --from PATH
+//	lekhamint user add --email E [--name N]          (password from LEKHAMINT_PASSWORD or stdin)
+//	lekhamint user passwd --email E
+//	lekhamint version
 //
 // Every flag can also be set with an environment variable; see docs/08-deployment.md.
 package main
@@ -17,6 +18,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -26,16 +28,20 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/auth"
-	"github.com/kosh-app/kosh/server/internal/backup"
-	"github.com/kosh-app/kosh/server/internal/config"
-	"github.com/kosh-app/kosh/server/internal/db"
-	"github.com/kosh-app/kosh/server/internal/httpapi"
-	"github.com/kosh-app/kosh/server/internal/ledger"
-	"github.com/kosh-app/kosh/server/internal/report"
-	"github.com/kosh-app/kosh/server/internal/store"
-	"github.com/kosh-app/kosh/server/internal/syncer"
-	"github.com/kosh-app/kosh/server/internal/webui"
+	"github.com/anand34577/lekhamint/server/internal/auth"
+	"github.com/anand34577/lekhamint/server/internal/backup"
+	"github.com/anand34577/lekhamint/server/internal/config"
+	"github.com/anand34577/lekhamint/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/demo"
+	"github.com/anand34577/lekhamint/server/internal/httpapi"
+	"github.com/anand34577/lekhamint/server/internal/ledger"
+	"github.com/anand34577/lekhamint/server/internal/logfile"
+	"github.com/anand34577/lekhamint/server/internal/report"
+	"github.com/anand34577/lekhamint/server/internal/store"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/webui"
+
+	"golang.org/x/term"
 )
 
 // version is set at build time: -ldflags "-X main.version=1.2.3".
@@ -56,6 +62,8 @@ func run(args []string) error {
 	switch cmd {
 	case "serve":
 		return cmdServe(rest)
+	case "demo":
+		return cmdDemo(rest)
 	case "migrate":
 		return cmdMigrate(rest)
 	case "backup":
@@ -67,7 +75,7 @@ func run(args []string) error {
 	case "healthcheck":
 		return cmdHealthcheck(rest)
 	case "version", "--version", "-v":
-		fmt.Printf("kosh %s (schema v%d)\n", version, db.LatestSchemaVersion())
+		fmt.Printf("lekhamint %s (schema v%d)\n", version, db.LatestSchemaVersion())
 		return nil
 	case "help", "--help", "-h":
 		fmt.Println(usage)
@@ -76,10 +84,11 @@ func run(args []string) error {
 	return fmt.Errorf("unknown command %q\n\n%s", cmd, usage)
 }
 
-const usage = `Usage: kosh <command> [flags]
+const usage = `Usage: lekhamint <command> [flags]
 
 Commands:
   serve     run the server (default)
+  demo      run a throwaway server with sample data (nothing is saved)
   migrate   apply database migrations
   backup    write a backup (--format db for a SQLite snapshot, json for a portable dump)
   restore   restore a backup (stop the server first)
@@ -87,7 +96,7 @@ Commands:
   healthcheck  exit 0 if the local server is healthy (for Docker)
   version   print the version
 
-Run "kosh <command> -h" for the flags of a command.`
+Run "lekhamint <command> -h" for the flags of a command.`
 
 // setup parses common flags, opens the database and applies migrations.
 func setup(name string, args []string, extra func(fs *flag.FlagSet)) (*config.Config, *db.DB, *slog.Logger, error) {
@@ -102,14 +111,19 @@ func setup(name string, args []string, extra func(fs *flag.FlagSet)) (*config.Co
 	if err := cfg.Finish(); err != nil {
 		return nil, nil, nil, err
 	}
-	log := newLogger(cfg)
+	log, err := newLogger(cfg)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 	dialect, _ := cfg.Dialect()
 	d, err := db.Open(context.Background(), dialect, cfg.DSN())
 	if err != nil {
+		log.Error("cannot open the database", "driver", dialect.String(), "err", err)
 		return nil, nil, nil, err
 	}
 	n, err := d.Migrate(context.Background())
 	if err != nil {
+		log.Error("database migration failed", "err", err)
 		d.Close()
 		return nil, nil, nil, err
 	}
@@ -119,16 +133,23 @@ func setup(name string, args []string, extra func(fs *flag.FlagSet)) (*config.Co
 	return cfg, d, log, nil
 }
 
-func newLogger(cfg *config.Config) *slog.Logger {
+// newLogger logs to stderr and, with --log-file, also to a rotated file.
+func newLogger(cfg *config.Config) (*slog.Logger, error) {
 	var level slog.Level
-	if err := level.UnmarshalText([]byte(cfg.LogLevel)); err != nil {
-		level = slog.LevelInfo
+	_ = level.UnmarshalText([]byte(cfg.LogLevel)) // validated by cfg.Finish
+	var out io.Writer = os.Stderr
+	if cfg.LogFile != "" {
+		f, err := logfile.Open(cfg.LogFile, logfile.DefaultMaxSize, logfile.DefaultKeep)
+		if err != nil {
+			return nil, err
+		}
+		out = io.MultiWriter(os.Stderr, f)
 	}
 	opts := &slog.HandlerOptions{Level: level}
 	if cfg.LogFormat == "json" {
-		return slog.New(slog.NewJSONHandler(os.Stderr, opts))
+		return slog.New(slog.NewJSONHandler(out, opts)), nil
 	}
-	return slog.New(slog.NewTextHandler(os.Stderr, opts))
+	return slog.New(slog.NewTextHandler(out, opts)), nil
 }
 
 func cmdServe(args []string) error {
@@ -137,17 +158,58 @@ func cmdServe(args []string) error {
 		return err
 	}
 	defer d.Close()
+	return serve(cfg, d, log, nil)
+}
 
+// cmdDemo runs a throwaway server filled with a sample household, so the
+// apps can be tried without entering any data. Nothing is kept on exit.
+func cmdDemo(args []string) error {
+	dir, err := os.MkdirTemp("", "lekhamint-demo-")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(dir)
+	args = append([]string{"--data-dir", dir, "--backup-interval", "0"}, args...)
+	cfg, d, log, err := setup("demo", args, nil)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return serve(cfg, d, log, func(ctx context.Context, svc demo.Deps) error {
+		start := time.Now()
+		if _, err := demo.Seed(ctx, svc, time.Now(), 12); err != nil {
+			return err
+		}
+		log.Info("demo data ready", "took", time.Since(start).Round(time.Millisecond))
+		host := cfg.Addr
+		if strings.HasPrefix(host, ":") {
+			host = "localhost" + host
+		}
+		fmt.Fprintf(os.Stderr, "\n  LekhaMint demo is running at http://%s\n  Sign in with %s / %s\n"+
+			"  Everything is deleted when you stop it (Ctrl+C).\n\n", host, demo.Email, demo.Password)
+		return nil
+	})
+}
+
+// serve runs the HTTP server until SIGINT/SIGTERM. before, if set, runs once
+// the services exist and before the server accepts requests.
+func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.Context, demo.Deps) error) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
 	sync := syncer.New(d)
 	authSvc := auth.NewService(d, cfg.AllowSignup, cfg.SessionTTL)
+	ledgers := &ledger.Service{DB: d, Sync: sync}
 	api := &httpapi.Server{
 		DB: d, Auth: authSvc, Sync: sync,
-		Ledgers: &ledger.Service{DB: d, Sync: sync}, Reports: &report.Service{DB: d},
+		Ledgers: ledgers, Reports: &report.Service{DB: d},
 		Log: log, Version: version, CORSOrigins: cfg.CORSOrigins, TrustProxy: cfg.TrustProxy,
 		MaxImportSize: cfg.MaxImportSize,
+	}
+	if before != nil {
+		if err := before(ctx, demo.Deps{Auth: authSvc, Ledgers: ledgers, Sync: sync}); err != nil {
+			return err
+		}
 	}
 	if !cfg.NoWeb {
 		web, err := webui.Handler(cfg.WebDir)
@@ -170,7 +232,7 @@ func cmdServe(args []string) error {
 
 	errCh := make(chan error, 1)
 	go func() {
-		log.Info("kosh listening", "addr", cfg.Addr, "version", version, "database", d.Dialect().String(),
+		log.Info("lekhamint listening", "addr", cfg.Addr, "version", version, "database", d.Dialect().String(),
 			"signup", cfg.AllowSignup, "backups", backupDesc(cfg))
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
@@ -246,12 +308,12 @@ func cmdBackup(args []string) error {
 	switch format {
 	case "db":
 		if out == "" {
-			out = filepath.Join(cfg.BackupDir, "kosh-"+stamp+".db")
+			out = filepath.Join(cfg.BackupDir, "lekhamint-"+stamp+".db")
 		}
 		err = backup.SnapshotSQLite(ctx, d, out)
 	case "json":
 		if out == "" {
-			out = filepath.Join(cfg.BackupDir, "kosh-"+stamp+".ndjson.gz")
+			out = filepath.Join(cfg.BackupDir, "lekhamint-"+stamp+".ndjson.gz")
 		}
 		err = backup.WriteDumpFile(ctx, d, out)
 	default:
@@ -327,7 +389,7 @@ func cmdRestore(args []string) error {
 
 func cmdUser(args []string) error {
 	if len(args) == 0 || (args[0] != "add" && args[0] != "passwd") {
-		return errors.New("usage: kosh user add --email E [--name N] | kosh user passwd --email E")
+		return errors.New("usage: lekhamint user add --email E [--name N] | lekhamint user passwd --email E")
 	}
 	sub := args[0]
 	var email, name string
@@ -369,16 +431,26 @@ func cmdUser(args []string) error {
 	return nil
 }
 
-// readPassword takes the password from KOSH_PASSWORD or the first line of
-// stdin, so it never appears in shell history or the process list.
+// readPassword takes the password from LEKHAMINT_PASSWORD, a hidden prompt on
+// a terminal, or the first line of stdin, so it never appears in shell history,
+// on screen or in the process list.
 func readPassword() (string, error) {
-	if pw := os.Getenv("KOSH_PASSWORD"); pw != "" {
+	if pw := os.Getenv("LEKHAMINT_PASSWORD"); pw != "" {
 		return pw, nil
+	}
+	if fd := int(os.Stdin.Fd()); term.IsTerminal(fd) {
+		fmt.Fprint(os.Stderr, "password: ")
+		b, err := term.ReadPassword(fd)
+		fmt.Fprintln(os.Stderr)
+		if err != nil {
+			return "", fmt.Errorf("read password: %w", err)
+		}
+		return string(b), nil
 	}
 	fmt.Fprint(os.Stderr, "password: ")
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && line == "" {
-		return "", errors.New("no password given (set KOSH_PASSWORD or pipe it on stdin)")
+		return "", errors.New("no password given (set LEKHAMINT_PASSWORD or pipe it on stdin)")
 	}
 	return strings.TrimRight(line, "\r\n"), nil
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/db"
 )
 
 // User is a server account (a person, not a money account).

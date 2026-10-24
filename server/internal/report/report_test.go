@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/kosh-app/kosh/server/internal/ids"
-	"github.com/kosh-app/kosh/server/internal/store"
-	"github.com/kosh-app/kosh/server/internal/syncer"
-	"github.com/kosh-app/kosh/server/internal/testutil"
+	"github.com/anand34577/lekhamint/server/internal/ids"
+	"github.com/anand34577/lekhamint/server/internal/store"
+	"github.com/anand34577/lekhamint/server/internal/syncer"
+	"github.com/anand34577/lekhamint/server/internal/testutil"
 )
 
 func date(s string) time.Time {

@@ -1,6 +1,6 @@
 // Package testutil provides migrated throwaway databases for tests.
 //
-// Tests run on SQLite by default. Set KOSH_TEST_PG_DSN to a PostgreSQL URL to
+// Tests run on SQLite by default. Set LEKHAMINT_TEST_PG_DSN to a PostgreSQL URL to
 // also run them on PostgreSQL; each test gets its own schema, dropped after.
 package testutil
 
@@ -13,15 +13,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/kosh-app/kosh/server/internal/db"
-	"github.com/kosh-app/kosh/server/internal/hlc"
+	"github.com/anand34577/lekhamint/server/internal/db"
+	"github.com/anand34577/lekhamint/server/internal/hlc"
 )
 
 // NewDB returns a migrated database that is cleaned up when the test ends.
 func NewDB(t testing.TB) *db.DB {
 	t.Helper()
 	ctx := context.Background()
-	if dsn := os.Getenv("KOSH_TEST_PG_DSN"); dsn != "" {
+	if dsn := os.Getenv("LEKHAMINT_TEST_PG_DSN"); dsn != "" {
 		return newPG(t, dsn)
 	}
 	d, err := db.Open(ctx, db.SQLite, filepath.Join(t.TempDir(), "test.db"))

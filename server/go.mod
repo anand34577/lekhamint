@@ -1,10 +1,12 @@
-module github.com/kosh-app/kosh/server
+module github.com/anand34577/lekhamint/server
 
 go 1.26.6
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/ncruces/go-sqlite3 v0.35.6
 	golang.org/x/crypto v0.58.0
+	golang.org/x/term v0.47.0
 	modernc.org/sqlite v1.61.0
 )
 
@@ -15,7 +17,9 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.2 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/ncruces/go-sqlite3-wasm/v6 v6.3.35304 // indirect
 	github.com/ncruces/go-strftime v1.1.0 // indirect
+	github.com/ncruces/julianday v1.0.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/sys v0.49.0 // indirect
