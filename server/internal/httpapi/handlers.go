@@ -45,6 +45,7 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 		"signup_allowed": signup, "entities": entity.Names(),
 		"limits":      map[string]int{"push_batch": syncer.MaxPushBatch, "pull_page": syncer.MaxPullLimit, "batch_ops": MaxBatchOps},
 		"server_time": time.Now().UnixMilli(),
+		"ai":          s.AI.info(),
 	})
 }
 
@@ -506,7 +507,8 @@ func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
 	}
 	list, next, err := store.ListTransactions(r.Context(), s.DB, lid, store.TxFilter{
 		From: from, To: to, AccountID: q.Get("account_id"), CategoryID: q.Get("category_id"),
-		TagID: q.Get("tag_id"), DebtID: q.Get("debt_id"), MinAmount: minAmount, MaxAmount: maxAmount,
+		TagID: q.Get("tag_id"), DebtID: q.Get("debt_id"),
+		LoanID: q.Get("loan_id"), DepositID: q.Get("deposit_id"), MinAmount: minAmount, MaxAmount: maxAmount,
 		Type: q.Get("type"), Status: q.Get("status"), Query: q.Get("q"),
 		Deleted: q.Get("deleted") == "true", Cursor: q.Get("cursor"), Limit: limit,
 	})
@@ -539,6 +541,73 @@ func (s *Server) balances(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"balances": list})
+}
+
+// position is the money picture (cash, investments, liabilities, debts, net worth) as of a date.
+func (s *Server) position(w http.ResponseWriter, r *http.Request) {
+	lid, ok := s.authorize(w, r, ledger.Read)
+	if !ok {
+		return
+	}
+	asOf, err := queryDate(r, "as_of", false)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	list, err := s.Reports.Position(r.Context(), lid, asOf)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"as_of": asOf, "positions": list})
+}
+
+// netWorth returns month-end positions; months defaults to 12 (max 120).
+func (s *Server) netWorth(w http.ResponseWriter, r *http.Request) {
+	lid, ok := s.authorize(w, r, ledger.Read)
+	if !ok {
+		return
+	}
+	months, err := queryInt(r, "months", 12, 120)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if months == 0 {
+		months = 12
+	}
+	today := time.Now().UTC()
+	if d, err := queryDate(r, "today", false); err != nil {
+		s.fail(w, r, err)
+		return
+	} else if d != "" {
+		today, _ = time.Parse("2006-01-02", d)
+	}
+	points, err := s.Reports.NetWorthHistory(r.Context(), lid, today, months)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"points": points})
+}
+
+// debtTotals lists every personal debt with what has been repaid and what is outstanding.
+func (s *Server) debtTotals(w http.ResponseWriter, r *http.Request) {
+	lid, ok := s.authorize(w, r, ledger.Read)
+	if !ok {
+		return
+	}
+	asOf, err := queryDate(r, "as_of", false)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	list, err := s.Reports.Debts(r.Context(), lid, asOf)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"debts": list})
 }
 
 func (s *Server) rangeParams(w http.ResponseWriter, r *http.Request) (lid, from, to string, ok bool) {

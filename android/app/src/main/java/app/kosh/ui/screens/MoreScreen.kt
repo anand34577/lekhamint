@@ -29,6 +29,11 @@ import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material.icons.rounded.AutoFixHigh
+import androidx.compose.material.icons.rounded.AccountBalance
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.Calculate
+import androidx.compose.material.icons.rounded.PictureAsPdf
+import androidx.compose.material.icons.rounded.Savings
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -89,11 +94,18 @@ fun MoreScreen() {
                 SettingRow("Accounts", "Cash, bank, cards, wallets", Icons.Rounded.AccountBalanceWallet, onClick = { nav.navigate(Routes.ACCOUNTS) })
                 SettingRow("Reports", "Spending, trends, 50/30/20", Icons.AutoMirrored.Rounded.ShowChart, onClick = { nav.navigate(Routes.REPORTS) })
                 SettingRow("Recurring & bills", "Subscriptions, rent, salary", Icons.Rounded.Repeat, onClick = { nav.navigate(Routes.RECURRING) })
-                SettingRow("Lent & borrowed", null, Icons.Rounded.Handshake, onClick = { nav.navigate(Routes.DEBTS) })
+                SettingRow("Loans & EMIs", "Schedules, EMI split, prepayment, reminders", Icons.Rounded.AccountBalance, onClick = { nav.navigate(Routes.LOANS) })
+                SettingRow("Deposits", "Fixed and recurring deposits, maturity dates", Icons.Rounded.Savings, onClick = { nav.navigate(Routes.DEPOSITS) })
+                SettingRow("Lent & borrowed", "Friends and family: who owes what", Icons.Rounded.Handshake, onClick = { nav.navigate(Routes.DEBTS) })
                 SettingRow("Categories", null, Icons.Rounded.Category, onClick = { nav.navigate(Routes.CATEGORIES) })
                 SettingRow("Tags", "Group spending across categories: trips, projects", Icons.Rounded.Sell, onClick = { nav.navigate(Routes.TAGS) })
                 SettingRow("Auto-categorise", "Rules that fill in category, payee and tags", Icons.Rounded.AutoFixHigh, onClick = { nav.navigate(Routes.CAT_RULES) })
                 SettingRow("Trash", "Restore deleted items", Icons.Rounded.Delete, onClick = { nav.navigate(Routes.TRASH) })
+
+                SectionHeader("Tools")
+                SettingRow("Calculators", "EMI, FD and RD, bill splitter, loan affordability", Icons.Rounded.Calculate, onClick = { nav.navigate(Routes.TOOLS) })
+                SettingRow("Statements & export", "PDF and Excel: account, income & spending, loan, person", Icons.Rounded.PictureAsPdf, onClick = { nav.navigate(Routes.STATEMENTS) })
+                SettingRow("Assistant", "Ask about your money; cloud, home server or on-phone model", Icons.Rounded.AutoAwesome, onClick = { nav.navigate(Routes.ASSISTANT) })
 
                 SectionHeader("Your data")
                 SettingRow(

@@ -6,7 +6,7 @@ import (
 
 // Shared value sets. Keep in step with docs/04-data-model.md.
 var (
-	AccountTypes     = []string{"cash", "bank", "wallet", "credit_card", "savings", "investment", "loan", "other"}
+	AccountTypes     = []string{"cash", "bank", "wallet", "credit_card", "savings", "investment", "deposit", "loan", "other"}
 	CategoryKinds    = []string{"expense", "income"}
 	CategoryNatures  = []string{"need", "want", "savings"}
 	TransactionTypes = []string{"expense", "income", "transfer"}
@@ -18,6 +18,16 @@ var (
 	RateSources      = []string{"manual", "imported"}
 	RuleMatchFields  = []string{"payee", "note", "any"}
 	RuleMatchTypes   = []string{"contains", "equals", "starts_with"}
+	// TxParts says what a linked transaction is for (docs/02, "Loans and deposits"):
+	// principal moves the balance owed or invested, interest and fee are costs or earnings,
+	// prepayment is extra principal paid outside the EMI.
+	TxParts         = []string{"principal", "interest", "fee", "prepayment"}
+	LoanKinds       = []string{"home", "vehicle", "personal", "education", "gold", "business", "consumer", "other"}
+	RateTypes       = []string{"fixed", "floating"}
+	DepositKinds    = []string{"fd", "rd", "other"}
+	Compoundings    = []string{"simple", "monthly", "quarterly", "half_yearly", "yearly"}
+	Payouts         = []string{"cumulative", "monthly", "quarterly", "half_yearly", "yearly"}
+	DepositStatuses = []string{"active", "matured", "closed"}
 )
 
 // Common bounds.
@@ -99,6 +109,85 @@ var (
 		},
 	}
 
+	// Loans are bank or institution loans with an EMI schedule. The balance
+	// owed lives in a liability account (account_id, type "loan"); EMIs are a
+	// principal transfer into that account plus an interest expense, both
+	// carrying loan_id. Schedules are calculated, never stored.
+	Loans = &Spec{
+		Name: "loans",
+		Fields: []Field{
+			name(100),
+			{Name: "lender", Kind: KString, MaxLen: 100},
+			{Name: "kind", Kind: KEnum, Default: "personal", Enum: LoanKinds},
+			{Name: "account_id", Kind: KRef, Required: true},
+			{Name: "currency", Kind: KCurrency, Required: true},
+			{Name: "principal", Kind: KInt, Required: true, Min: one, Max: maxMoney},
+			{Name: "annual_rate", Kind: KDecimal}, // null = interest-free
+			{Name: "rate_type", Kind: KEnum, Default: "fixed", Enum: RateTypes},
+			{Name: "start_date", Kind: KDate, Required: true},
+			{Name: "first_due_date", Kind: KDate, Required: true},
+			{Name: "tenure_months", Kind: KInt, Required: true, Min: one, Max: i64(600)},
+			{Name: "emi_amount", Kind: KInt, Min: one, Max: maxMoney},
+			{Name: "paid_before", Kind: KInt, Default: int64(0), Min: zero, Max: i64(600)},
+			{Name: "pay_from_account_id", Kind: KRef},
+			{Name: "interest_category_id", Kind: KRef},
+			{Name: "processing_fee", Kind: KInt, Min: zero, Max: maxMoney},
+			{Name: "remind_days", Kind: KInt, Default: int64(3), Min: zero, Max: i64(30)},
+			flag("closed", false),
+			{Name: "closed_date", Kind: KDate},
+			note(),
+			createdAt(),
+		},
+		Check: func(r Data) error {
+			if err := checkDateOrder(r, "start_date", "first_due_date"); err != nil {
+				return err
+			}
+			paid, _ := r["paid_before"].(int64)
+			if tenure, ok := r["tenure_months"].(int64); ok && paid > tenure {
+				return fieldErr("paid_before", "cannot be more than the number of instalments")
+			}
+			return nil
+		},
+	}
+
+	// Deposits are fixed and recurring deposits. The money sits in an asset
+	// account (account_id, type "deposit"): funding is a transfer into it,
+	// interest is income, and maturity is a transfer back out. Maturity values
+	// are estimates unless maturity_amount is copied from the bank's receipt.
+	Deposits = &Spec{
+		Name: "deposits",
+		Fields: []Field{
+			name(100),
+			{Name: "institution", Kind: KString, MaxLen: 100},
+			{Name: "kind", Kind: KEnum, Default: "fd", Enum: DepositKinds},
+			{Name: "account_id", Kind: KRef, Required: true},
+			{Name: "currency", Kind: KCurrency, Required: true},
+			{Name: "amount", Kind: KInt, Required: true, Min: one, Max: maxMoney}, // principal, or the monthly instalment of an RD
+			{Name: "annual_rate", Kind: KDecimal, Required: true},
+			{Name: "start_date", Kind: KDate, Required: true},
+			{Name: "maturity_date", Kind: KDate, Required: true},
+			{Name: "compounding", Kind: KEnum, Default: "quarterly", Enum: Compoundings},
+			{Name: "payout", Kind: KEnum, Default: "cumulative", Enum: Payouts},
+			{Name: "payout_account_id", Kind: KRef},
+			{Name: "maturity_amount", Kind: KInt, Min: one, Max: maxMoney},
+			{Name: "tax_percent", Kind: KDecimal},
+			{Name: "status", Kind: KEnum, Default: "active", Enum: DepositStatuses},
+			{Name: "closed_date", Kind: KDate},
+			flag("auto_renew", false),
+			{Name: "remind_days", Kind: KInt, Default: int64(7), Min: zero, Max: i64(60)},
+			note(),
+			createdAt(),
+		},
+		Check: func(r Data) error {
+			a, _ := r["start_date"].(string)
+			b, _ := r["maturity_date"].(string)
+			if a != "" && b != "" && b <= a {
+				return fieldErr("maturity_date", "must be after start_date")
+			}
+			return nil
+		},
+	}
+
 	RecurringRules = &Spec{
 		Name: "recurring_rules",
 		Fields: []Field{
@@ -150,6 +239,9 @@ var (
 			{Name: "original_currency", Kind: KCurrency},
 			{Name: "recurring_rule_id", Kind: KRef},
 			{Name: "debt_id", Kind: KRef},
+			{Name: "loan_id", Kind: KRef},
+			{Name: "deposit_id", Kind: KRef},
+			{Name: "part", Kind: KEnum, Enum: TxParts},
 			flag("is_adjustment", false),
 			flag("excluded_from_reports", false),
 			createdAt(),
@@ -253,7 +345,7 @@ var (
 )
 
 func init() {
-	for _, s := range []*Spec{Accounts, Categories, Tags, Debts, RecurringRules, Transactions, TransactionSplits, Budgets, ExchangeRates, Rules} {
+	for _, s := range []*Spec{Accounts, Categories, Tags, Debts, Loans, Deposits, RecurringRules, Transactions, TransactionSplits, Budgets, ExchangeRates, Rules} {
 		register(s)
 	}
 }

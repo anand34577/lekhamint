@@ -23,6 +23,10 @@ export interface Transaction {
   payee: string | null; note: string | null; occurred_at: number; local_date: string; tz_offset_min: number
   tag_ids: string[]; is_adjustment: boolean; excluded_from_reports: boolean; recurring_rule_id: string | null
   debt_id?: string | null
+  loan_id?: string | null
+  deposit_id?: string | null
+  /** What a linked transaction does: principal, interest, fee or prepayment. */
+  part?: 'principal' | 'interest' | 'fee' | 'prepayment' | null
 }
 export interface Budget {
   name: string; amount: number; currency: string; period: string; start_date: string; end_date: string | null
@@ -35,6 +39,24 @@ export interface RecurringRule {
   note?: string | null; tag_ids?: string[]
 }
 export interface Debt { person: string; direction: 'lent' | 'borrowed'; amount: number; currency: string; due_date: string | null; note: string | null; closed: boolean; created_at: number }
+export interface Loan {
+  name: string; lender: string | null; kind: string; account_id: string; currency: string; principal: number
+  annual_rate: string | null; rate_type: 'fixed' | 'floating'; start_date: string; first_due_date: string; tenure_months: number
+  emi_amount: number | null; paid_before: number; pay_from_account_id: string | null; interest_category_id: string | null
+  processing_fee: number | null; remind_days: number; closed: boolean; closed_date: string | null; note: string | null; created_at: number
+}
+export interface Deposit {
+  name: string; institution: string | null; kind: 'fd' | 'rd' | 'other'; account_id: string; currency: string; amount: number
+  annual_rate: string; start_date: string; maturity_date: string; compounding: string; payout: string
+  payout_account_id: string | null; maturity_amount: number | null; tax_percent: string | null
+  status: 'active' | 'matured' | 'closed'; closed_date: string | null; auto_renew: boolean; remind_days: number; note: string | null; created_at: number
+}
+export interface Position {
+  currency: string; cash: number; investments: number; liabilities: number; receivable: number; payable: number; net_worth: number
+  excluded_accounts: number; excluded_balance: number
+}
+export interface NetWorthPoint { date: string; positions: Position[] }
+export interface DebtOutstanding { debt_id: string; person: string; direction: 'lent' | 'borrowed'; currency: string; amount: number; repaid: number; outstanding: number; closed: boolean; start: string }
 export interface ExchangeRate { base: string; quote: string; rate: string; effective_date: string; source: string }
 export interface PayeeTotal { payee: string; currency: string; expense: number; income: number; count: number; last_date: string }
 export interface Session { id: string; device_name: string; created_at: number; last_used_at: number; expires_at: number; current: boolean }
@@ -150,6 +172,8 @@ export const api = {
     call<{ transactions: Rec<Transaction>[]; next_cursor?: string }>('GET', `${L(lid)}/transactions?${new URLSearchParams(params)}`),
 
   balances: (lid: string) => call<{ balances: Balance[] }>('GET', `${L(lid)}/reports/balances`).then((r) => r.balances),
+  /** Balances at the end of [asOf] (YYYY-MM-DD). */
+  balancesAsOf: (lid: string, asOf: string) => call<{ balances: Balance[] }>('GET', `${L(lid)}/reports/balances?as_of=${asOf}`).then((r) => r.balances),
   summary: (lid: string, from: string, to: string) =>
     call<{ currencies: CurrencySummary[] }>('GET', `${L(lid)}/reports/summary?from=${from}&to=${to}`).then((r) => r.currencies),
   trend: (lid: string, from: string, to: string, interval = 'month') =>
@@ -161,6 +185,11 @@ export const api = {
     call<{ budgets: BudgetProgress[] }>('GET', `${L(lid)}/reports/budgets?date=${date}`).then((r) => r.budgets),
   tagTotals: (lid: string, from: string, to: string) =>
     call<{ tags: TagTotal[] }>('GET', `${L(lid)}/reports/tags?from=${from}&to=${to}`).then((r) => r.tags),
+  position: (lid: string, asOf = '') =>
+    call<{ positions: Position[] }>('GET', `${L(lid)}/reports/position${asOf ? `?as_of=${asOf}` : ''}`).then((r) => r.positions),
+  netWorth: (lid: string, months = 12) =>
+    call<{ points: NetWorthPoint[] }>('GET', `${L(lid)}/reports/networth?months=${months}`).then((r) => r.points),
+  debtTotals: (lid: string) => call<{ debts: DebtOutstanding[] }>('GET', `${L(lid)}/reports/debts`).then((r) => r.debts),
   payeeTotals: (lid: string, from: string, to: string, limit = 10) =>
     call<{ payees: PayeeTotal[] }>('GET', `${L(lid)}/reports/payees?from=${from}&to=${to}&limit=${limit}`).then((r) => r.payees),
 

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -36,6 +37,14 @@ type Config struct {
 	MaxImportSize int64
 	WebDir        string
 	NoWeb         bool
+	// Assistant proxy (docs/11): an OpenAI-compatible endpoint the server forwards chat requests to.
+	AIBaseURL        string
+	AIAPIKey         string
+	AIModel          string
+	AITimeout        time.Duration
+	AIConnectOrigins []string
+
+	aiOriginsRaw *string
 
 	corsRaw *string
 	envErrs []string
@@ -73,6 +82,11 @@ func Register(fs *flag.FlagSet) *Config {
 	fs.Int64Var(&c.MaxImportSize, "max-import-mb", int64(envInt("LEKHAMINT_MAX_IMPORT_MB", 256)), "largest ledger import accepted, in MB")
 	fs.StringVar(&c.WebDir, "web-dir", env("LEKHAMINT_WEB_DIR", ""), "serve the web app from this folder instead of the built-in copy")
 	fs.BoolVar(&c.NoWeb, "no-web", envBool("LEKHAMINT_NO_WEB", false), "do not serve the web app (API only)")
+	fs.StringVar(&c.AIBaseURL, "ai-base-url", env("LEKHAMINT_AI_BASE_URL", ""), "OpenAI-compatible API for the assistant, e.g. http://localhost:11434/v1 (empty disables the proxy)")
+	fs.StringVar(&c.AIAPIKey, "ai-api-key", env("LEKHAMINT_AI_API_KEY", ""), "API key sent to the assistant endpoint (prefer the environment variable)")
+	fs.StringVar(&c.AIModel, "ai-model", env("LEKHAMINT_AI_MODEL", ""), "default model for the assistant")
+	fs.DurationVar(&c.AITimeout, "ai-timeout", envDuration("LEKHAMINT_AI_TIMEOUT", 2*time.Minute), "time limit for one assistant request")
+	c.aiOriginsRaw = fs.String("ai-connect-origins", env("LEKHAMINT_AI_CONNECT_ORIGINS", ""), "extra origins the web app may call directly for the assistant (comma-separated)")
 	c.corsRaw = origins
 	return c
 }
@@ -89,6 +103,26 @@ func (c *Config) Finish() error {
 				c.CORSOrigins = append(c.CORSOrigins, strings.TrimRight(o, "/"))
 			}
 		}
+	}
+	if c.aiOriginsRaw != nil {
+		for _, o := range strings.Split(*c.aiOriginsRaw, ",") {
+			if o = strings.TrimSpace(o); o != "" {
+				if strings.ContainsAny(o, " ;'\"") || !(strings.HasPrefix(o, "http://") || strings.HasPrefix(o, "https://")) {
+					bad("LEKHAMINT_AI_CONNECT_ORIGINS entry %q must be an origin like https://ai.example.com or http://192.168.1.10:11434", o)
+					continue
+				}
+				c.AIConnectOrigins = append(c.AIConnectOrigins, strings.TrimRight(o, "/"))
+			}
+		}
+	}
+	if c.AIBaseURL != "" {
+		if u, err := url.Parse(c.AIBaseURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			bad("LEKHAMINT_AI_BASE_URL (--ai-base-url) must be an http(s) URL such as http://localhost:11434/v1")
+		}
+		c.AIBaseURL = strings.TrimRight(c.AIBaseURL, "/")
+	}
+	if c.AITimeout < time.Second {
+		bad("LEKHAMINT_AI_TIMEOUT (--ai-timeout) must be at least 1s")
 	}
 	if c.BackupDir == "" {
 		c.BackupDir = filepath.Join(c.DataDir, "backups")

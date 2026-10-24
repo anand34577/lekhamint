@@ -18,6 +18,8 @@ type TxFilter struct {
 	CategoryID string // matches the category and its sub-categories; "none" = uncategorised
 	TagID      string
 	DebtID     string // a debt ID, or "any"
+	LoanID     string // a loan ID, or "any"
+	DepositID  string // a deposit ID, or "any"
 	MinAmount  int64  // inclusive, 0 = no bound
 	MaxAmount  int64  // inclusive, 0 = no bound
 	Type       string
@@ -57,7 +59,7 @@ func ListTransactions(ctx context.Context, q db.Querier, ledgerID string, f TxFi
 	}
 	if f.CategoryID == UncategorisedFilter {
 		// Income and expenses with no category that are not split, adjustments or debt movements.
-		add("t.type <> 'transfer' AND t.category_id IS NULL AND COALESCE(t.is_adjustment, 0) = 0 AND t.debt_id IS NULL" +
+		add("t.type <> 'transfer' AND t.category_id IS NULL AND COALESCE(t.is_adjustment, 0) = 0 AND (t.debt_id IS NULL OR t.part IN ('interest', 'fee'))" +
 			" AND NOT EXISTS (SELECT 1 FROM transaction_splits s WHERE s.ledger_id = t.ledger_id AND s.transaction_id = t.id AND s.deleted = 0)")
 	} else if f.CategoryID != "" {
 		add("(t.category_id = ? OR t.category_id IN (SELECT c.id FROM categories c WHERE c.ledger_id = ? AND c.parent_id = ?))",
@@ -71,6 +73,13 @@ func ListTransactions(ctx context.Context, q db.Querier, ledgerID string, f TxFi
 		add("t.debt_id IS NOT NULL")
 	} else if f.DebtID != "" {
 		add("t.debt_id = ?", f.DebtID)
+	}
+	for _, l := range []struct{ col, v string }{{"t.loan_id", f.LoanID}, {"t.deposit_id", f.DepositID}} {
+		if l.v == AnyDebtFilter {
+			add(l.col + " IS NOT NULL")
+		} else if l.v != "" {
+			add(l.col+" = ?", l.v)
+		}
 	}
 	if f.MinAmount > 0 {
 		add("t.amount >= ?", f.MinAmount)

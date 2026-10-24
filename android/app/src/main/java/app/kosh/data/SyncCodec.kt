@@ -4,6 +4,8 @@ import app.kosh.data.db.AccountEntity
 import app.kosh.data.db.BudgetEntity
 import app.kosh.data.db.CategoryEntity
 import app.kosh.data.db.DebtEntity
+import app.kosh.data.db.DepositEntity
+import app.kosh.data.db.LoanEntity
 import app.kosh.data.db.KoshDatabase
 import app.kosh.data.db.RawRecordEntity
 import app.kosh.data.db.RecurringRuleEntity
@@ -170,6 +172,66 @@ class DebtsTable(dao: SyncDao<DebtEntity>) : SyncTable<DebtEntity>("debts", dao)
         )
 }
 
+class LoansTable(dao: SyncDao<LoanEntity>) : SyncTable<LoanEntity>("loans", dao) {
+    override val fields = setOf(
+        "name", "lender", "kind", "account_id", "currency", "principal", "annual_rate", "rate_type", "start_date",
+        "first_due_date", "tenure_months", "emi_amount", "paid_before", "pay_from_account_id", "interest_category_id",
+        "processing_fee", "remind_days", "closed", "closed_date", "note", "created_at",
+    )
+
+    override fun JsonObjectBuilder.encodeFields(row: LoanEntity) {
+        put("name", row.name); put("lender", row.lender); put("kind", row.kind); put("account_id", row.accountId)
+        put("currency", row.currency); put("principal", row.principal); put("annual_rate", row.annualRate)
+        put("rate_type", row.rateType); put("start_date", row.startDate); put("first_due_date", row.firstDueDate)
+        put("tenure_months", row.tenureMonths); put("emi_amount", row.emiAmount); put("paid_before", row.paidBefore)
+        put("pay_from_account_id", row.payFromAccountId); put("interest_category_id", row.interestCategoryId)
+        put("processing_fee", row.processingFee); put("remind_days", row.remindDays); put("closed", row.closed)
+        put("closed_date", row.closedDate); put("note", row.note); put("created_at", row.createdAt)
+    }
+
+    override fun decodeFields(id: String, d: JsonObject, extras: String, hlc: String, deleted: Boolean, dirty: Int) =
+        LoanEntity(
+            id = id, name = d.str("name") ?: "", lender = d.str("lender"), kind = d.str("kind") ?: "personal",
+            accountId = d.str("account_id") ?: "", currency = d.str("currency") ?: "XXX", principal = d.long("principal") ?: 0,
+            annualRate = d.str("annual_rate"), rateType = d.str("rate_type") ?: "fixed",
+            startDate = d.str("start_date") ?: "1970-01-01", firstDueDate = d.str("first_due_date") ?: d.str("start_date") ?: "1970-01-01",
+            tenureMonths = d.int("tenure_months") ?: 1, emiAmount = d.long("emi_amount"), paidBefore = d.int("paid_before") ?: 0,
+            payFromAccountId = d.str("pay_from_account_id"), interestCategoryId = d.str("interest_category_id"),
+            processingFee = d.long("processing_fee"), remindDays = d.int("remind_days") ?: 3, closed = d.bool("closed", false),
+            closedDate = d.str("closed_date"), note = d.str("note"), createdAt = d.long("created_at") ?: 0,
+            hlc = hlc, deleted = deleted, dirty = dirty, extras = extras,
+        )
+}
+
+class DepositsTable(dao: SyncDao<DepositEntity>) : SyncTable<DepositEntity>("deposits", dao) {
+    override val fields = setOf(
+        "name", "institution", "kind", "account_id", "currency", "amount", "annual_rate", "start_date", "maturity_date",
+        "compounding", "payout", "payout_account_id", "maturity_amount", "tax_percent", "status", "closed_date",
+        "auto_renew", "remind_days", "note", "created_at",
+    )
+
+    override fun JsonObjectBuilder.encodeFields(row: DepositEntity) {
+        put("name", row.name); put("institution", row.institution); put("kind", row.kind); put("account_id", row.accountId)
+        put("currency", row.currency); put("amount", row.amount); put("annual_rate", row.annualRate)
+        put("start_date", row.startDate); put("maturity_date", row.maturityDate); put("compounding", row.compounding)
+        put("payout", row.payout); put("payout_account_id", row.payoutAccountId); put("maturity_amount", row.maturityAmount)
+        put("tax_percent", row.taxPercent); put("status", row.status); put("closed_date", row.closedDate)
+        put("auto_renew", row.autoRenew); put("remind_days", row.remindDays); put("note", row.note); put("created_at", row.createdAt)
+    }
+
+    override fun decodeFields(id: String, d: JsonObject, extras: String, hlc: String, deleted: Boolean, dirty: Int) =
+        DepositEntity(
+            id = id, name = d.str("name") ?: "", institution = d.str("institution"), kind = d.str("kind") ?: "fd",
+            accountId = d.str("account_id") ?: "", currency = d.str("currency") ?: "XXX", amount = d.long("amount") ?: 0,
+            annualRate = d.str("annual_rate") ?: "0", startDate = d.str("start_date") ?: "1970-01-01",
+            maturityDate = d.str("maturity_date") ?: "1970-01-02", compounding = d.str("compounding") ?: "quarterly",
+            payout = d.str("payout") ?: "cumulative", payoutAccountId = d.str("payout_account_id"), maturityAmount = d.long("maturity_amount"),
+            taxPercent = d.str("tax_percent"), status = d.str("status") ?: "active", closedDate = d.str("closed_date"),
+            autoRenew = d.bool("auto_renew", false), remindDays = d.int("remind_days") ?: 7, note = d.str("note"),
+            createdAt = d.long("created_at") ?: 0, hlc = hlc, deleted = deleted, dirty = dirty, extras = extras,
+        )
+}
+
 class RecurringTable(dao: SyncDao<RecurringRuleEntity>) : SyncTable<RecurringRuleEntity>("recurring_rules", dao) {
     override val fields = setOf(
         "name", "type", "account_id", "to_account_id", "amount", "to_amount", "category_id", "payee", "note",
@@ -203,7 +265,7 @@ class TransactionsTable(dao: SyncDao<TransactionEntity>) : SyncTable<Transaction
     override val fields = setOf(
         "type", "status", "account_id", "amount", "to_account_id", "to_amount", "category_id", "payee", "note",
         "occurred_at", "local_date", "tz_offset_min", "tag_ids", "original_amount", "original_currency",
-        "recurring_rule_id", "debt_id", "is_adjustment", "excluded_from_reports", "created_at",
+        "recurring_rule_id", "debt_id", "loan_id", "deposit_id", "part", "is_adjustment", "excluded_from_reports", "created_at",
     )
 
     override fun JsonObjectBuilder.encodeFields(row: TransactionEntity) {
@@ -213,6 +275,7 @@ class TransactionsTable(dao: SyncDao<TransactionEntity>) : SyncTable<Transaction
         put("local_date", row.localDate); put("tz_offset_min", row.tzOffsetMin); put("tag_ids", row.tagIds)
         put("original_amount", row.originalAmount); put("original_currency", row.originalCurrency)
         put("recurring_rule_id", row.recurringRuleId); put("debt_id", row.debtId)
+        put("loan_id", row.loanId); put("deposit_id", row.depositId); put("part", row.part)
         put("is_adjustment", row.isAdjustment); put("excluded_from_reports", row.excludedFromReports)
         put("created_at", row.createdAt)
     }
@@ -226,6 +289,7 @@ class TransactionsTable(dao: SyncDao<TransactionEntity>) : SyncTable<Transaction
             tzOffsetMin = d.int("tz_offset_min") ?: 0, tagIds = d.ids("tag_ids"),
             originalAmount = d.long("original_amount"), originalCurrency = d.str("original_currency"),
             recurringRuleId = d.str("recurring_rule_id"), debtId = d.str("debt_id"),
+            loanId = d.str("loan_id"), depositId = d.str("deposit_id"), part = d.str("part"),
             isAdjustment = d.bool("is_adjustment", false), excludedFromReports = d.bool("excluded_from_reports", false),
             createdAt = d.long("created_at") ?: 0, hlc = hlc, deleted = deleted, dirty = dirty, extras = extras,
         )
@@ -319,6 +383,8 @@ class SyncTables(db: KoshDatabase) {
     val categories = CategoriesTable(db.categories())
     val tags = TagsTable(db.tags())
     val debts = DebtsTable(db.debts())
+    val loans = LoansTable(db.loans())
+    val deposits = DepositsTable(db.deposits())
     val recurring = RecurringTable(db.recurring())
     val transactions = TransactionsTable(db.transactions())
     val splits = SplitsTable(db.splits())
@@ -326,7 +392,7 @@ class SyncTables(db: KoshDatabase) {
     val rules = RulesTable(db.rules())
     val raw = RawTable(db)
 
-    val typed: List<SyncTable<*>> = listOf(accounts, categories, tags, debts, recurring, transactions, splits, budgets, rules)
+    val typed: List<SyncTable<*>> = listOf(accounts, categories, tags, debts, loans, deposits, recurring, transactions, splits, budgets, rules)
     private val byName = typed.associateBy { it.entity }
 
     fun table(entity: String): SyncTable<*>? = byName[entity]

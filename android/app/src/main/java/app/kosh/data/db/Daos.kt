@@ -133,6 +133,25 @@ interface TransactionDao : SyncDao<TransactionEntity> {
     @Query("SELECT * FROM transactions WHERE deleted = 0 AND debt_id IS NOT NULL ORDER BY local_date, occurred_at")
     fun observeDebtMoves(): Flow<List<TransactionEntity>>
 
+    /** EMIs, prepayments, fees and disbursals of loans. */
+    @Query("SELECT * FROM transactions WHERE deleted = 0 AND loan_id IS NOT NULL ORDER BY local_date, occurred_at")
+    fun observeLoanMoves(): Flow<List<TransactionEntity>>
+
+    /** Funding, instalments, interest and maturity of deposits. */
+    @Query("SELECT * FROM transactions WHERE deleted = 0 AND deposit_id IS NOT NULL ORDER BY local_date, occurred_at")
+    fun observeDepositMoves(): Flow<List<TransactionEntity>>
+
+    /** Transactions that may still hold loan/deposit fields in extras (written by app version 2). */
+    @Query("SELECT * FROM transactions WHERE extras LIKE '%loan_id%' OR extras LIKE '%deposit_id%' OR extras LIKE '%part%'")
+    suspend fun withLinkExtras(): List<TransactionEntity>
+
+    /** Same day, account, amount and type: a likely duplicate before saving. */
+    @Query(
+        """SELECT * FROM transactions WHERE deleted = 0 AND account_id = :accountId AND local_date = :date
+           AND amount = :amount AND type = :type AND id != :exceptId LIMIT 1""",
+    )
+    suspend fun sameDay(accountId: String, date: String, amount: Long, type: String, exceptId: String): TransactionEntity?
+
     @Query("SELECT * FROM transactions WHERE deleted = 1 ORDER BY hlc DESC LIMIT 500")
     fun observeDeleted(): Flow<List<TransactionEntity>>
 
@@ -170,7 +189,7 @@ interface TransactionDao : SyncDao<TransactionEntity> {
         """SELECT t.id, t.type, t.amount, t.category_id, t.account_id, a.currency, t.local_date, t.payee, t.tag_ids
            FROM transactions t LEFT JOIN accounts a ON a.id = t.account_id
            WHERE t.deleted = 0 AND t.type != 'transfer' AND t.status != 'planned' AND t.is_adjustment = 0
-             AND t.excluded_from_reports = 0 AND t.debt_id IS NULL
+             AND t.excluded_from_reports = 0 AND (t.debt_id IS NULL OR t.part IN ('interest', 'fee'))
              AND t.local_date BETWEEN :from AND :to""",
     )
     fun observeReportRows(from: String, to: String): Flow<List<ReportRow>>
@@ -277,6 +296,38 @@ interface RuleDao : SyncDao<RuleEntity> {
 }
 
 @Dao
+interface LoanDao : SyncDao<LoanEntity> {
+    @Upsert override suspend fun upsertAll(rows: List<LoanEntity>)
+    @Query("SELECT * FROM loans WHERE id = :id") override suspend fun find(id: String): LoanEntity?
+    @Query("SELECT * FROM loans WHERE dirty = 1 ORDER BY hlc LIMIT :limit") override suspend fun dirty(limit: Int): List<LoanEntity>
+    @Query("UPDATE loans SET dirty = 0 WHERE id = :id AND hlc = :hlc") override suspend fun clearDirty(id: String, hlc: String)
+    @Query("UPDATE loans SET dirty = 2 WHERE id = :id AND hlc = :hlc") override suspend fun markRejected(id: String, hlc: String)
+    @Query("SELECT * FROM loans") override suspend fun everything(): List<LoanEntity>
+    @Query("UPDATE loans SET dirty = 1") override suspend fun markAllDirty()
+    @Query("DELETE FROM loans") override suspend fun wipe()
+    @Query("SELECT COUNT(*) FROM loans WHERE deleted = 0") override suspend fun countLive(): Int
+
+    @Query("SELECT * FROM loans WHERE deleted = 0 ORDER BY closed, name COLLATE NOCASE")
+    fun observeAll(): Flow<List<LoanEntity>>
+}
+
+@Dao
+interface DepositDao : SyncDao<DepositEntity> {
+    @Upsert override suspend fun upsertAll(rows: List<DepositEntity>)
+    @Query("SELECT * FROM deposits WHERE id = :id") override suspend fun find(id: String): DepositEntity?
+    @Query("SELECT * FROM deposits WHERE dirty = 1 ORDER BY hlc LIMIT :limit") override suspend fun dirty(limit: Int): List<DepositEntity>
+    @Query("UPDATE deposits SET dirty = 0 WHERE id = :id AND hlc = :hlc") override suspend fun clearDirty(id: String, hlc: String)
+    @Query("UPDATE deposits SET dirty = 2 WHERE id = :id AND hlc = :hlc") override suspend fun markRejected(id: String, hlc: String)
+    @Query("SELECT * FROM deposits") override suspend fun everything(): List<DepositEntity>
+    @Query("UPDATE deposits SET dirty = 1") override suspend fun markAllDirty()
+    @Query("DELETE FROM deposits") override suspend fun wipe()
+    @Query("SELECT COUNT(*) FROM deposits WHERE deleted = 0") override suspend fun countLive(): Int
+
+    @Query("SELECT * FROM deposits WHERE deleted = 0 ORDER BY status, maturity_date, name COLLATE NOCASE")
+    fun observeAll(): Flow<List<DepositEntity>>
+}
+
+@Dao
 interface RawRecordDao {
     @Upsert suspend fun upsertAll(rows: List<RawRecordEntity>)
     @Query("SELECT * FROM raw_records WHERE entity = :entity AND id = :id") suspend fun find(entity: String, id: String): RawRecordEntity?
@@ -299,7 +350,8 @@ interface StatsDao {
            + (SELECT COUNT(*) FROM tags WHERE dirty = 1) + (SELECT COUNT(*) FROM transactions WHERE dirty = 1)
            + (SELECT COUNT(*) FROM budgets WHERE dirty = 1) + (SELECT COUNT(*) FROM recurring_rules WHERE dirty = 1)
            + (SELECT COUNT(*) FROM debts WHERE dirty = 1) + (SELECT COUNT(*) FROM raw_records WHERE dirty = 1)
-           + (SELECT COUNT(*) FROM transaction_splits WHERE dirty = 1) + (SELECT COUNT(*) FROM rules WHERE dirty = 1)""",
+           + (SELECT COUNT(*) FROM transaction_splits WHERE dirty = 1) + (SELECT COUNT(*) FROM rules WHERE dirty = 1)
+           + (SELECT COUNT(*) FROM loans WHERE dirty = 1) + (SELECT COUNT(*) FROM deposits WHERE dirty = 1)""",
     )
     fun observePending(): Flow<Int>
 
@@ -308,7 +360,8 @@ interface StatsDao {
            + (SELECT COUNT(*) FROM tags WHERE dirty = 2) + (SELECT COUNT(*) FROM transactions WHERE dirty = 2)
            + (SELECT COUNT(*) FROM budgets WHERE dirty = 2) + (SELECT COUNT(*) FROM recurring_rules WHERE dirty = 2)
            + (SELECT COUNT(*) FROM debts WHERE dirty = 2) + (SELECT COUNT(*) FROM raw_records WHERE dirty = 2)
-           + (SELECT COUNT(*) FROM transaction_splits WHERE dirty = 2) + (SELECT COUNT(*) FROM rules WHERE dirty = 2)""",
+           + (SELECT COUNT(*) FROM transaction_splits WHERE dirty = 2) + (SELECT COUNT(*) FROM rules WHERE dirty = 2)
+           + (SELECT COUNT(*) FROM loans WHERE dirty = 2) + (SELECT COUNT(*) FROM deposits WHERE dirty = 2)""",
     )
     fun observeRejected(): Flow<Int>
 }

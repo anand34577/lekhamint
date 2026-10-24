@@ -9,6 +9,8 @@ import app.kosh.data.db.AccountEntity
 import app.kosh.data.db.BudgetEntity
 import app.kosh.data.db.CategoryEntity
 import app.kosh.data.db.DebtEntity
+import app.kosh.data.db.DepositEntity
+import app.kosh.data.db.LoanEntity
 import app.kosh.data.db.Dirty
 import app.kosh.data.db.KoshDatabase
 import app.kosh.data.db.RecurringRuleEntity
@@ -46,6 +48,10 @@ class Repository(
     val recurringRules: Flow<List<RecurringRuleEntity>> = db.recurring().observeAll()
     val debts: Flow<List<DebtEntity>> = db.debts().observeAll()
     val debtMoves: Flow<List<TransactionEntity>> = db.transactions().observeDebtMoves()
+    val loans: Flow<List<LoanEntity>> = db.loans().observeAll()
+    val loanMoves: Flow<List<TransactionEntity>> = db.transactions().observeLoanMoves()
+    val deposits: Flow<List<DepositEntity>> = db.deposits().observeAll()
+    val depositMoves: Flow<List<TransactionEntity>> = db.transactions().observeDepositMoves()
     val rules: Flow<List<RuleEntity>> = db.rules().observeAll()
     val allSplits: Flow<List<SplitEntity>> = db.splits().observeAllLive()
     val pendingCount = db.stats().observePending()
@@ -74,6 +80,12 @@ class Repository(
     suspend fun findBudget(id: String) = db.budgets().find(id)
     suspend fun findRule(id: String) = db.recurring().find(id)
     suspend fun findDebt(id: String) = db.debts().find(id)
+    suspend fun findLoan(id: String) = db.loans().find(id)
+    suspend fun findDeposit(id: String) = db.deposits().find(id)
+
+    /** Another entry with the same day, account, amount and type, if any. */
+    suspend fun likelyDuplicate(t: TransactionEntity): TransactionEntity? =
+        db.transactions().sameDay(t.accountId, t.localDate, t.amount, t.type, t.id)
 
     suspend fun lastWithPayee(payee: String, type: String) = db.transactions().lastWithPayee(payee.trim(), type)
     suspend fun payeeSuggestions(prefix: String) =
@@ -103,6 +115,36 @@ class Repository(
     suspend fun saveBudget(b: BudgetEntity) = write(tables.budgets, listOf(b))
     suspend fun saveRule(r: RecurringRuleEntity) = write(tables.recurring, listOf(r))
     suspend fun saveDebt(d: DebtEntity) = write(tables.debts, listOf(d))
+
+    /**
+     * Saves several kinds of records in one database transaction (a loan with
+     * its account and disbursal, an EMI with its parts, a deposit and its
+     * funding). Either everything is written or nothing is.
+     */
+    suspend fun saveAll(
+        accounts: List<AccountEntity> = emptyList(),
+        loans: List<LoanEntity> = emptyList(),
+        deposits: List<DepositEntity> = emptyList(),
+        debts: List<DebtEntity> = emptyList(),
+        transactions: List<TransactionEntity> = emptyList(),
+        deletedTransactions: List<TransactionEntity> = emptyList(),
+    ) {
+        db.withTransaction {
+            fun <T : Synced<T>> stamp(rows: List<T>, deleted: Boolean? = null) = rows.map { it.withMeta(clock.now(), deleted ?: it.deleted, Dirty.PENDING) }
+            if (accounts.isNotEmpty()) tables.accounts.upsert(stamp(accounts))
+            if (loans.isNotEmpty()) tables.loans.upsert(stamp(loans))
+            if (deposits.isNotEmpty()) tables.deposits.upsert(stamp(deposits))
+            if (debts.isNotEmpty()) tables.debts.upsert(stamp(debts))
+            if (transactions.isNotEmpty()) tables.transactions.upsert(stamp(transactions))
+            if (deletedTransactions.isNotEmpty()) tables.transactions.upsert(stamp(deletedTransactions, true))
+        }
+        onLocalChange()
+    }
+
+    suspend fun saveLoan(l: LoanEntity) = write(tables.loans, listOf(l))
+    suspend fun saveDeposit(d: DepositEntity) = write(tables.deposits, listOf(d))
+    suspend fun deleteLoan(id: String) = db.loans().find(id)?.let { write(tables.loans, listOf(it), deleted = true) }
+    suspend fun deleteDeposit(id: String) = db.deposits().find(id)?.let { write(tables.deposits, listOf(it), deleted = true) }
 
     /** Saves a debt and, optionally, the money movement linked to it, atomically. */
     suspend fun saveDebt(d: DebtEntity, move: TransactionEntity?) = db.withTransaction {
@@ -193,7 +235,7 @@ class Repository(
      * is already newer wins. Safe to run on every start.
      */
     suspend fun promoteRawRecords(): Int {
-        var moved = 0
+        var moved = promoteTransactionExtras()
         for (t in tables.typed) {
             val raws = db.raw().ofEntity(t.entity)
             if (raws.isEmpty()) continue
@@ -203,6 +245,19 @@ class Repository(
             }
         }
         return moved
+    }
+
+    /**
+     * Version 2 kept loan_id, deposit_id and part in a transaction's extras.
+     * Decoding the row again moves them into their columns; HLC and dirty
+     * state are kept, so nothing is re-synced.
+     */
+    private suspend fun promoteTransactionExtras(): Int {
+        val rows = db.transactions().withLinkExtras().filter { it.loanId == null && it.depositId == null && it.part == null }
+        val fixed = rows.map { tables.transactions.fromWire(tables.transactions.toWire(it), it.dirty) }
+            .filter { it.loanId != null || it.depositId != null || it.part != null }
+        if (fixed.isNotEmpty()) db.withTransaction { tables.transactions.upsert(fixed) }
+        return fixed.size
     }
 
     private suspend fun <T : Synced<T>> promote(t: SyncTable<T>, raw: app.kosh.data.db.RawRecordEntity): Boolean {

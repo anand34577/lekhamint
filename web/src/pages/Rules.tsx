@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { api, type BatchOp, type Rule } from '../lib/api'
-import { useAccounts, useCategorizationRules, useCategoryIndex, useLedger, useTagIndex, useWrite, type WithId } from '../lib/data'
+import { useAccounts, useCategorizationRules, useCategoryIndex, useLedger, useTagIndex, useStableId, useWrite, type WithId } from '../lib/data'
 import { describeRule, ruleMatches, type RuleRec } from '../lib/rules'
 import { parseMoney, toPlain } from '../lib/money'
 import { Card, Empty, Field, Modal, errorText, toast } from '../components'
@@ -63,6 +63,7 @@ function RuleForm({ rule, nextOrder, onClose }: { rule?: WithId<Rule>; nextOrder
   const cats = useCategoryIndex()
   const accounts = useAccounts()
   const write = useWrite()
+  const newId = useStableId()
   const [pattern, setPattern] = useState(rule?.pattern ?? '')
   const [field, setField] = useState<Rule['match_field']>(rule?.match_field ?? 'payee')
   const [how, setHow] = useState<Rule['match_type']>(rule?.match_type ?? 'contains')
@@ -98,7 +99,7 @@ function RuleForm({ rule, nextOrder, onClose }: { rule?: WithId<Rule>; nextOrder
     if (v) return setErr(v)
     setBusy(true); setErr('')
     try {
-      const rec = await write.save.mutateAsync({ entity: 'rules', id: rule?.id, data: build() })
+      const rec = await write.save.mutateAsync({ entity: 'rules', id: rule?.id, newId, data: build() })
       if (applyPast) {
         const r = { ...build(), id: rec.id, created_at: 0, enabled: true } as RuleRec
         const ops: BatchOp[] = []
