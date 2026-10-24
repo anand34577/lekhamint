@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="add_expense" android:enabled="true" android:icon="@drawable/ic_shortcut_add"
+        android:shortcutShortLabel="@string/shortcut_expense">
+        <intent android:action="app.kosh.action.ADD" android:targetPackage="app.kosh" android:targetClass="app.kosh.MainActivity">
+            <extra android:name="type" android:value="expense" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="add_income" android:enabled="true" android:icon="@drawable/ic_shortcut_add"
+        android:shortcutShortLabel="@string/shortcut_income">
+        <intent android:action="app.kosh.action.ADD" android:targetPackage="app.kosh" android:targetClass="app.kosh.MainActivity">
+            <extra android:name="type" android:value="income" />
+        </intent>
+    </shortcut>
+    <shortcut android:shortcutId="add_transfer" android:enabled="true" android:icon="@drawable/ic_shortcut_add"
+        android:shortcutShortLabel="@string/shortcut_transfer">
+        <intent android:action="app.kosh.action.ADD" android:targetPackage="app.kosh" android:targetClass="app.kosh.MainActivity">
+            <extra android:name="type" android:value="transfer" />
+        </intent>
+    </shortcut>
+</shortcuts>

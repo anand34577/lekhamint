@@ -1,0 +1,108 @@
+{
+  "format": "kosh-default-categories",
+  "version": 1,
+  "note": "Canonical default categories for every Kosh client. Icon keys map to each platform's icon set. See docs/02-expense-domain.md section 10.",
+  "expense": [
+    { "name": "Housing", "icon": "home", "color": "#8D6E63", "nature": "need", "children": [
+      { "name": "Rent", "icon": "key" },
+      { "name": "Mortgage interest", "icon": "bank" },
+      { "name": "Maintenance & repairs", "icon": "tools" },
+      { "name": "Property tax", "icon": "receipt" },
+      { "name": "Society / HOA fees", "icon": "apartment" }
+    ]},
+    { "name": "Utilities", "icon": "bolt", "color": "#FFB300", "nature": "need", "children": [
+      { "name": "Electricity", "icon": "bolt" },
+      { "name": "Water", "icon": "water" },
+      { "name": "Gas", "icon": "flame" },
+      { "name": "Internet", "icon": "wifi" },
+      { "name": "Mobile", "icon": "phone" },
+      { "name": "TV / DTH", "icon": "tv" }
+    ]},
+    { "name": "Food", "icon": "restaurant", "color": "#EF6C00", "nature": "need", "children": [
+      { "name": "Groceries", "icon": "cart" },
+      { "name": "Dining out", "icon": "restaurant", "nature": "want" },
+      { "name": "Food delivery", "icon": "delivery", "nature": "want" },
+      { "name": "Coffee & snacks", "icon": "coffee", "nature": "want" }
+    ]},
+    { "name": "Transport", "icon": "car", "color": "#1E88E5", "nature": "need", "children": [
+      { "name": "Fuel", "icon": "fuel" },
+      { "name": "Public transport", "icon": "bus" },
+      { "name": "Taxi & ride-hailing", "icon": "taxi" },
+      { "name": "Parking & tolls", "icon": "parking" },
+      { "name": "Vehicle service", "icon": "tools" },
+      { "name": "Vehicle insurance", "icon": "shield" }
+    ]},
+    { "name": "Health", "icon": "health", "color": "#E53935", "nature": "need", "children": [
+      { "name": "Doctor", "icon": "stethoscope" },
+      { "name": "Pharmacy", "icon": "pill" },
+      { "name": "Health insurance", "icon": "shield" },
+      { "name": "Fitness", "icon": "fitness", "nature": "want" }
+    ]},
+    { "name": "Personal care", "icon": "spa", "color": "#D81B60", "nature": "want", "children": [
+      { "name": "Salon & grooming", "icon": "scissors" },
+      { "name": "Toiletries", "icon": "soap", "nature": "need" }
+    ]},
+    { "name": "Shopping", "icon": "bag", "color": "#8E24AA", "nature": "want", "children": [
+      { "name": "Clothing", "icon": "shirt" },
+      { "name": "Electronics", "icon": "devices" },
+      { "name": "Home & furniture", "icon": "sofa" },
+      { "name": "Household supplies", "icon": "broom", "nature": "need" }
+    ]},
+    { "name": "Entertainment", "icon": "movie", "color": "#5E35B1", "nature": "want", "children": [
+      { "name": "Movies & events", "icon": "ticket" },
+      { "name": "Subscriptions", "icon": "repeat" },
+      { "name": "Hobbies", "icon": "palette" },
+      { "name": "Games", "icon": "gamepad" }
+    ]},
+    { "name": "Travel", "icon": "plane", "color": "#00ACC1", "nature": "want", "children": [
+      { "name": "Flights & trains", "icon": "plane" },
+      { "name": "Hotels", "icon": "bed" },
+      { "name": "Activities", "icon": "map" },
+      { "name": "Visa & forex", "icon": "passport" }
+    ]},
+    { "name": "Education", "icon": "school", "color": "#3949AB", "nature": "need", "children": [
+      { "name": "Tuition", "icon": "school" },
+      { "name": "Books", "icon": "book" },
+      { "name": "Courses", "icon": "laptop" }
+    ]},
+    { "name": "Family & kids", "icon": "family", "color": "#F4511E", "nature": "need", "children": [
+      { "name": "Childcare", "icon": "baby" },
+      { "name": "School fees", "icon": "school" },
+      { "name": "Toys", "icon": "toy", "nature": "want" },
+      { "name": "Allowance", "icon": "wallet" }
+    ]},
+    { "name": "Pets", "icon": "paw", "color": "#6D4C41", "nature": "need", "children": [
+      { "name": "Pet food", "icon": "bowl" },
+      { "name": "Vet", "icon": "stethoscope" },
+      { "name": "Pet grooming", "icon": "scissors", "nature": "want" }
+    ]},
+    { "name": "Gifts & donations", "icon": "gift", "color": "#C0CA33", "nature": "want", "children": [
+      { "name": "Gifts", "icon": "gift" },
+      { "name": "Charity", "icon": "heart" },
+      { "name": "Religious offerings", "icon": "temple" }
+    ]},
+    { "name": "Financial", "icon": "bank", "color": "#546E7A", "nature": "need", "children": [
+      { "name": "Bank fees", "icon": "bank" },
+      { "name": "Interest & fees", "icon": "percent" },
+      { "name": "Taxes", "icon": "receipt" },
+      { "name": "Life insurance", "icon": "shield", "nature": "savings" }
+    ]},
+    { "name": "Business", "icon": "briefcase", "color": "#455A64", "children": [
+      { "name": "Office supplies", "icon": "paperclip" },
+      { "name": "Software", "icon": "code" },
+      { "name": "Business travel", "icon": "plane" }
+    ]},
+    { "name": "Miscellaneous", "icon": "dots", "color": "#9E9E9E", "children": [] }
+  ],
+  "income": [
+    { "name": "Salary", "icon": "briefcase", "color": "#43A047", "children": [] },
+    { "name": "Business & freelance", "icon": "laptop", "color": "#2E7D32", "children": [] },
+    { "name": "Interest", "icon": "percent", "color": "#00897B", "children": [] },
+    { "name": "Dividends", "icon": "chart", "color": "#00796B", "children": [] },
+    { "name": "Rental income", "icon": "home", "color": "#689F38", "children": [] },
+    { "name": "Gifts received", "icon": "gift", "color": "#7CB342", "children": [] },
+    { "name": "Cashback & rewards", "icon": "star", "color": "#9CCC65", "children": [] },
+    { "name": "Refunds & reimbursements", "icon": "undo", "color": "#26A69A", "children": [] },
+    { "name": "Other income", "icon": "plus", "color": "#81C784", "children": [] }
+  ]
+}

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">LekhaMint</string>
+    <string name="tile_add">Add expense</string>
+    <string name="shortcut_expense">Add expense</string>
+    <string name="shortcut_income">Add income</string>
+    <string name="shortcut_transfer">Transfer</string>
+    <string name="widget_name">Spending this month</string>
+    <string name="widget_description">Month-to-date spending, money available, and one tap to add an expense.</string>
+    <string name="widget_spent_label">Spent this month</string>
+</resources>

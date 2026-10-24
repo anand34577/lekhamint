@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home-screen widget (RemoteViews cannot use Compose theme colours). -->
+    <color name="widget_surface">#FFF7FAF9</color>
+    <color name="widget_on_surface">#FF16201E</color>
+    <color name="widget_muted">#FF5A6764</color>
+    <color name="widget_brand">#FF0F766E</color>
+    <color name="widget_on_brand">#FFFFFFFF</color>
+</resources>

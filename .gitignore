@@ -1,0 +1,33 @@
+# Server
+server/data/
+server/dist/
+*.db
+*.db-wal
+*.db-shm
+*.db.pre-restore-*
+*.ndjson.gz
+*.partial
+
+# Android
+android/.gradle/
+android/build/
+android/**/build/
+android/local.properties
+*.keystore
+*.jks
+android/keystore.properties
+
+# Web
+web/node_modules/
+web/dist/
+
+# Local launchers / editors
+*.cmd
+.idea/
+.vscode/
+.DS_Store
+.kotlin/
+
+# Private working notes and generated release output
+HANDOFF.md
+out/
