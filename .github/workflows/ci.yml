@@ -18,6 +18,8 @@ jobs:
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - run: go vet ./...
       - run: go test ./... -count=1
+      - name: Cross-compile every release target
+        run: make release VERSION=ci
 
   server-postgres:
     name: Server (PostgreSQL 17)

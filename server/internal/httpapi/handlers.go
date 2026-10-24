@@ -494,19 +494,19 @@ func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
 	if limit == 0 {
 		limit = 100
 	}
-	minAmount, err := queryInt(r, "min_amount", 0, 1<<53)
+	minAmount, err := queryAmount(r, "min_amount")
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	maxAmount, err := queryInt(r, "max_amount", 0, 1<<53)
+	maxAmount, err := queryAmount(r, "max_amount")
 	if err != nil {
 		s.fail(w, r, err)
 		return
 	}
 	list, next, err := store.ListTransactions(r.Context(), s.DB, lid, store.TxFilter{
 		From: from, To: to, AccountID: q.Get("account_id"), CategoryID: q.Get("category_id"),
-		TagID: q.Get("tag_id"), DebtID: q.Get("debt_id"), MinAmount: int64(minAmount), MaxAmount: int64(maxAmount),
+		TagID: q.Get("tag_id"), DebtID: q.Get("debt_id"), MinAmount: minAmount, MaxAmount: maxAmount,
 		Type: q.Get("type"), Status: q.Get("status"), Query: q.Get("q"),
 		Deleted: q.Get("deleted") == "true", Cursor: q.Get("cursor"), Limit: limit,
 	})
