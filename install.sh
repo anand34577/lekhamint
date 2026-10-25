@@ -18,7 +18,6 @@
 set -eu
 
 REPO="anand34577/lekhamint"
-RAW="${LEKHAMINT_RAW_BASE:-https://raw.githubusercontent.com/$REPO/main}"
 PORT=8080
 VERSION=""
 MODE="binary"
@@ -203,6 +202,7 @@ fetch_binary() {
   if [ -n "${LEKHAMINT_DOWNLOAD_BASE:-}" ]; then
     base="${LEKHAMINT_DOWNLOAD_BASE%/}" # a mirror
     case "$base" in
+      http://127.0.0.1|http://127.0.0.1[:/]*|http://localhost|http://localhost[:/]*) ;; # this machine only: nothing on the wire
       http://*) die "LEKHAMINT_DOWNLOAD_BASE must start with https:// (plain http can be tampered with)" ;;
       https://*) ;;
       *) die "LEKHAMINT_DOWNLOAD_BASE must be an https:// URL" ;;

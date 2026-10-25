@@ -140,12 +140,10 @@ jobs:
           (cd server && CGO_ENABLED=0 go build -ldflags "-X main.version=ci" -o /tmp/rel/lekhamint-linux-amd64 ./cmd/lekhamint)
           (cd /tmp/rel && sha256sum * > SHA256SUMS.txt)
           nohup python3 -m http.server 8777 --directory /tmp/rel > /dev/null 2>&1 &
-          nohup python3 -m http.server 8778 --directory "$PWD" > /dev/null 2>&1 &
           sleep 1
       - name: Install, upgrade, uninstall
         env:
           LEKHAMINT_DOWNLOAD_BASE: http://127.0.0.1:8777
-          LEKHAMINT_RAW_BASE: http://127.0.0.1:8778
         run: |
           sh install.sh --yes --port 8085
           curl -fsS localhost:8085/healthz
