@@ -171,6 +171,19 @@ func cmdDemo(args []string) error {
 		return err
 	}
 	defer os.RemoveAll(dir)
+	// The demo's sign-in is publicly known, so it listens on loopback only
+	// unless the person running it asks for something else.
+	if os.Getenv("LEKHAMINT_ADDR") == "" {
+		addrSet := false
+		for _, a := range args {
+			if a == "--addr" || a == "-addr" || strings.HasPrefix(a, "--addr=") || strings.HasPrefix(a, "-addr=") {
+				addrSet = true
+			}
+		}
+		if !addrSet {
+			args = append(args, "--addr", "127.0.0.1:8080")
+		}
+	}
 	args = append([]string{"--data-dir", dir, "--backup-interval", "0"}, args...)
 	cfg, d, log, err := setup("demo", args, nil)
 	if err != nil {
@@ -219,7 +232,8 @@ func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.C
 	}
 	if cfg.OIDCIssuer != "" {
 		api.OIDC = &oidc.Client{Config: oidc.Config{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret,
-			RedirectURL: cfg.PublicURL + "/api/v1/auth/oidc/callback", Scopes: cfg.OIDCScopes, DisplayName: cfg.OIDCName}}
+			RedirectURL: cfg.PublicURL + "/api/v1/auth/oidc/callback", Scopes: cfg.OIDCScopes, DisplayName: cfg.OIDCName,
+			AllowUnverifiedEmail: cfg.OIDCAllowUnverifiedMail}}
 		api.OIDCAutoCreate, api.OIDCOnly = cfg.OIDCAutoCreate, cfg.OIDCOnly
 		log.Info("single sign-on enabled", "issuer", cfg.OIDCIssuer, "redirect_url", api.OIDC.RedirectURL, "password_login", !cfg.OIDCOnly)
 		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
@@ -278,7 +292,7 @@ func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.C
 func buildNotifier(cfg *config.Config) *notify.Notifier {
 	n := &notify.Notifier{}
 	if cfg.SMTPHost != "" {
-		n.SMTP = &notify.SMTPConfig{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUser, Password: cfg.SMTPPassword, From: cfg.SMTPFrom, Security: cfg.SMTPSecurity}
+		n.SMTP = &notify.SMTPConfig{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUser, Password: cfg.SMTPPassword, From: cfg.SMTPFrom, Security: cfg.SMTPSecurity, SkipVerify: cfg.SMTPSkipVerify}
 	}
 	if cfg.GotifyURL != "" {
 		n.Gotify = &notify.GotifyConfig{URL: cfg.GotifyURL}

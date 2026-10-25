@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"math"
 	"math/big"
 	"sort"
 
@@ -95,6 +96,14 @@ func ConvertMinor(amount int64, from, to string, rate *big.Rat) int64 {
 		} else {
 			q.Add(q, big.NewInt(1))
 		}
+	}
+	// A user-entered rate can make the result exceed int64; saturate instead of
+	// silently wrapping around.
+	if !q.IsInt64() {
+		if q.Sign() < 0 {
+			return math.MinInt64
+		}
+		return math.MaxInt64
 	}
 	return q.Int64()
 }

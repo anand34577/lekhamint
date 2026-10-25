@@ -5,6 +5,7 @@ package syncer
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -40,6 +41,10 @@ type Change struct {
 	HLC     string         `json:"hlc"`
 	Deleted bool           `json:"deleted"`
 	Data    map[string]any `json:"data"`
+	// Base is the version of the record the device last saw from the server,
+	// when it knows it. It lets a stale edit be merged field by field
+	// instead of being dropped whole; without it the change is last-writer-wins.
+	Base map[string]any `json:"base,omitempty"`
 }
 
 // Rejection explains why a change was not applied. The client should surface
@@ -123,6 +128,10 @@ func (s *Service) apply(ctx context.Context, q db.Querier, ledgerID string, ch C
 			// Same write pushed again (for example after a lost response).
 			return accepted, existing, nil
 		case existing.HLC > ch.HLC:
+			// An older edit still carries changes the newer one did not touch.
+			if merged, ok := s.mergeStale(ctx, q, spec, ledgerID, existing, ch, seq); ok {
+				return conflicted, merged, nil
+			}
 			return conflicted, existing, nil
 		}
 	}
@@ -161,6 +170,54 @@ func (s *Service) apply(ctx context.Context, q db.Querier, ledgerID string, ch C
 	}
 	s.Clock.Observe(ch.HLC)
 	return accepted, rec, nil
+}
+
+// sameValue compares two decoded values the way they would look on the wire.
+func sameValue(a, b any) bool {
+	x, _ := json.Marshal(a)
+	y, _ := json.Marshal(b)
+	return string(x) == string(y)
+}
+
+// mergeStale is the three-way merge for an edit that lost the race: with the
+// version the device started from (ch.Base), a field it changed is taken when
+// nobody else changed it since, and every other field keeps the newer value.
+// Fields both sides changed go to the newer write, as before. It reports false
+// when there is nothing to take (or no base to compare), so the caller falls
+// back to plain last-writer-wins.
+func (s *Service) mergeStale(ctx context.Context, q db.Querier, spec *entity.Spec, ledgerID string, existing store.Record, ch Change, seq *int64) (store.Record, bool) {
+	if ch.Base == nil || ch.Deleted || existing.Deleted {
+		return store.Record{}, false
+	}
+	merged := map[string]any{}
+	for k, v := range existing.Data {
+		merged[k] = v
+	}
+	took := false
+	for k, inc := range ch.Data {
+		if sameValue(inc, ch.Base[k]) || !sameValue(existing.Data[k], ch.Base[k]) {
+			continue // the device did not change it, or the server changed it too
+		}
+		merged[k] = inc
+		took = true
+	}
+	if !took {
+		return store.Record{}, false
+	}
+	data, err := spec.Normalize(merged)
+	if err != nil {
+		return store.Record{}, false
+	}
+	// The merged record must beat both versions it came from.
+	s.Clock.Observe(existing.HLC)
+	s.Clock.Observe(ch.HLC)
+	*seq++
+	rec := store.Record{Entity: spec.Name, ID: existing.ID, HLC: s.Clock.Now(), Seq: *seq, Data: data}
+	if err := store.PutRecord(ctx, q, spec, ledgerID, rec); err != nil {
+		*seq--
+		return store.Record{}, false
+	}
+	return rec, true
 }
 
 // Push applies a batch of client changes atomically. Invalid changes are

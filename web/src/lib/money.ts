@@ -63,7 +63,10 @@ export function compactMoney(minor: number, code: string): string {
 
 /** Parses "1,250.50" into minor units, rounding half-up; null if invalid. */
 export function parseMoney(text: string, code: string): number | null {
-  const clean = text.trim().replace(/[,\s_]/g, '')
+  // "12,50" is twelve and a half: a lone comma with one or two digits after it (and no dot) can't be thousands grouping.
+  let t = text.trim().replace(/[\s_]/g, '')
+  if (!t.includes('.') && /^[^,]*,\d{1,2}$/.test(t)) t = t.replace(',', '.')
+  const clean = t.replace(/,/g, '')
   if (!/^-?\d*\.?\d*$/.test(clean) || clean === '' || clean === '-' || clean === '.') return null
   const neg = clean.startsWith('-')
   const [i, f = ''] = clean.replace('-', '').split('.')

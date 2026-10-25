@@ -65,7 +65,10 @@ export function rdValue(inst: number, rate: string, start: string, end: string, 
   let deposited = 0, value = 0, instalments = 0
   for (let k = 0; k < Math.max(1, total); k++) {
     const paidOn = addMonths(start, k)
-    if (paidOn > asOf || paidOn >= end) break
+    // An instalment paid on the maturity date itself is the last one: it
+    // counts toward the deposited sum (paidOn == end passes; paidOn > end
+    // means the schedule ran past maturity).
+    if (paidOn > asOf || paidOn > end) break
     instalments++
     deposited += inst
     const until = asOf < end ? asOf : end

@@ -16,6 +16,9 @@ describe('money', () => {
   })
   it('parses exactly, without float drift', () => {
     expect(parseMoney('1,250.50', 'INR')).toBe(125050)
+    expect(parseMoney('12,50', 'EUR')).toBe(1250)
+    expect(parseMoney('1,250', 'INR')).toBe(125000)
+    expect(parseMoney('1,50,000', 'INR')).toBe(15000000)
     expect(parseMoney('0.1', 'USD')).toBe(10)
     expect(parseMoney('19.999', 'USD')).toBe(2000)
     expect(parseMoney('1500', 'JPY')).toBe(1500)
@@ -60,5 +63,17 @@ describe('ids', () => {
     const a = uuidv7(1_700_000_000_000), c = uuidv7(1_700_000_000_001)
     expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
     expect(a < c).toBe(true)
+  })
+})
+
+import { daysBetween, nextDayOfMonth } from './util'
+describe('card due dates', () => {
+  it('finds the next due date, clamping short months', () => {
+    expect(nextDayOfMonth('2026-10-25', 28)).toBe('2026-10-28')
+    expect(nextDayOfMonth('2026-10-25', 25)).toBe('2026-10-25')
+    expect(nextDayOfMonth('2026-10-26', 25)).toBe('2026-11-25')
+    expect(nextDayOfMonth('2026-02-10', 31)).toBe('2026-02-28')
+    expect(nextDayOfMonth('2026-12-30', 5)).toBe('2027-01-05')
+    expect(daysBetween('2026-10-25', '2026-10-28')).toBe(3)
   })
 })

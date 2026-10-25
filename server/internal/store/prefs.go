@@ -16,6 +16,10 @@ type Prefs struct {
 	EvSecurity   bool   `json:"ev_security"`
 	EvDue        bool   `json:"ev_due"`
 	EvBudget     bool   `json:"ev_budget"`
+	// AiAPIKey is the person's own key for a model they connect to from the
+	// browser. Stored server-side so it never sits in the browser's storage;
+	// returned only to its owner.
+	AiAPIKey string `json:"-"`
 }
 
 // DefaultPrefs are used until a person saves their own.
@@ -23,12 +27,12 @@ func DefaultPrefs(userID string) Prefs {
 	return Prefs{UserID: userID, EvSecurity: true, EvDue: true, EvBudget: true}
 }
 
-const prefCols = "notify_email, notify_gotify, gotify_token, ev_security, ev_due, ev_budget"
+const prefCols = "notify_email, notify_gotify, gotify_token, ev_security, ev_due, ev_budget, ai_api_key"
 
 func scanPrefs(userID string, sc interface{ Scan(...any) error }) (Prefs, error) {
 	p := Prefs{UserID: userID}
 	var e, g, s, d, b int64
-	if err := sc.Scan(&e, &g, &p.GotifyToken, &s, &d, &b); err != nil {
+	if err := sc.Scan(&e, &g, &p.GotifyToken, &s, &d, &b, &p.AiAPIKey); err != nil {
 		return p, err
 	}
 	p.NotifyEmail, p.NotifyGotify, p.EvSecurity, p.EvDue, p.EvBudget = e != 0, g != 0, s != 0, d != 0, b != 0
@@ -46,11 +50,11 @@ func GetPrefs(ctx context.Context, q db.Querier, userID string) (Prefs, error) {
 
 // PutPrefs saves preferences (insert or replace).
 func PutPrefs(ctx context.Context, q db.Querier, p Prefs) error {
-	_, err := q.ExecContext(ctx, `INSERT INTO user_prefs (user_id, `+prefCols+`, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	_, err := q.ExecContext(ctx, `INSERT INTO user_prefs (user_id, `+prefCols+`, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (user_id) DO UPDATE SET notify_email = excluded.notify_email, notify_gotify = excluded.notify_gotify,
 		gotify_token = excluded.gotify_token, ev_security = excluded.ev_security, ev_due = excluded.ev_due,
-		ev_budget = excluded.ev_budget, updated_at = excluded.updated_at`,
-		p.UserID, boolInt(p.NotifyEmail), boolInt(p.NotifyGotify), p.GotifyToken, boolInt(p.EvSecurity), boolInt(p.EvDue), boolInt(p.EvBudget),
+		ev_budget = excluded.ev_budget, ai_api_key = excluded.ai_api_key, updated_at = excluded.updated_at`,
+		p.UserID, boolInt(p.NotifyEmail), boolInt(p.NotifyGotify), p.GotifyToken, boolInt(p.EvSecurity), boolInt(p.EvDue), boolInt(p.EvBudget), p.AiAPIKey,
 		time.Now().UnixMilli())
 	return err
 }
@@ -67,13 +71,24 @@ func EachPrefs(ctx context.Context, q db.Querier) ([]Prefs, error) {
 		var id string
 		var p Prefs
 		var e, g, s, d, b int64
-		if err := rows.Scan(&id, &e, &g, &p.GotifyToken, &s, &d, &b); err != nil {
+		if err := rows.Scan(&id, &e, &g, &p.GotifyToken, &s, &d, &b, &p.AiAPIKey); err != nil {
 			return nil, err
 		}
 		p.UserID, p.NotifyEmail, p.NotifyGotify, p.EvSecurity, p.EvDue, p.EvBudget = id, e != 0, g != 0, s != 0, d != 0, b != 0
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// SetAiAPIKey saves (or, with "", clears) the person's assistant API key
+// without touching their notification choices.
+func SetAiAPIKey(ctx context.Context, q db.Querier, userID, key string) error {
+	p, err := GetPrefs(ctx, q, userID)
+	if err != nil {
+		return err
+	}
+	p.AiAPIKey = key
+	return PutPrefs(ctx, q, p)
 }
 
 // ClaimNotice records that a reminder was sent and reports whether this call

@@ -68,13 +68,13 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !id.EmailVerified {
-		fail("Your email address is not verified at the identity provider.")
+		fail("Your email address is not verified at the identity provider. Administrators of providers that never send the claim can set LEKHAMINT_OIDC_ALLOW_UNVERIFIED_EMAIL=true.")
 		return
 	}
-	u, token, err := s.Auth.SSOLogin(r.Context(), id.Email, id.Name, device, s.OIDCAutoCreate)
+	u, token, err := s.Auth.SSOLogin(r.Context(), id.Email, id.Name, id.Subject, device, s.OIDCAutoCreate)
 	if err != nil {
 		switch {
-		case errors.Is(err, auth.ErrSSOClosed), errors.Is(err, auth.ErrAccountDisabled), errors.Is(err, auth.ErrInvalidEmail):
+		case errors.Is(err, auth.ErrSSOClosed), errors.Is(err, auth.ErrAccountDisabled), errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrSSOMismatch):
 			fail(err.Error())
 		default:
 			s.Log.Error("single sign-on account failed", "err", err)
@@ -109,6 +109,7 @@ func (s *Server) oidcExchange(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.setSessionCookie(w, r, token)
 	writeJSON(w, http.StatusOK, map[string]any{"user": u, "token": token})
 }
 

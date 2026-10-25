@@ -39,7 +39,7 @@ function DemoBanner() {
 
 if (DEMO) {
   // Every page load starts a fresh in-browser server, so an old sign-in is meaningless.
-  session.token = null
+  session.end()
   document.documentElement.classList.add('demo')
   const splash = (html: string) => root.render(<div className="splash" dangerouslySetInnerHTML={{ __html: html }} />)
   splash('<p>Starting the demo…</p>')

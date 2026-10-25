@@ -48,6 +48,7 @@ type Server struct {
 	Notice *notify.Dispatcher
 
 	authLimiter *rateLimiter
+	aiLimiter   *rateLimiter
 }
 
 // Body size limits.
@@ -61,6 +62,11 @@ func (s *Server) Handler() http.Handler {
 	if s.authLimiter == nil {
 		// 10 attempts per minute per IP, bursts of 10.
 		s.authLimiter = newRateLimiter(10, time.Minute)
+	}
+	if s.aiLimiter == nil {
+		// 30 assistant questions per minute per signed-in person, so one
+		// account cannot spend the server's model budget unbounded.
+		s.aiLimiter = newRateLimiter(30, time.Minute)
 	}
 	mux := http.NewServeMux()
 	public := func(pattern string, h http.HandlerFunc) { mux.Handle(pattern, h) }
@@ -86,6 +92,10 @@ func (s *Server) Handler() http.Handler {
 	private("GET /api/v1/notifications", s.getPrefs)
 	private("PUT /api/v1/notifications", s.putPrefs)
 	private("POST /api/v1/notifications/test", s.limited(s.testNotification))
+
+	private("GET /api/v1/ai/key", s.getAiKey)
+	private("PUT /api/v1/ai/key", s.putAiKey)
+	private("DELETE /api/v1/ai/key", s.deleteAiKey)
 
 	private("GET /api/v1/ledgers", s.listLedgers)
 	private("POST /api/v1/ledgers", s.createLedger)
@@ -145,7 +155,19 @@ const (
 	userKey ctxKey = iota
 	sessionKey
 	requestIDKey
+	cookieAuthKey
 )
+
+// SessionCookie is the HttpOnly cookie the web app signs in with. The Android
+// app keeps using the Authorization header; the cookie exists so a browser
+// never has to keep the session token in localStorage, where any script on the
+// page could read it.
+const SessionCookie = "kosh_session"
+
+// ClientHeader marks requests the web app makes. Cross-site forms and simple
+// requests cannot set a custom header, so its presence on cookie-authenticated
+// writes is the CSRF defence (together with SameSite=Strict).
+const ClientHeader = "X-Kosh-Client"
 
 func currentUser(r *http.Request) store.User {
 	u, _ := r.Context().Value(userKey).(store.User)
@@ -157,20 +179,67 @@ func currentSession(r *http.Request) store.Session {
 	return s
 }
 
+// bearerToken reads the session token from the Authorization header or, for
+// browsers, the session cookie.
+func bearerToken(r *http.Request) (token string, viaCookie bool) {
+	if tok, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+		return strings.TrimSpace(tok), false
+	}
+	if c, err := r.Cookie(SessionCookie); err == nil && c.Value != "" {
+		return c.Value, true
+	}
+	return "", false
+}
+
+// setSessionCookie issues the HttpOnly session cookie. Secure is set whenever
+// the request came over TLS or is a loopback address (a secure context), so a
+// plain-HTTP LAN deployment still works.
+func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: SessionCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		MaxAge: int(s.Auth.SessionTTL.Seconds()), Secure: r.TLS != nil || isLoopback(r.Host),
+	})
+}
+
+func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name: SessionCookie, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
+		MaxAge: -1, Secure: r.TLS != nil || isLoopback(r.Host),
+	})
+}
+
+func isLoopback(hostPort string) bool {
+	host, _, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		host = hostPort
+	}
+	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
 func (s *Server) requireAuth(next http.HandlerFunc) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if !ok {
+		token, viaCookie := bearerToken(r)
+		if token == "" {
 			writeError(w, http.StatusUnauthorized, "unauthenticated", "missing bearer token", nil)
 			return
 		}
-		u, sess, err := s.Auth.Authenticate(r.Context(), strings.TrimSpace(token))
+		if viaCookie && r.Method != http.MethodGet && r.Method != http.MethodHead && r.Header.Get(ClientHeader) == "" {
+			// A cookie-authenticated write without the web client header is
+			// either a CSRF attempt or a non-web client that should use the
+			// bearer token instead.
+			writeError(w, http.StatusUnauthorized, "unauthenticated", "missing "+ClientHeader+" header", nil)
+			return
+		}
+		u, sess, err := s.Auth.Authenticate(r.Context(), token)
 		if err != nil {
 			s.fail(w, r, err)
 			return
 		}
 		ctx := context.WithValue(r.Context(), userKey, u)
 		ctx = context.WithValue(ctx, sessionKey, sess)
+		if viaCookie {
+			ctx = context.WithValue(ctx, cookieAuthKey, true)
+		}
 		next(w, r.WithContext(ctx))
 	})
 }
@@ -189,8 +258,13 @@ func (s *Server) limited(next http.HandlerFunc) http.HandlerFunc {
 func (s *Server) clientIP(r *http.Request) string {
 	if s.TrustProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			first, _, _ := strings.Cut(xff, ",")
-			return strings.TrimSpace(first)
+			// Our one trusted proxy appends the address it saw; anything to the
+			// left of it was supplied by the client and can be forged.
+			parts := strings.Split(xff, ",")
+			last := strings.TrimSpace(parts[len(parts)-1])
+			if last != "" {
+				return last
+			}
 		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)

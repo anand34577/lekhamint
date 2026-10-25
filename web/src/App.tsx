@@ -1,6 +1,7 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, session, setUnauthorizedHandler, type Ledger } from './lib/api'
+import { DEMO } from './lib/demo'
 import { LedgerContext } from './lib/data'
 import { defaultCurrency } from './lib/money'
 import { CurrencySelect, ErrorBoundary, Field, HideAmounts, Kbd, Skeleton, Toaster, errorText } from './components'
@@ -90,9 +91,15 @@ function pref(key: string, fallback: string) { try { return localStorage.getItem
 function setPref(key: string, v: string) { try { localStorage.setItem(key, v) } catch { /* ignore */ } }
 
 export function App() {
-  const [authed, setAuthed] = useState(() => !!session.token)
+  // Unknown until the first /auth/me answers: the session lives in an HttpOnly
+  // cookie, so the presence of a session cannot be checked synchronously.
+  const [authed, setAuthed] = useState<boolean | null>(null)
   const qc = useQueryClient()
-  useEffect(() => setUnauthorizedHandler(() => { qc.clear(); setAuthed(false) }), [qc])
+  useEffect(() => setUnauthorizedHandler(() => { qc.clear(); session.end(); setAuthed(false) }), [qc])
+  useEffect(() => {
+    if (DEMO) { setAuthed(false); return } // the demo shows its own login
+    api.me().then(() => { session.start(); setAuthed(true) }).catch(() => setAuthed(false))
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
   const [theme, setTheme] = useState(() => pref('kosh.theme', 'system'))
   const [accent, setAccent] = useState(() => pref('kosh.accent', 'teal'))
   useEffect(() => {
@@ -106,8 +113,9 @@ export function App() {
     setPref('kosh.accent', accent)
   }, [accent])
 
+  if (authed === null) return <div className="splash"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="splash-logo" /><span className="muted">Loading…</span></div>
   if (!authed) return <><Login onDone={() => setAuthed(true)} /><Toaster /></>
-  return <Signed theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} onSignOut={() => { session.token = null; qc.clear(); setAuthed(false) }} />
+  return <Signed theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} onSignOut={() => { session.end(); qc.clear(); setAuthed(false) }} />
 }
 
 function Signed({ theme, setTheme, accent, setAccent, onSignOut }: { theme: string; setTheme: (t: string) => void; accent: string; setAccent: (a: string) => void; onSignOut: () => void }) {

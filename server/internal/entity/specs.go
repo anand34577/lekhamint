@@ -60,6 +60,8 @@ var (
 			{Name: "currency", Kind: KCurrency, Required: true},
 			{Name: "opening_balance", Kind: KInt, Default: int64(0), Min: minMoney, Max: maxMoney},
 			{Name: "credit_limit", Kind: KInt, Min: zero, Max: maxMoney},
+			{Name: "statement_day", Kind: KInt, Min: i64(1), Max: i64(31)},
+			{Name: "due_day", Kind: KInt, Min: i64(1), Max: i64(31)},
 			{Name: "color", Kind: KColor},
 			{Name: "icon", Kind: KString, MaxLen: 64},
 			flag("include_in_net_worth", true),

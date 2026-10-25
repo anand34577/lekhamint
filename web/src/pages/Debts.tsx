@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api, type BatchOp, type Debt } from '../lib/api'
 import { useAccounts, useBalances, useCanWrite, useCategories, useDebts, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
-import { allocate, debtStart, interestTotal, isInterest, outstanding, people, personKey, repaid, statement, type DebtRec, type Move, type PersonSummary } from '../lib/debts'
+import { allocate, debtStart, interestTotal, isInterest, isRepayment, outstanding, people, personKey, repaid, statement, type DebtRec, type Move, type PersonSummary } from '../lib/debts'
 import { createOp, interestExpenseCategory, interestIncomeCategory, linkedTxData } from '../lib/links'
 import { formatMoney, parseMoney, toPlain } from '../lib/money'
 import { dayLabel, isoDate, uuidv7 } from '../lib/util'
@@ -10,6 +10,7 @@ import { Avatar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Mone
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
 import { Select, DateField, NumInput } from '../controls'
+import { TxForm } from './Transactions'
 
 /**
  * Lent & borrowed (docs/02 §9). Money that leaves or enters an account is a
@@ -149,12 +150,14 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
   const [amount, setAmount] = useState(debt ? toPlain(debt.amount, debt.currency) : '')
   const [due, setDue] = useState(debt?.due_date ?? '')
   const [note, setNote] = useState(debt?.note ?? '')
-  const [date, setDate] = useState(isoDate())
+  const [date, setDate] = useState(debt ? debtStart(debt, moves) : isoDate())
+  const startDate = useMemo(() => (debt ? debtStart(debt, moves) : ''), []) // eslint-disable-line react-hooks/exhaustive-deps
   const choices = useAccountChoices(cur)
   const [accountId, setAccountId] = useState('')
   const [link, setLink] = useState(!debt)
   const [err, setErr] = useState('')
   const [repay, setRepay] = useState(false)
+  const [editMove, setEditMove] = useState<Move | null>(null)
   const [confirm, setConfirm] = useState<'settle' | 'delete' | null>(null)
   const acct = choices.list.find((a) => a.id === accountId) ?? choices.list[0]
   const left = debt ? outstanding(debt, moves) : 0
@@ -171,16 +174,27 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
     if (write.batch.isPending) return
     if (!person.trim()) return setErr(direction === 'lent' ? 'Who did you lend the money to?' : 'Who did you borrow from?')
     if (!minor || minor <= 0) return setErr('Enter the amount, more than zero')
-    if (debt && minor < paidBack) return setErr(`${formatMoney(paidBack, cur)} has already been repaid, so the amount cannot be less than that. To correct a repayment, open it from the history below and edit or delete it.`)
-    if (due && !debt && due < date) return setErr('The due date is before the date of the loan. Pick a later date or leave it empty.')
+    if (debt && minor < paidBack) return setErr(`${formatMoney(paidBack, cur)} has already been repaid, so the amount cannot be less than that. To correct a repayment, click it in the history below to edit or delete it.`)
+    if (due && due < date) return setErr('The due date is before the date of the loan. Pick a later date or leave it empty.')
     try {
       const data = { person: person.trim(), direction, amount: minor, currency: cur, due_date: due || null, note: note.trim() || null }
-      const ops: BatchOp[] = [debt ? { op: 'update', entity: 'debts', id, data } : createOp('debts', id, { ...data, closed: false, created_at: Date.now() })]
+      // created_at doubles as the date of the loan (midday, so no time zone moves it to another day), which lets older loans be entered with their real date.
+      const startMs = new Date(`${date}T12:00:00`).getTime()
+      const dateChanged = !debt || date !== startDate
+      const ops: BatchOp[] = [debt ? { op: 'update', entity: 'debts', id, data: dateChanged ? { ...data, created_at: startMs } : data } : createOp('debts', id, { ...data, closed: false, created_at: startMs })]
       // Lending takes money out of an account; borrowing puts money in.
       if (!debt && link && acct) ops.push(createOp('transactions', moveId, linkedTxData({
         type: direction === 'borrowed' ? 'income' : 'expense', account_id: acct.id, amount: minor, payee: person.trim(),
         note: direction === 'lent' ? 'Lent' : 'Borrowed', date, debt_id: id, part: 'principal',
       })))
+      // Changing the amount or date of a debt moves its account entry with it, so the balance and the debt never disagree.
+      const principal = debt ? moves.find((m) => !isRepayment(debt, m) && !isInterest(m)) : undefined
+      if (principal && (minor !== debt!.amount || date !== startDate)) {
+        ops.push({ op: 'update', entity: 'transactions', id: principal.id, data: {
+          amount: minor,
+          ...(date !== startDate ? { local_date: date, occurred_at: new Date(`${date}T12:00:00`).getTime() } : {}),
+        } })
+      }
       await write.batch.mutateAsync(ops)
       // A debt fully repaid by editing its amount down is settled.
       if (debt && minor === paidBack && !debt.closed) await write.save.mutateAsync({ entity: 'debts', id, data: { closed: true } })
@@ -216,7 +230,12 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
             <Field label="Currency" hint={debt ? 'Fixed once recorded' : undefined}><CurrencySelect value={cur} onChange={setCur} disabled={!!debt} /></Field>
             <Field label="Due back by (optional)"><DateField value={due} onChange={(e) => setDue(e.target.value)} /></Field>
           </div>
-          <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What it was for, any agreement" maxLength={2000} /></Field>
+          <div className="two">
+            {debt && moves.length > 0
+              ? <Field label={direction === 'lent' ? 'Lent on' : 'Borrowed on'} hint="Taken from its first money movement. Click that movement in the history to change the date."><input value={dayLabel(startDate)} readOnly /></Field>
+              : <Field label={direction === 'lent' ? 'Lent on' : 'Borrowed on'} hint="Pick the real date for an older loan"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>}
+            <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What it was for, any agreement" maxLength={2000} /></Field>
+          </div>
           {!debt && (choices.list.length > 0 ? (
             <div className="subtle-box">
               <Check checked={link} onChange={setLink}>{direction === 'lent' ? 'The money left one of my accounts' : 'The money came into one of my accounts'}</Check>
@@ -224,7 +243,7 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
                 <Field label="Account" hint={balance !== undefined ? <>Balance <Money value={balance} currency={cur} /></> : undefined}>
                   <Select value={acct?.id ?? ''} onChange={(e) => setAccountId(e.target.value)}>{choices.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
                 </Field>
-                <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
+                <p className="muted small" style={{ alignSelf: 'end', margin: 0 }}>The movement is dated {dayLabel(date)}.</p>
               </div>}
               {!link && <p className="muted small">Only the debt is recorded; no account balance changes. Use this for money that moved before you started using LekhaMint.</p>}
               {lowBalance && <p className="warn-text small"><Icon name="alert" size={14} /> This takes {acct!.name} below zero, to {formatMoney(balance! - minor!, cur)}. Check the account, or save anyway if it is right.</p>}
@@ -236,7 +255,8 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
               {moves.length === 0 ? <p className="muted small">No money movements are linked to this debt.</p> : (
                 <ul className="list">
                   {moves.map((m) => (
-                    <li key={m.id}><div className="grow"><div>{isInterest(m) ? (m.part === 'fee' ? 'Fee' : 'Interest') : m.note ?? (m.type === (debt.direction === 'lent' ? 'income' : 'expense') ? 'Repayment' : debt.direction === 'lent' ? 'Lent' : 'Borrowed')}</div>
+                    <li key={m.id} className={can ? 'clickable' : ''} tabIndex={can ? 0 : undefined} title={can ? 'Edit the date, amount or account' : undefined}
+                      onClick={() => can && setEditMove(m)} onKeyDown={(e) => { if (can && e.key === 'Enter') setEditMove(m) }}><div className="grow"><div>{isInterest(m) ? (m.part === 'fee' ? 'Fee' : 'Interest') : m.note ?? (m.type === (debt.direction === 'lent' ? 'income' : 'expense') ? 'Repayment' : debt.direction === 'lent' ? 'Lent' : 'Borrowed')}</div>
                       <div className="sub">{dayLabel(m.local_date)} · {accName(m.account_id)}</div></div>
                       <Money value={m.type === 'income' ? m.amount : -m.amount} currency={debt.currency} signed /></li>
                   ))}
@@ -254,6 +274,7 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
         <Confirm title="Mark as settled?" confirm="Mark settled" onClose={() => setConfirm(null)} onConfirm={settle}
           body={<p><Money value={left} currency={debt.currency} /> is still outstanding. Marking this settled writes that amount off: it stops counting {debt.direction === 'lent' ? 'as owed to you' : 'as what you owe'}, and no money moves. If money was paid, record the repayment instead.</p>} />
       )}
+      {editMove && <TxForm tx={editMove as never} onClose={() => setEditMove(null)} onDelete={can ? async (mid) => { await write.batch.mutateAsync([{ op: 'delete', entity: 'transactions', id: mid }]); setEditMove(null); toast('Movement deleted. Restore it from the Trash.') } : undefined} />}
       {confirm === 'delete' && debt && <DeleteDebt debt={debt} moves={moves} onClose={() => setConfirm(null)} onDone={onClose} />}
     </Modal>
   )

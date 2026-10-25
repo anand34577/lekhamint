@@ -61,7 +61,7 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", err.Error(), nil)
 	case errors.Is(err, auth.ErrSignupClosed):
 		writeError(w, http.StatusForbidden, "signup_closed", err.Error(), nil)
-	case errors.Is(err, auth.ErrSSOClosed), errors.Is(err, auth.ErrAccountDisabled), errors.Is(err, errPasswordOff):
+	case errors.Is(err, auth.ErrSSOClosed), errors.Is(err, auth.ErrAccountDisabled), errors.Is(err, auth.ErrSSOMismatch), errors.Is(err, errPasswordOff):
 		writeError(w, http.StatusForbidden, "forbidden", err.Error(), nil)
 	case errors.Is(err, auth.ErrSSOAccount):
 		writeError(w, http.StatusBadRequest, "bad_request", err.Error(), nil)
@@ -166,10 +166,15 @@ func newRateLimiter(limit int, window time.Duration) *rateLimiter {
 	return &rateLimiter{limit: limit, window: window, start: time.Now(), counts: map[string]int{}}
 }
 
+// maxTrackedKeys bounds how many rate-limit keys (IPs or users) are tracked at
+// once. A flood of spoofed addresses cannot grow the map without limit; past
+// the bound the window simply restarts.
+const maxTrackedKeys = 1 << 16
+
 func (l *rateLimiter) allow(key string) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if now := time.Now(); now.Sub(l.start) >= l.window {
+	if now := time.Now(); now.Sub(l.start) >= l.window || len(l.counts) >= maxTrackedKeys {
 		l.start, l.counts = now, map[string]int{}
 	}
 	l.counts[key]++

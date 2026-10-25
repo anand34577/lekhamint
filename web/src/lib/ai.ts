@@ -5,6 +5,7 @@
 // every figure in a tool result is calculated here, not by the model.
 
 import { api, type Debt, type Deposit, type Loan, type RecurringRule } from './api'
+import { DEMO } from './demo'
 import { estimate } from './deposits'
 import { loanStatus } from './loans'
 import { currency, formatMoney } from './money'
@@ -41,10 +42,51 @@ export const PROVIDERS: { id: string; name: string; url: string; key: boolean; n
 const KEY = 'kosh.ai'
 const DEFAULTS: AiSettings = { mode: 'off', baseUrl: '', apiKey: '', model: '', shareDetails: true, consentFor: null, tools: true }
 
-export function loadAi(): AiSettings {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } } catch { return DEFAULTS }
+// The API key never goes into localStorage (any script on the page could read
+// it). It lives in memory for this tab, and its durable copy is the person's
+// own LekhaMint server, which returns it only to its owner.
+let memKey = ''
+let serverKey: string | null = null
+
+function readStored(): AiSettings {
+  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } } catch { return { ...DEFAULTS } }
 }
-export function saveAi(s: AiSettings) { try { localStorage.setItem(KEY, JSON.stringify(s)) } catch { /* private mode: lasts this session only */ } }
+function writeStored(s: AiSettings) {
+  const { apiKey: _drop, ...rest } = s
+  try { localStorage.setItem(KEY, JSON.stringify(rest)) } catch { /* private mode: lasts this session only */ }
+}
+
+/** Settings for this tab. The key comes from memory; call [hydrateKey] to load
+ *  the server copy once (used when the assistant connects from the browser). */
+export function loadAi(): AiSettings {
+  const s = readStored()
+  if (s.apiKey) { // one-time move out of localStorage, from older builds
+    memKey = s.apiKey
+    writeStored({ ...s, apiKey: '' })
+    if (!DEMO) api.saveAiKey(memKey).catch(() => { /* offline: kept in memory */ })
+  }
+  s.apiKey = memKey
+  return s
+}
+
+export function saveAi(s: AiSettings) { memKey = s.apiKey; writeStored(s) }
+
+/** Saves or clears the key on the server (its durable home). */
+export function persistAiKey(s: AiSettings): Promise<unknown> {
+  if (DEMO) return Promise.resolve()
+  if (s.apiKey) { serverKey = s.apiKey; return api.saveAiKey(s.apiKey) }
+  if (serverKey) { serverKey = ''; return api.clearAiKey() }
+  return Promise.resolve()
+}
+
+/** Loads the key saved on this server into memory, once. */
+export async function hydrateKey(): Promise<string> {
+  if (serverKey === null && !DEMO) {
+    try { serverKey = (await api.aiKey()).key } catch { serverKey = '' }
+  }
+  if (!memKey && serverKey) memKey = serverKey
+  return memKey
+}
 
 /** Where data goes, in words, for the consent prompt. */
 export function destination(s: AiSettings, serverInfo?: ServerAi | null): string {
@@ -69,8 +111,9 @@ async function complete(s: AiSettings, messages: ChatMessage[], withTools: boole
   let res: Response
   try {
     if (s.mode === 'server') {
-      const token = (() => { try { return localStorage.getItem('kosh.token') } catch { return null } })()
-      res = await fetch('/api/v1/ai/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(body), signal })
+      // The session cookie authenticates this call; the X-Kosh-Client header is
+      // the CSRF marker the server requires on cookie-authenticated writes.
+      res = await fetch('/api/v1/ai/chat/completions', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Kosh-Client': 'web' }, body: JSON.stringify(body), signal })
     } else {
       if (!s.baseUrl) throw new AiError('Choose a provider and enter its address in the assistant settings.', 'config')
       res = await fetch(s.baseUrl.replace(/\/+$/, '') + '/chat/completions', {
@@ -120,6 +163,22 @@ export const TOOL_SPECS = [
 ]
 
 export interface ToolRun { name: string; args: Record<string, unknown>; result: unknown; error?: string; link?: { route: string; params: Record<string, string> } }
+
+/** Friendly names for the chat UI; falls back to the raw tool name. */
+export const TOOL_LABELS: Record<string, string> = {
+  overview: 'Money overview',
+  spending_summary: 'Spending for a period',
+  search_transactions: 'Transaction search',
+  monthly_trend: 'Monthly trend',
+  accounts: 'Account balances',
+  loans: 'Loans & EMIs',
+  deposits: 'Deposits',
+  people_debts: 'People & debts',
+  upcoming: 'What is coming up',
+  budgets: 'Budgets',
+  net_worth_history: 'Net worth history',
+}
+export const toolLabel = (name: string): string => TOOL_LABELS[name] ?? name
 
 interface Ctx { ledgerId: string; base: string; share: boolean }
 
@@ -346,8 +405,9 @@ export async function snapshot(c: Ctx): Promise<string> {
 
 export interface Turn { question: string; answer: string; runs: ToolRun[]; mode: 'tools' | 'snapshot'; error?: string }
 
-/** Asks one question with the conversation so far; runs up to 6 rounds of tool calls. */
-export async function ask(s: AiSettings, c: Ctx, bookName: string, history: Turn[], question: string, signal?: AbortSignal): Promise<Turn> {
+/** Asks one question with the conversation so far; runs up to 6 rounds of tool
+ *  calls. [onRun] fires after each lookup so the UI can show live progress. */
+export async function ask(s: AiSettings, c: Ctx, bookName: string, history: Turn[], question: string, signal?: AbortSignal, onRun?: (r: ToolRun) => void): Promise<Turn> {
   const runs: ToolRun[] = []
   const msgs: ChatMessage[] = [{ role: 'system', content: systemPrompt(c.base, bookName) }]
   for (const t of history.slice(-6)) { msgs.push({ role: 'user', content: t.question }); msgs.push({ role: 'assistant', content: t.answer }) }
@@ -375,6 +435,7 @@ export async function ask(s: AiSettings, c: Ctx, bookName: string, history: Turn
       try { args = JSON.parse(call.function.arguments || '{}') } catch { /* the model sent bad JSON; run with no arguments */ }
       const r = await runTool(c, call.function.name, args)
       runs.push(r)
+      onRun?.(r)
       msgs.push({ role: 'tool', tool_call_id: call.id, name: call.function.name, content: JSON.stringify(r.result).slice(0, 24000) })
     }
   }

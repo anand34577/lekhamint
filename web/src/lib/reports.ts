@@ -9,7 +9,7 @@ import { estimate, depositKindLabel, tenureLabel } from './deposits'
 import { people, statement, type Move } from './debts'
 import { loanKindLabel, loanStatus } from './loans'
 import { currency, formatMoney } from './money'
-import { addDays, monthRange } from './util'
+import { addDays, isoDate, monthRange } from './util'
 import type { Cell, Sheet } from './xlsx'
 
 export type ColKind = 'text' | 'money' | 'date' | 'number'
@@ -98,7 +98,7 @@ export async function accountStatement(ctx: Ctx, accountId: string, from: string
       rows, total: ['', 'Totals', '', inSum, outSum, bal], empty: 'No transactions in this period.' } }],
     notes: [
       `Opening + in − out = closing: ${formatMoney(opening, acc.currency)} + ${formatMoney(inSum, acc.currency)} − ${formatMoney(outSum, acc.currency)} = ${formatMoney(bal, acc.currency)}.`,
-      ...(to < new Date().toISOString().slice(0, 10) ? [`Balance today: ${formatMoney(now, acc.currency)}.`] : []),
+      ...(to < isoDate() ? [`Balance today: ${formatMoney(now, acc.currency)}.`] : []),
       'Planned transactions are listed but do not change the balance. Balance adjustments from reconciling are included.',
     ],
   }
@@ -176,7 +176,7 @@ export async function ledger(ctx: Ctx, from: string, to: string, f: { account?: 
 
 export async function loanReport(ctx: Ctx, loanId?: string): Promise<Report> {
   const [loans, balances, moves] = await Promise.all([api.records<Loan>(ctx.ledgerId, 'loans'), api.balances(ctx.ledgerId), allTransactions(ctx.ledgerId, { loan_id: 'any' })])
-  const today = new Date().toISOString().slice(0, 10)
+  const today = isoDate()
   const live = loans.filter((r) => !r.deleted && (!loanId || r.id === loanId))
   if (loanId && !live.length) throw new Error('That loan no longer exists')
   const entries = live.map((r) => {
@@ -217,7 +217,7 @@ export async function loanReport(ctx: Ctx, loanId?: string): Promise<Report> {
 
 export async function depositReport(ctx: Ctx): Promise<Report> {
   const [deps, balances] = await Promise.all([api.records<Deposit>(ctx.ledgerId, 'deposits'), api.balances(ctx.ledgerId)])
-  const today = new Date().toISOString().slice(0, 10)
+  const today = isoDate()
   const live = deps.filter((r) => !r.deleted).map((r) => ({ d: r.data, e: estimate(r.data, today), bal: balances.find((b) => b.account_id === r.data.account_id)?.balance ?? 0 })).sort((a, b) => a.d.maturity_date.localeCompare(b.d.maturity_date))
   const active = live.filter((x) => x.d.status === 'active' && x.d.currency === ctx.base)
   return {
@@ -236,7 +236,7 @@ export async function personReport(ctx: Ctx, person: string, cur: string): Promi
   const live = debts.filter((r) => !r.deleted).map((r) => ({ ...r.data, id: r.id }))
   const mv = new Map<string, Move[]>()
   for (const m of moves) if (m.debt_id) mv.set(m.debt_id, [...(mv.get(m.debt_id) ?? []), m])
-  const p = people(live, mv, new Date().toISOString().slice(0, 10)).find((x) => x.name.toLowerCase() === person.trim().toLowerCase() && x.currency === cur)
+  const p = people(live, mv, isoDate()).find((x) => x.name.toLowerCase() === person.trim().toLowerCase() && x.currency === cur)
   if (!p) throw new Error(`No records with ${person} in ${cur}`)
   const rows = statement(p.debts, mv)
   return {

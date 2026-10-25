@@ -32,7 +32,7 @@ export function Login({ onDone }: { onDone: () => void }) {
     history.replaceState(null, '', location.pathname + location.search + '#/dashboard') // keep the code out of the history
     if (error) { setErr(error); return }
     setBusy(true)
-    api.oidcExchange(code).then((r) => { session.token = r.token; onDone() }).catch((x) => setErr(errorText(x))).finally(() => setBusy(false))
+    api.oidcExchange(code).then((r) => { session.start(r.token); onDone() }).catch((x) => setErr(errorText(x))).finally(() => setBusy(false))
   }, []) // eslint-disable-line
 
   const passwordOff = sso?.only === true
@@ -58,7 +58,7 @@ export function Login({ onDone }: { onDone: () => void }) {
           e.preventDefault(); setErr(''); setBusy(true)
           try {
             const r = mode === 'login' ? await api.login(email.trim(), password) : await api.register(email.trim(), password, name.trim())
-            session.token = r.token
+            session.start(r.token)
             onDone()
           } catch (x) { setErr(errorText(x)) } finally { setBusy(false) }
         }}>

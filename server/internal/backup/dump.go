@@ -39,10 +39,12 @@ type dumpLine struct {
 	Count int64 `json:"count,omitempty"` // footer: number of lines before it
 }
 
-// dumpUser includes the password hash, which store.User hides from JSON.
+// dumpUser includes the password hash and SSO binding, which store.User hides
+// from JSON.
 type dumpUser struct {
 	store.User
 	PasswordHash string `json:"password_hash"`
+	SSOSub       string `json:"sso_sub"`
 }
 
 // Dump writes the whole server (users, ledgers, members, records) as
@@ -64,7 +66,7 @@ func Dump(ctx context.Context, d *db.DB, w io.Writer) error {
 		return err
 	}
 	if err := store.EachUser(ctx, d, func(u store.User) error {
-		return emit(dumpLine{Type: "user", User: &dumpUser{User: u, PasswordHash: u.PasswordHash}})
+		return emit(dumpLine{Type: "user", User: &dumpUser{User: u, PasswordHash: u.PasswordHash, SSOSub: u.SSOSub}})
 	}); err != nil {
 		return err
 	}
@@ -149,6 +151,7 @@ func RestoreDump(ctx context.Context, d *db.DB, r io.Reader) (RestoreStats, erro
 			case "user":
 				u := l.User.User
 				u.PasswordHash = l.User.PasswordHash
+				u.SSOSub = l.User.SSOSub
 				if err := store.CreateUser(ctx, tx, u); err != nil {
 					return fmt.Errorf("user %s: %w", u.Email, err)
 				}

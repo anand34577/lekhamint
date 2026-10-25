@@ -83,6 +83,7 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.setSessionCookie(w, r, token)
 	writeJSON(w, http.StatusCreated, map[string]any{"user": u, "token": token})
 }
 
@@ -102,6 +103,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.securityNotice(u, "New sign-in", "Your account was just signed in on "+deviceLabel(in.DeviceName)+" at "+time.Now().Format("2 Jan 2006 15:04 MST")+". If this was not you, change your password and sign out other devices under Settings.")
+	s.setSessionCookie(w, r, token)
 	writeJSON(w, http.StatusOK, map[string]any{"user": u, "token": token})
 }
 
@@ -110,6 +112,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	clearSessionCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
