@@ -123,6 +123,7 @@ jobs:
       - name: Validate compose files
         run: |
           cp .env.example .env
+          sed -i 's/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=ci-check/' .env
           docker compose -f docker-compose.yml config -q
           docker compose --env-file .env -f deploy/docker-compose.postgres.yml config -q
           docker compose --env-file .env -f deploy/docker-compose.caddy.yml config -q
