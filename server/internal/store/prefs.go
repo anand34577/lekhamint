@@ -1,0 +1,101 @@
+package store
+
+import (
+	"context"
+	"time"
+
+	"github.com/anand34577/lekhamint/server/internal/db"
+)
+
+// Prefs are one person's notification choices.
+type Prefs struct {
+	UserID       string `json:"-"`
+	NotifyEmail  bool   `json:"notify_email"`
+	NotifyGotify bool   `json:"notify_gotify"`
+	GotifyToken  string `json:"-"` // secret: only "set or not" is ever returned
+	EvSecurity   bool   `json:"ev_security"`
+	EvDue        bool   `json:"ev_due"`
+	EvBudget     bool   `json:"ev_budget"`
+}
+
+// DefaultPrefs are used until a person saves their own.
+func DefaultPrefs(userID string) Prefs {
+	return Prefs{UserID: userID, EvSecurity: true, EvDue: true, EvBudget: true}
+}
+
+const prefCols = "notify_email, notify_gotify, gotify_token, ev_security, ev_due, ev_budget"
+
+func scanPrefs(userID string, sc interface{ Scan(...any) error }) (Prefs, error) {
+	p := Prefs{UserID: userID}
+	var e, g, s, d, b int64
+	if err := sc.Scan(&e, &g, &p.GotifyToken, &s, &d, &b); err != nil {
+		return p, err
+	}
+	p.NotifyEmail, p.NotifyGotify, p.EvSecurity, p.EvDue, p.EvBudget = e != 0, g != 0, s != 0, d != 0, b != 0
+	return p, nil
+}
+
+// GetPrefs returns the saved preferences, or the defaults.
+func GetPrefs(ctx context.Context, q db.Querier, userID string) (Prefs, error) {
+	p, err := scanPrefs(userID, q.QueryRowContext(ctx, "SELECT "+prefCols+" FROM user_prefs WHERE user_id = ?", userID))
+	if db.IsNoRows(err) {
+		return DefaultPrefs(userID), nil
+	}
+	return p, err
+}
+
+// PutPrefs saves preferences (insert or replace).
+func PutPrefs(ctx context.Context, q db.Querier, p Prefs) error {
+	_, err := q.ExecContext(ctx, `INSERT INTO user_prefs (user_id, `+prefCols+`, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT (user_id) DO UPDATE SET notify_email = excluded.notify_email, notify_gotify = excluded.notify_gotify,
+		gotify_token = excluded.gotify_token, ev_security = excluded.ev_security, ev_due = excluded.ev_due,
+		ev_budget = excluded.ev_budget, updated_at = excluded.updated_at`,
+		p.UserID, boolInt(p.NotifyEmail), boolInt(p.NotifyGotify), p.GotifyToken, boolInt(p.EvSecurity), boolInt(p.EvDue), boolInt(p.EvBudget),
+		time.Now().UnixMilli())
+	return err
+}
+
+// EachPrefs streams the preferences of every user who has any channel on.
+func EachPrefs(ctx context.Context, q db.Querier) ([]Prefs, error) {
+	rows, err := q.QueryContext(ctx, "SELECT user_id, "+prefCols+" FROM user_prefs WHERE notify_email = 1 OR notify_gotify = 1")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Prefs
+	for rows.Next() {
+		var id string
+		var p Prefs
+		var e, g, s, d, b int64
+		if err := rows.Scan(&id, &e, &g, &p.GotifyToken, &s, &d, &b); err != nil {
+			return nil, err
+		}
+		p.UserID, p.NotifyEmail, p.NotifyGotify, p.EvSecurity, p.EvDue, p.EvBudget = id, e != 0, g != 0, s != 0, d != 0, b != 0
+		out = append(out, p)
+	}
+	return out, rows.Err()
+}
+
+// ClaimNotice records that a reminder was sent and reports whether this call
+// was the first (so a reminder goes out once, even across restarts).
+func ClaimNotice(ctx context.Context, q db.Querier, userID, key string) (bool, error) {
+	res, err := q.ExecContext(ctx, "INSERT INTO notify_log (user_id, key, sent_at) VALUES (?, ?, ?) ON CONFLICT (user_id, key) DO NOTHING",
+		userID, key, time.Now().UnixMilli())
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
+}
+
+// ReleaseNotice forgets a claim, e.g. when sending failed and should be retried.
+func ReleaseNotice(ctx context.Context, q db.Querier, userID, key string) error {
+	_, err := q.ExecContext(ctx, "DELETE FROM notify_log WHERE user_id = ? AND key = ?", userID, key)
+	return err
+}
+
+// PruneNotices removes log rows older than the cutoff.
+func PruneNotices(ctx context.Context, q db.Querier, before int64) error {
+	_, err := q.ExecContext(ctx, "DELETE FROM notify_log WHERE sent_at < ?", before)
+	return err
+}

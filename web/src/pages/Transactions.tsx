@@ -6,11 +6,12 @@ import { evaluate } from '../lib/finance'
 import { applyRules, type RuleOutcome } from '../lib/rules'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
 import { addDays, csvEscape, dayLabel, download, isoDate, monthLabel, monthRange, uuidv7 } from '../lib/util'
-import { Card, Check, Dot, Empty, Field, Modal, Money, Segmented, Skeleton, errorText, saveErrorText, toast } from '../components'
-import { Icon } from '../icons'
+import { Card, Check, Empty, Field, Modal, Money, Segmented, Skeleton, errorText, saveErrorText, toast } from '../components'
+import { CatIcon, Icon } from '../icons'
 import { SplitEditor, TagInput, splitMinor, type SplitDraft } from './parts'
 import { rememberAccount, type Resolved } from './QuickAdd'
 import type { PageProps } from '../App'
+import { Select, DateField, NumInput } from '../controls'
 
 export function Transactions({ params, go }: PageProps) {
   const l = useLedger()
@@ -137,11 +138,11 @@ export function Transactions({ params, go }: PageProps) {
             </>}
           </div>
         )}
-        <select value={type} onChange={(e) => setType(e.target.value)} aria-label="Type"><option value="">All types</option><option value="expense">Expenses</option><option value="income">Income</option><option value="transfer">Transfers</option></select>
-        <select value={account} onChange={(e) => setAccount(e.target.value)} aria-label="Account"><option value="">All accounts</option>{(accounts.data ?? []).filter((a) => !a.deleted).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+        <Select value={type} onChange={(e) => setType(e.target.value)} aria-label="Type"><option value="">All types</option><option value="expense">Expenses</option><option value="income">Income</option><option value="transfer">Transfers</option></Select>
+        <Select value={account} onChange={(e) => setAccount(e.target.value)} aria-label="Account"><option value="">All accounts</option>{(accounts.data ?? []).filter((a) => !a.deleted).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
         <CategorySelect value={category} onChange={setCategory} cats={cats} all="All categories" uncategorised />
         {tags.all.length > 0 && (
-          <select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Tag"><option value="">All tags</option>{tags.all.map((t) => <option key={t.id} value={t.id}>#{t.name}</option>)}</select>
+          <Select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Tag"><option value="">All tags</option>{tags.all.map((t) => <option key={t.id} value={t.id}>#{t.name}</option>)}</Select>
         )}
         {(type || account || category || tag || q) && <button className="link" onClick={clearFilters}>Clear filters</button>}
       </div>
@@ -160,7 +161,7 @@ export function Transactions({ params, go }: PageProps) {
             <CategorySelect value={bulkCat} onChange={setBulkCat} cats={cats} all="Move to category…" />
             <button onClick={recategorize} disabled={!bulkCat || write.batch.isPending}>Apply</button>
             {tags.active.length > 0 && <>
-              <select value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} aria-label="Add tag" style={{ width: 'auto' }}><option value="">Add tag…</option>{tags.active.map((t) => <option key={t.id} value={t.id}>#{t.name}</option>)}</select>
+              <Select value={bulkTag} onChange={(e) => setBulkTag(e.target.value)} aria-label="Add tag" style={{ width: 'auto' }}><option value="">Add tag…</option>{tags.active.map((t) => <option key={t.id} value={t.id}>#{t.name}</option>)}</Select>
               <button onClick={addTag} disabled={!bulkTag || write.batch.isPending}>Tag</button>
             </>}
             <button className="danger" onClick={() => del([...selected])} disabled={write.batch.isPending}><Icon name="trash" size={16} /> Delete</button>
@@ -194,7 +195,7 @@ export function Transactions({ params, go }: PageProps) {
                       {canWrite && <td className="sel" onClick={(e) => e.stopPropagation()}><input type="checkbox" aria-label="Select" checked={selected.has(t.id)} onChange={(e) => { const s = new Set(selected); if (e.target.checked) s.add(t.id); else s.delete(t.id); setSelected(s) }} /></td>}
                       <td>
                         <div className="tx-title">
-                          <span className="show-sm"><Dot color={transfer ? 'var(--transfer)' : isSplit ? '#7C3AED' : cats.color(t.category_id)} /></span>
+                          <span className="cat-slot">{transfer ? <CatIcon name="transfer" color="var(--transfer)" size={30} /> : isSplit ? <CatIcon name="split" color="#7C3AED" size={30} /> : <CatIcon name={cats.icon(t.category_id)} color={cats.color(t.category_id)} size={30} />}</span>
                           {transfer && <Icon name="transfer" size={14} className="muted hide-sm" />}{title(t)}
                         </div>
                         <div className="muted small tx-sub">
@@ -202,7 +203,7 @@ export function Transactions({ params, go }: PageProps) {
                           {t.note}{t.note && tagText ? ' · ' : ''}{tagText}
                         </div>
                       </td>
-                      <td className="hide-sm">{transfer ? <span className="muted">Transfer</span> : <span className="row nowrap"><Dot color={isSplit ? '#7C3AED' : cats.color(t.category_id)} />{categoryLabel(t)}</span>}</td>
+                      <td className="hide-sm">{transfer ? <span className="muted">Transfer</span> : <span className="row nowrap">{categoryLabel(t)}</span>}</td>
                       <td className="hide-sm">{accName(t.account_id)}{t.status !== 'cleared' && <span className="chip" style={{ marginLeft: 6 }}>{t.status}</span>}</td>
                       <td className="amt"><Money value={t.type === 'income' ? t.amount : -t.amount} currency={cur(t.account_id)} signed={!transfer} /></td>
                     </tr>,
@@ -225,7 +226,7 @@ export function CategorySelect({ value, onChange, cats, all, kind, uncategorised
 }) {
   const kinds = kind ? [kind] : ['expense', 'income']
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Category">
+    <Select value={value} onChange={(e) => onChange(e.target.value)} aria-label="Category">
       <option value="">{all ?? 'Uncategorised'}</option>
       {uncategorised && <option value="none">Needs a category</option>}
       {kinds.map((k) => (
@@ -233,7 +234,7 @@ export function CategorySelect({ value, onChange, cats, all, kind, uncategorised
           {cats.roots(k).flatMap((r) => [<option key={r.id} value={r.id}>{r.name}</option>, ...cats.children(r.id).map((c) => <option key={c.id} value={c.id}>{'   '}{c.name}</option>)])}
         </optgroup>
       ))}
-    </select>
+    </Select>
   )
 }
 
@@ -416,17 +417,17 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
           <Segmented label="Type" value={type} onChange={(t) => { if (t !== type) { setCategoryId(''); setCatTouched(false) } setType(t) }}
             options={[['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer']]} />
           <Field label={`Amount (${currency(code).symbol.trim()})`} hint={value !== null && /[+\-*/×÷−]/.test(amount.slice(1)) && minor ? `= ${formatMoney(minor, code)}` : 'You can type sums like 450+800'}>
-            <input className={`amount-input ${type}`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus={!readOnly} placeholder="0" aria-label="Amount" />
+            <NumInput className={`amount-input ${type}`} kind="expr" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus={!readOnly} placeholder="0" aria-label="Amount" />
           </Field>
           <div className="two">
             <Field label={type === 'transfer' ? 'From account' : 'Account'}>
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+              <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>
                 {acc && !live.includes(acc) && <option value={acc.id}>{acc.name} (archived)</option>}
                 {live.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}
-              </select>
+              </Select>
             </Field>
             {type === 'transfer' ? (
-              <Field label="To account"><select value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>{live.filter((a) => a.id !== accountId).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></Field>
+              <Field label="To account"><Select value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>{live.filter((a) => a.id !== accountId).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</Select></Field>
             ) : split ? (
               <Field label="Category"><button type="button" onClick={() => setSplit(null)}>Don't split</button></Field>
             ) : (
@@ -439,10 +440,10 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
             )}
           </div>
           {split && type !== 'transfer' && <SplitEditor lines={split} onChange={setSplit} total={minor} code={code} kind={type === 'expense' ? 'expense' : undefined} />}
-          {cross && <Field label={`Amount received (${toAcc!.currency})`}><input inputMode="decimal" value={toAmount} onChange={(e) => setToAmount(e.target.value)} /></Field>}
+          {cross && <Field label={`Amount received (${toAcc!.currency})`}><NumInput kind="decimal" value={toAmount} onChange={(e) => setToAmount(e.target.value)} /></Field>}
           <div className="two">
             <Field label="Date">
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+              <DateField value={date} onChange={(e) => setDate(e.target.value)} required />
             </Field>
             {type !== 'transfer' && (
               <Field label={type === 'income' ? 'From (payer)' : 'Paid to (payee)'}
@@ -462,7 +463,7 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
           <Field label="Tags"><TagInput value={tagIds} onChange={setTagIds} /></Field>
           <div className="two">
             <Field label="Status" hint={status === 'planned' ? "Planned items don't affect balances yet" : status === 'pending' ? 'Counts now; mark cleared when it shows on your statement' : undefined}>
-              <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="cleared">Cleared</option><option value="pending">Pending</option><option value="planned">Planned</option></select>
+              <Select value={status} onChange={(e) => setStatus(e.target.value)}><option value="cleared">Cleared</option><option value="pending">Pending</option><option value="planned">Planned</option></Select>
             </Field>
             {type !== 'transfer' && <div className="field-pad"><Check checked={excluded} onChange={setExcluded}>Exclude from reports</Check></div>}
           </div>

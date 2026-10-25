@@ -11,6 +11,7 @@ import { ID_NAMESPACE, uuidv5 } from '../lib/util'
 import { Card, Field, Money, errorText, toast } from '../components'
 import { CategorySelect } from './Transactions'
 import type { PageProps } from '../App'
+import { FilePick, Select } from '../controls'
 
 interface Planned { row: ParsedRow; include: boolean; duplicateOf?: string; categoryId: string; payee: string; tagIds: string[]; ruleName?: string }
 
@@ -129,8 +130,8 @@ export function Import({ go }: PageProps) {
       <Card title="1. Choose a CSV file">
         <p className="muted small" style={{ marginTop: 0 }}>Download a statement as CSV from your bank or card website. The file is read here in your browser; only the rows you confirm are saved.</p>
         <div className="two">
-          <Field label="File"><input type="file" accept=".csv,text/csv,.txt" onChange={(e) => e.target.files?.[0] && load(e.target.files[0])} /></Field>
-          <Field label="Into account"><select value={accountId} onChange={(e) => { setAccountId(e.target.value); setPlan(null) }}>{live.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></Field>
+          <div className="field"><span className="field-label">File</span><FilePick accept=".csv,text/csv,.txt" onPick={load} label="Choose a CSV file or drop it here" hint="CSV or text export from your bank" /></div>
+          <Field label="Into account"><Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setPlan(null) }}>{live.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</Select></Field>
         </div>
         {fileName && <p className="small">{fileName}: {table!.length - (hasHeader ? 1 : 0)} rows</p>}
       </Card>
@@ -142,9 +143,9 @@ export function Import({ go }: PageProps) {
             <table className="tx">
               <thead><tr>{Array.from({ length: width }, (_, i) => (
                 <th key={i}>
-                  <select value={roles[i] ?? 'ignore'} onChange={(e) => { const r = [...roles]; r[i] = e.target.value as Role; setRoles(r); setPlan(null) }} aria-label={`Column ${i + 1}`}>
+                  <Select value={roles[i] ?? 'ignore'} onChange={(e) => { const r = [...roles]; r[i] = e.target.value as Role; setRoles(r); setPlan(null) }} aria-label={`Column ${i + 1}`}>
                     {(Object.keys(ROLE_LABELS) as Role[]).map((k) => <option key={k} value={k}>{ROLE_LABELS[k]}</option>)}
-                  </select>
+                  </Select>
                   {hasHeader && <div className="muted small" style={{ fontWeight: 400 }}>{table[0][i]}</div>}
                 </th>
               ))}</tr></thead>
@@ -152,8 +153,8 @@ export function Import({ go }: PageProps) {
             </table>
           </div>
           <div className="two" style={{ marginTop: 12 }}>
-            <Field label="Dates are written"><select value={dateFormat} onChange={(e) => { setDateFormat(e.target.value as DateFormat); setPlan(null) }}>
-              <option value="DMY">Day first (24/10/2026)</option><option value="MDY">Month first (10/24/2026)</option><option value="YMD">Year first (2026-10-24)</option></select></Field>
+            <Field label="Dates are written"><Select value={dateFormat} onChange={(e) => { setDateFormat(e.target.value as DateFormat); setPlan(null) }}>
+              <option value="DMY">Day first (24/10/2026)</option><option value="MDY">Month first (10/24/2026)</option><option value="YMD">Year first (2026-10-24)</option></Select></Field>
             <div>
               <label className="row"><input type="checkbox" style={{ width: 'auto' }} checked={decimalComma} onChange={(e) => { setDecimalComma(e.target.checked); setPlan(null) }} /> Decimal comma (1.234,56)</label>
               {!roles.includes('debit') && !roles.includes('credit') && (

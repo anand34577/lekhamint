@@ -12,6 +12,7 @@ import { Bar, Card, Check, Field, LineChart, Money, Segmented, Skeleton, saveErr
 import { Icon } from '../icons'
 import { useLoanStatuses } from './Loans'
 import type { PageProps } from '../App'
+import { Select, DateField, NumInput } from '../controls'
 
 /**
  * Everyday money calculators. Every tool states its inputs, assumptions and
@@ -69,7 +70,7 @@ function useCur() { return useLedger().base_currency }
 function MoneyField({ label, value, onChange, hint, placeholder }: { label: string; value: string; onChange: (v: string) => void; hint?: React.ReactNode; placeholder?: string }) {
   const code = useCur()
   const bad = value.trim() !== '' && parseMoney(value, code) === null
-  return <Field label={`${label} (${currency(code).symbol.trim()})`} hint={hint} error={bad ? 'Enter a number like 25000 or 25,000.50' : undefined}><input inputMode="decimal" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder ?? '0'} /></Field>
+  return <Field label={`${label} (${currency(code).symbol.trim()})`} hint={hint} error={bad ? 'Enter a number like 25000 or 25,000.50' : undefined}><NumInput kind="decimal" value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder ?? '0'} /></Field>
 }
 
 const m = (s: string, code: string) => (s.trim() ? parseMoney(s, code) ?? 0 : 0)
@@ -119,8 +120,8 @@ function EmiTool() {
             <Card key={i} title={opts.length > 1 ? `Option ${String.fromCharCode(65 + i)}` : 'Loan'} action={opts.length > 1 ? <button className="icon-btn" aria-label="Remove option" onClick={() => setOpts(opts.filter((_, j) => j !== i))}><Icon name="x" size={16} /></button> : undefined}>
               <MoneyField label="Loan amount" value={o.amount} onChange={(v) => set(i, 'amount', v)} />
               <div className="two">
-                <Field label="Rate (% a year)" error={o.rate.trim() ? rateError(o.rate, { allowZero: true }) ?? undefined : undefined}><input inputMode="decimal" value={o.rate} onChange={(e) => set(i, 'rate', e.target.value)} /></Field>
-                <Field label="Tenure (years)"><input inputMode="decimal" value={o.years} onChange={(e) => set(i, 'years', e.target.value)} /></Field>
+                <Field label="Rate (% a year)" error={o.rate.trim() ? rateError(o.rate, { allowZero: true }) ?? undefined : undefined}><NumInput kind="decimal" value={o.rate} onChange={(e) => set(i, 'rate', e.target.value)} /></Field>
+                <Field label="Tenure (years)"><NumInput kind="decimal" value={o.years} onChange={(e) => set(i, 'years', e.target.value)} /></Field>
               </div>
               {r.err ? <p className="muted">{r.err}</p> : <>
                 <div className="stat-label">EMI</div><div className="stat-big"><Money value={r.emi!} currency={code} /></div>
@@ -182,11 +183,11 @@ function AffordTool() {
         <MoneyField label="Existing EMIs" value={emis} onChange={setEmis} placeholder={toPlain(existing, code)} hint={list.length ? `From your ${list.filter((x) => !x.loan.closed).length} open loans` : undefined} />
         <MoneyField label="Monthly cushion to keep" value={buffer} onChange={setBuffer} placeholder={toPlain(Math.round(inc * 0.1), code)} hint="Default: 10% of income for surprises" />
         <div className="two">
-          <Field label="Max share of income for all EMIs (%)" hint="Many lenders look at 40–50%; lower is safer"><input inputMode="decimal" value={ratio} onChange={(e) => setRatio(e.target.value)} /></Field>
-          <Field label="New loan rate (%)"><input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
+          <Field label="Max share of income for all EMIs (%)" hint="Many lenders look at 40–50%; lower is safer"><NumInput kind="decimal" value={ratio} onChange={(e) => setRatio(e.target.value)} /></Field>
+          <Field label="New loan rate (%)"><NumInput kind="decimal" value={rate} onChange={(e) => setRate(e.target.value)} /></Field>
         </div>
         <div className="two">
-          <Field label="Tenure (years)"><input inputMode="decimal" value={years} onChange={(e) => setYears(e.target.value)} /></Field>
+          <Field label="Tenure (years)"><NumInput kind="decimal" value={years} onChange={(e) => setYears(e.target.value)} /></Field>
           <MoneyField label="Loan you have in mind (optional)" value={target} onChange={setTarget} />
         </div>
         {bad && <p className="error">{bad}</p>}
@@ -236,13 +237,13 @@ function DepositTool() {
             <Card key={i} title={rows.length > 1 ? `Option ${String.fromCharCode(65 + i)}` : kind === 'fd' ? 'Fixed deposit' : 'Recurring deposit'} action={rows.length > 1 ? <button className="icon-btn" aria-label="Remove option" onClick={() => setRows(rows.filter((_, j) => j !== i))}><Icon name="x" size={16} /></button> : undefined}>
               <MoneyField label={kind === 'rd' ? 'Monthly instalment' : 'Amount'} value={o.amount} onChange={(v) => set(i, 'amount', v)} />
               <div className="two">
-                <Field label="Rate (% a year)"><input inputMode="decimal" value={o.rate} onChange={(e2) => set(i, 'rate', e2.target.value)} /></Field>
-                <Field label="Term (months)"><input inputMode="numeric" value={o.months} onChange={(e2) => set(i, 'months', e2.target.value)} /></Field>
+                <Field label="Rate (% a year)"><NumInput kind="decimal" value={o.rate} onChange={(e2) => set(i, 'rate', e2.target.value)} /></Field>
+                <Field label="Term (months)"><NumInput kind="int" value={o.months} onChange={(e2) => set(i, 'months', e2.target.value)} /></Field>
               </div>
               <div className="two">
-                <Field label="Compounding"><select value={o.comp} onChange={(e2) => set(i, 'comp', e2.target.value)}><option value="quarterly">Quarterly</option><option value="monthly">Monthly</option><option value="half_yearly">Half-yearly</option><option value="yearly">Yearly</option><option value="simple">Simple</option></select></Field>
-                {kind === 'fd' ? <Field label="Interest paid"><select value={o.payout} onChange={(e2) => set(i, 'payout', e2.target.value)}><option value="cumulative">At maturity</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></select></Field>
-                  : <Field label="Tax on interest (%)"><input inputMode="decimal" value={o.tax} onChange={(e2) => set(i, 'tax', e2.target.value)} placeholder="0" /></Field>}
+                <Field label="Compounding"><Select value={o.comp} onChange={(e2) => set(i, 'comp', e2.target.value)}><option value="quarterly">Quarterly</option><option value="monthly">Monthly</option><option value="half_yearly">Half-yearly</option><option value="yearly">Yearly</option><option value="simple">Simple</option></Select></Field>
+                {kind === 'fd' ? <Field label="Interest paid"><Select value={o.payout} onChange={(e2) => set(i, 'payout', e2.target.value)}><option value="cumulative">At maturity</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option></Select></Field>
+                  : <Field label="Tax on interest (%)"><NumInput kind="decimal" value={o.tax} onChange={(e2) => set(i, 'tax', e2.target.value)} placeholder="0" /></Field>}
               </div>
               {err || !e ? <p className="muted">{err}</p> : <>
                 <div className="stat-label">{kind === 'fd' && o.payout !== 'cumulative' ? 'Interest paid out' : 'At maturity'}</div>
@@ -290,15 +291,15 @@ function SplitTool() {
       <Card title="The bill">
         <div className="two">
           <MoneyField label="Bill amount" value={total} onChange={setTotal} />
-          <Field label="Tax / tip / service (%)" hint={extra ? `= ${formatMoney(extra, code)}, shared in proportion` : undefined}><input inputMode="decimal" value={extraPct} onChange={(e) => setExtraPct(e.target.value)} placeholder="0" /></Field>
+          <Field label="Tax / tip / service (%)" hint={extra ? `= ${formatMoney(extra, code)}, shared in proportion` : undefined}><NumInput kind="decimal" value={extraPct} onChange={(e) => setExtraPct(e.target.value)} placeholder="0" /></Field>
         </div>
         <Segmented label="Split" value={mode} onChange={setMode} options={[['equal', 'Equally'], ['shares', 'By shares'], ['percent', 'By %'], ['exact', 'Exact amounts'], ['items', 'By item']]} />
         <h3 className="section-title">People</h3>
         {people.map((p, i) => (
           <div key={i} className={`split-person ${mode === 'shares' || mode === 'percent' || mode === 'exact' ? 'with-value' : ''}`}>
             <input value={p.name} onChange={(e) => setP(i, 'name', e.target.value)} placeholder={`Person ${i + 1}`} aria-label={`Name ${i + 1}`} />
-            {(mode === 'shares' || mode === 'percent' || mode === 'exact') && <input inputMode="decimal" value={p.value} onChange={(e) => setP(i, 'value', e.target.value)} aria-label={mode === 'shares' ? 'Shares' : mode === 'percent' ? 'Percent' : 'Amount'} placeholder={mode === 'percent' ? '%' : mode === 'shares' ? 'shares' : 'amount'} />}
-            <input inputMode="decimal" value={p.paid} onChange={(e) => setP(i, 'paid', e.target.value)} placeholder="paid" aria-label={`Amount ${p.name || `person ${i + 1}`} paid`} />
+            {(mode === 'shares' || mode === 'percent' || mode === 'exact') && <NumInput kind="decimal" value={p.value} onChange={(e) => setP(i, 'value', e.target.value)} aria-label={mode === 'shares' ? 'Shares' : mode === 'percent' ? 'Percent' : 'Amount'} placeholder={mode === 'percent' ? '%' : mode === 'shares' ? 'shares' : 'amount'} />}
+            <NumInput kind="decimal" value={p.paid} onChange={(e) => setP(i, 'paid', e.target.value)} placeholder="paid" aria-label={`Amount ${p.name || `person ${i + 1}`} paid`} />
             <button className="icon-btn" aria-label="Remove person" disabled={people.length <= 1} onClick={() => setPeople(people.filter((_, j) => j !== i))}><Icon name="x" size={16} /></button>
           </div>
         ))}
@@ -309,7 +310,7 @@ function SplitTool() {
             {items.map((it, i) => (
               <div key={i} className="subtle-box">
                 <div className="row nowrap"><input value={it.name} onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} placeholder="Item" />
-                  <input inputMode="decimal" value={it.amount} onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} placeholder="amount" style={{ maxWidth: 120 }} />
+                  <NumInput kind="decimal" value={it.amount} onChange={(e) => setItems(items.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} placeholder="amount" style={{ maxWidth: 120 }} />
                   <button className="icon-btn" aria-label="Remove item" onClick={() => setItems(items.filter((_, j) => j !== i))}><Icon name="x" size={16} /></button></div>
                 <div className="row">{ps.map((p, k) => <Check key={k} checked={it.people.includes(k)} onChange={(v) => setItems(items.map((x, j) => (j === i ? { ...x, people: v ? [...x.people, k].sort() : x.people.filter((q) => q !== k) } : x)))}>{p.name}</Check>)}</div>
               </div>
@@ -372,10 +373,10 @@ function SaveSplit({ total, names, owes, onClose }: { total: number; names: stri
         <p className="muted small">Records the full {formatMoney(total, code)} leaving your account: {formatMoney(owes[0], code)} as your spending, and the rest as money lent to the others, so you can track their repayments.</p>
         <Field label="What was it?"><input value={what} onChange={(e) => setWhat(e.target.value)} autoFocus /></Field>
         <div className="two">
-          <Field label="Paid from"><select value={acct} onChange={(e) => setAcct(e.target.value)}>{list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-          <Field label="On"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
+          <Field label="Paid from"><Select value={acct} onChange={(e) => setAcct(e.target.value)}>{list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
         </div>
-        <Field label="Category for your share"><select value={cat} onChange={(e) => setCat(e.target.value)}><option value="">Uncategorised</option>{cats.roots('expense').flatMap((c) => [c, ...cats.children(c.id)]).map((c) => <option key={c.id} value={c.id}>{cats.path(c.id)}</option>)}</select></Field>
+        <Field label="Category for your share"><Select value={cat} onChange={(e) => setCat(e.target.value)}><option value="">Uncategorised</option>{cats.roots('expense').flatMap((c) => [c, ...cats.children(c.id)]).map((c) => <option key={c.id} value={c.id}>{cats.path(c.id)}</option>)}</Select></Field>
         {err && <p className="error">{err}</p>}
         <div className="row"><span className="spacer" /><button onClick={onClose}>Cancel</button><button className="primary" onClick={save} disabled={write.batch.isPending}>Save</button></div>
       </div>
@@ -418,7 +419,7 @@ function HouseholdTool() {
             <thead><tr><th>Category</th><th className="num">Average</th><th className="num">Plan</th></tr></thead>
             <tbody>{plan.map((r) => (
               <tr key={r.id}><td>{r.name}{r.nature && <span className="muted small"> · {r.nature}</span>}</td><td className="num"><Money value={r.avg} currency={code} /></td>
-                <td className="num"><input className="num-input" inputMode="decimal" value={edits[r.id] ?? toPlain(r.avg, code)} onChange={(e) => setEdits({ ...edits, [r.id]: e.target.value })} aria-label={`Plan for ${r.name}`} /></td></tr>
+                <td className="num"><NumInput className="num-input" kind="decimal" value={edits[r.id] ?? toPlain(r.avg, code)} onChange={(e) => setEdits({ ...edits, [r.id]: e.target.value })} aria-label={`Plan for ${r.name}`} /></td></tr>
             ))}</tbody>
           </table></div>
         )}
@@ -426,7 +427,7 @@ function HouseholdTool() {
         {oneOff.map((o, i) => (
           <div key={i} className="row nowrap mb-s">
             <input value={o.name} onChange={(e) => setOneOff(oneOff.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} aria-label="Cost name" />
-            <input inputMode="decimal" value={o.amount} onChange={(e) => setOneOff(oneOff.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} placeholder="per year" style={{ maxWidth: 130 }} aria-label={`${o.name} per year`} />
+            <NumInput kind="decimal" value={o.amount} onChange={(e) => setOneOff(oneOff.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} placeholder="per year" style={{ maxWidth: 130 }} aria-label={`${o.name} per year`} />
           </div>
         ))}
         <button className="link" onClick={() => setOneOff([...oneOff, { name: '', amount: '' }])}>+ Add a yearly cost</button>
@@ -467,9 +468,9 @@ function GoalTool() {
       <Card title="Your goal">
         <MoneyField label="Goal amount" value={target} onChange={setTarget} />
         <MoneyField label="Already saved for it" value={saved} onChange={setSaved} />
-        <Field label="Expected return (% a year)" hint="0 for a savings account; deposits 6–7%"><input inputMode="decimal" value={ret} onChange={(e) => setRet(e.target.value)} /></Field>
+        <Field label="Expected return (% a year)" hint="0 for a savings account; deposits 6–7%"><NumInput kind="decimal" value={ret} onChange={(e) => setRet(e.target.value)} /></Field>
         <Segmented label="Plan by" value={mode} onChange={setMode} options={[['by', 'Reach it by a date'], ['monthly', 'Save a set amount']]} />
-        {mode === 'by' ? <Field label="Target date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} min={isoDate()} /></Field> : <MoneyField label="Saving each month" value={monthly} onChange={setMonthly} />}
+        {mode === 'by' ? <Field label="Target date"><DateField value={date} onChange={(e) => setDate(e.target.value)} min={isoDate()} /></Field> : <MoneyField label="Saving each month" value={monthly} onChange={setMonthly} />}
       </Card>
       <Card title="Plan">
         {err ? <p className="muted">{err}</p> : mode === 'by' ? <>
@@ -507,9 +508,9 @@ function EmergencyTool() {
     <div className="grid-2 tool-layout">
       <Card title="Your numbers">
         <MoneyField label="Essential spending a month" value={essential} onChange={setEssential} placeholder={toPlain(essAvg, code)} hint="Filled from categories marked “need” (rent, groceries, bills, health…)" />
-        <Field label="Months to cover" hint="3 is a minimum; 6–12 if your income is irregular or you support others"><input inputMode="numeric" value={months} onChange={(e) => setMonths(e.target.value)} /></Field>
+        <Field label="Months to cover" hint="3 is a minimum; 6–12 if your income is irregular or you support others"><NumInput kind="int" value={months} onChange={(e) => setMonths(e.target.value)} /></Field>
         <MoneyField label="Savings you can reach quickly" value={have} onChange={setHave} placeholder={toPlain(liquid, code)} hint="Cash, bank, savings and wallets (not FDs or investments)" />
-        <Field label="Build the gap over (months)"><input inputMode="numeric" value={by} onChange={(e) => setBy(e.target.value)} /></Field>
+        <Field label="Build the gap over (months)"><NumInput kind="int" value={by} onChange={(e) => setBy(e.target.value)} /></Field>
       </Card>
       <Card title="Emergency fund">
         <div className="stat-label">Target</div><div className="stat-big"><Money value={target} currency={code} /></div>
@@ -557,9 +558,9 @@ function PayoffTool() {
           <thead><tr><th>Debt</th><th className="num">Balance</th><th className="num">Rate %</th><th className="num">Minimum / EMI</th><th /></tr></thead>
           <tbody>{ds.map((d, i) => (
             <tr key={i}><td><input value={d.name} onChange={(e) => set(i, 'name', e.target.value)} aria-label="Debt name" /></td>
-              <td><input className="num-input" inputMode="decimal" value={d.balance} onChange={(e) => set(i, 'balance', e.target.value)} aria-label="Balance" /></td>
-              <td><input className="num-input" inputMode="decimal" value={d.rate} onChange={(e) => set(i, 'rate', e.target.value)} aria-label="Rate" /></td>
-              <td><input className="num-input" inputMode="decimal" value={d.minimum} onChange={(e) => set(i, 'minimum', e.target.value)} aria-label="Minimum payment" /></td>
+              <td><NumInput className="num-input" kind="decimal" value={d.balance} onChange={(e) => set(i, 'balance', e.target.value)} aria-label="Balance" /></td>
+              <td><NumInput className="num-input" kind="decimal" value={d.rate} onChange={(e) => set(i, 'rate', e.target.value)} aria-label="Rate" /></td>
+              <td><NumInput className="num-input" kind="decimal" value={d.minimum} onChange={(e) => set(i, 'minimum', e.target.value)} aria-label="Minimum payment" /></td>
               <td><button className="icon-btn" aria-label="Remove" onClick={() => setRows(ds.filter((_, j) => j !== i))}><Icon name="x" size={16} /></button></td></tr>
           ))}</tbody>
         </table></div>

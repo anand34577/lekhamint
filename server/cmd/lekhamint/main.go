@@ -36,6 +36,8 @@ import (
 	"github.com/anand34577/lekhamint/server/internal/httpapi"
 	"github.com/anand34577/lekhamint/server/internal/ledger"
 	"github.com/anand34577/lekhamint/server/internal/logfile"
+	"github.com/anand34577/lekhamint/server/internal/notify"
+	"github.com/anand34577/lekhamint/server/internal/oidc"
 	"github.com/anand34577/lekhamint/server/internal/report"
 	"github.com/anand34577/lekhamint/server/internal/store"
 	"github.com/anand34577/lekhamint/server/internal/syncer"
@@ -210,6 +212,22 @@ func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.C
 		api.AI = &httpapi.AIProxy{BaseURL: cfg.AIBaseURL, APIKey: cfg.AIAPIKey, Model: cfg.AIModel, Timeout: cfg.AITimeout}
 		log.Info("assistant proxy enabled", "endpoint", httpapi.RedactURL(cfg.AIBaseURL), "model", cfg.AIModel)
 	}
+	notifier := buildNotifier(cfg)
+	api.Notice = &notify.Dispatcher{DB: d, Notifier: notifier, Reports: api.Reports, Log: log, ReminderHour: cfg.ReminderHour}
+	if notifier.HasEmail() || notifier.HasGotify() {
+		log.Info("notifications enabled", "email", notifier.HasEmail(), "gotify", notifier.HasGotify(), "reminder_hour", cfg.ReminderHour)
+	}
+	if cfg.OIDCIssuer != "" {
+		api.OIDC = &oidc.Client{Config: oidc.Config{Issuer: cfg.OIDCIssuer, ClientID: cfg.OIDCClientID, ClientSecret: cfg.OIDCClientSecret,
+			RedirectURL: cfg.PublicURL + "/api/v1/auth/oidc/callback", Scopes: cfg.OIDCScopes, DisplayName: cfg.OIDCName}}
+		api.OIDCAutoCreate, api.OIDCOnly = cfg.OIDCAutoCreate, cfg.OIDCOnly
+		log.Info("single sign-on enabled", "issuer", cfg.OIDCIssuer, "redirect_url", api.OIDC.RedirectURL, "password_login", !cfg.OIDCOnly)
+		checkCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		if err := api.OIDC.Check(checkCtx); err != nil {
+			log.Warn("identity provider not reachable yet; sign-in will retry on use", "err", err)
+		}
+		cancel()
+	}
 	if before != nil {
 		if err := before(ctx, demo.Deps{Auth: authSvc, Ledgers: ledgers, Sync: sync}); err != nil {
 			return err
@@ -233,6 +251,7 @@ func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.C
 
 	go (&backup.Scheduler{DB: d, Dir: cfg.BackupDir, Interval: cfg.BackupEvery, Keep: cfg.BackupKeep, Log: log}).Run(ctx)
 	go housekeeping(ctx, d, log)
+	go api.Notice.Run(ctx)
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -253,6 +272,18 @@ func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.C
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// buildNotifier returns the configured channels; a channel with no settings is left out.
+func buildNotifier(cfg *config.Config) *notify.Notifier {
+	n := &notify.Notifier{}
+	if cfg.SMTPHost != "" {
+		n.SMTP = &notify.SMTPConfig{Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUser, Password: cfg.SMTPPassword, From: cfg.SMTPFrom, Security: cfg.SMTPSecurity}
+	}
+	if cfg.GotifyURL != "" {
+		n.Gotify = &notify.GotifyConfig{URL: cfg.GotifyURL}
+	}
+	return n
 }
 
 func backupDesc(cfg *config.Config) string {

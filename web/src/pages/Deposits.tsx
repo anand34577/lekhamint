@@ -10,6 +10,7 @@ import { workbook, XLSX_TYPE } from '../lib/xlsx'
 import { Bar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
+import { Select, DateField, NumInput } from '../controls'
 
 /**
  * Fixed and recurring deposits (docs/02, "Loans and deposits"). The money sits
@@ -310,12 +311,12 @@ function MatureForm({ x, early, onClose }: { x: DepositEntry; early: boolean; on
       <form id="matform" onSubmit={submit}>
         <p className="muted small">In the deposit now: <Money value={balance} currency={cur} />. {early ? 'Banks usually pay a lower rate when a deposit closes early; enter what you actually received.' : `Expected: ${formatMoney(est.maturity, cur)}${est.fromBank ? '' : ' (estimate)'}.`}</p>
         <div className="two">
-          <Field label="Amount received"><input inputMode="decimal" value={received} onChange={(e) => setReceived(e.target.value)} autoFocus /></Field>
-          <Field label="Tax deducted (TDS), if any"><input inputMode="decimal" value={tax} onChange={(e) => setTax(e.target.value)} placeholder="0" /></Field>
+          <Field label="Amount received"><NumInput kind="decimal" value={received} onChange={(e) => setReceived(e.target.value)} autoFocus /></Field>
+          <Field label="Tax deducted (TDS), if any"><NumInput kind="decimal" value={tax} onChange={(e) => setTax(e.target.value)} placeholder="0" /></Field>
         </div>
         <div className="two">
-          <Field label="Into account"><select value={into} onChange={(e) => setInto(e.target.value)} disabled={renew}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-          <Field label="On"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={today} /></Field>
+          <Field label="Into account"><Select value={into} onChange={(e) => setInto(e.target.value)} disabled={renew}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={today} /></Field>
         </div>
         {!early && <Check checked={renew} onChange={setRenew}>The bank renewed it for the same term (the money stays in the deposit)</Check>}
         {diff !== null && diff !== 0 && <p className="small">{diff > 0 ? <>Records <Money value={diff} currency={cur} /> as interest income.</> : <>Records <Money value={-diff} currency={cur} /> as a penalty (a cost).</>}</p>}
@@ -355,10 +356,10 @@ function InterestForm({ x, onClose }: { x: DepositEntry; onClose: () => void }) 
       <form id="intform" onSubmit={submit}>
         <p className="muted small">{payout ? 'Interest paid out to your account. It counts as income.' : 'Interest the bank added to the deposit. It counts as income and grows the deposit.'}</p>
         <div className="two">
-          <Field label="Interest"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
-          <Field label="On"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
+          <Field label="Interest"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
         </div>
-        {payout && <Field label="Paid into"><select value={into} onChange={(e) => setInto(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
+        {payout && <Field label="Paid into"><Select value={into} onChange={(e) => setInto(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
         {err && <p className="error" role="alert">{err}</p>}
       </form>
     </Modal>
@@ -388,8 +389,8 @@ function InstalmentForm({ x, onClose }: { x: DepositEntry; onClose: () => void }
     <Modal title={`RD instalment ${x.rdPaid + 1}`} onClose={onClose} footer={<><button type="button" onClick={onClose}>Cancel</button><button className="primary" onClick={submit} disabled={write.batch.isPending}>Record <Money value={dep.amount} currency={dep.currency} /></button></>}>
       <p className="muted small">Due {dayLabel(due)}. Moves the instalment from your account into the deposit; it is saving, not spending.</p>
       <div className="two">
-        <Field label="From account" hint={bal !== undefined ? <>Balance <Money value={bal} currency={dep.currency} /></> : undefined}><select value={from} onChange={(e) => setFrom(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-        <Field label="On"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
+        <Field label="From account" hint={bal !== undefined ? <>Balance <Money value={bal} currency={dep.currency} /></> : undefined}><Select value={from} onChange={(e) => setFrom(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+        <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
       </div>
       {bal !== undefined && bal < dep.amount && <p className="warn-text small"><Icon name="alert" size={14} /> The account has less than the instalment.</p>}
       {err && <p className="error" role="alert">{err}</p>}
@@ -499,41 +500,41 @@ function DepositForm({ dep, onClose }: { dep?: DepRec; onClose: () => void }) {
           <Field label="Bank or institution"><input value={institution} onChange={(e) => setInstitution(e.target.value)} maxLength={100} /></Field>
         </div>
         <div className="two">
-          <Field label={kind === 'rd' ? 'Monthly instalment' : 'Amount deposited'}><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></Field>
-          <Field label="Interest rate" hint={rate.trim() && rateError(rate) ? undefined : '% a year, as on the receipt'} error={rate.trim() ? rateError(rate) ?? undefined : undefined}><input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="7.1" /></Field>
+          <Field label={kind === 'rd' ? 'Monthly instalment' : 'Amount deposited'}><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" /></Field>
+          <Field label="Interest rate" hint={rate.trim() && rateError(rate) ? undefined : '% a year, as on the receipt'} error={rate.trim() ? rateError(rate) ?? undefined : undefined}><NumInput kind="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="7.1" /></Field>
         </div>
         <div className="two">
-          <Field label="Start date"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
+          <Field label="Start date"><DateField value={start} onChange={(e) => setStart(e.target.value)} /></Field>
           <Field label="Currency" hint={dep ? 'Fixed once created' : undefined}><CurrencySelect value={cur} onChange={setCur} disabled={!!dep} /></Field>
         </div>
         <div className="two">
           <Field label="Term">
             <Segmented label="Term as" value={termMode} onChange={setTermMode} options={[['months', 'Months'], ['date', 'Maturity date']]} />
-            {termMode === 'months' ? <input inputMode="numeric" value={termMonths} onChange={(e) => setTermMonths(e.target.value)} aria-label="Months" /> : <input type="date" value={maturity} onChange={(e) => setMaturity(e.target.value)} aria-label="Maturity date" />}
+            {termMode === 'months' ? <NumInput kind="int" value={termMonths} onChange={(e) => setTermMonths(e.target.value)} aria-label="Months" /> : <DateField value={maturity} onChange={(e) => setMaturity(e.target.value)} aria-label="Maturity date" />}
           </Field>
-          <Field label="Compounding"><select value={compounding} onChange={(e) => setCompounding(e.target.value)}>{COMPOUNDINGS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+          <Field label="Compounding"><Select value={compounding} onChange={(e) => setCompounding(e.target.value)}>{COMPOUNDINGS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
         </div>
         {kind !== 'rd' && (
           <div className="two">
-            <Field label="Interest paid"><select value={payout} onChange={(e) => setPayout(e.target.value)}>{PAYOUTS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
-            {payout !== 'cumulative' && <Field label="Payouts go to"><select value={payoutAccount} onChange={(e) => setPayoutAccount(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
+            <Field label="Interest paid"><Select value={payout} onChange={(e) => setPayout(e.target.value)}>{PAYOUTS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
+            {payout !== 'cumulative' && <Field label="Payouts go to"><Select value={payoutAccount} onChange={(e) => setPayoutAccount(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
           </div>
         )}
         {!dep && (
           <div className="subtle-box">
             <Segmented label="Funding" value={funded} onChange={setFunded} options={[['account', kind === 'rd' ? 'Instalments come from my account' : 'Paid from my account'], ['outside', 'Already open before LekhaMint']]} />
             {funded === 'account' ? (
-              <Field label="From account" hint={fromBal !== undefined ? <>Balance <Money value={fromBal} currency={cur} /></> : undefined}><select value={fromAccount} onChange={(e) => setFromAccount(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+              <Field label="From account" hint={fromBal !== undefined ? <>Balance <Money value={fromBal} currency={cur} /></> : undefined}><Select value={fromAccount} onChange={(e) => setFromAccount(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
             ) : <p className="muted small">The deposit starts with this amount; no account balance goes down.</p>}
             {funded === 'account' && kind !== 'rd' && fromBal !== undefined && minor && fromBal < minor && <p className="warn-text small"><Icon name="alert" size={14} /> The account has less than the deposit amount.</p>}
           </div>
         )}
         <div className="two">
-          <Field label="Bank's maturity amount (optional)" hint="From the receipt; used instead of our estimate"><input inputMode="decimal" value={bankMaturity} onChange={(e) => setBankMaturity(e.target.value)} placeholder={preview ? toPlain(preview.maturity, cur) : ''} /></Field>
-          <Field label="Tax on interest (optional)" hint="% for the estimate, e.g. 10 for TDS"><input inputMode="decimal" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} placeholder="0" /></Field>
+          <Field label="Bank's maturity amount (optional)" hint="From the receipt; used instead of our estimate"><NumInput kind="decimal" value={bankMaturity} onChange={(e) => setBankMaturity(e.target.value)} placeholder={preview ? toPlain(preview.maturity, cur) : ''} /></Field>
+          <Field label="Tax on interest (optional)" hint="% for the estimate, e.g. 10 for TDS"><NumInput kind="decimal" value={taxPct} onChange={(e) => setTaxPct(e.target.value)} placeholder="0" /></Field>
         </div>
         <div className="two">
-          <Field label="Remind me before maturity"><div className="row nowrap"><input inputMode="numeric" value={remind} onChange={(e) => setRemind(e.target.value)} style={{ maxWidth: 70 }} /><span className="muted">days</span></div></Field>
+          <Field label="Remind me before maturity"><div className="row nowrap"><NumInput kind="int" value={remind} onChange={(e) => setRemind(e.target.value)} style={{ maxWidth: 70 }} /><span className="muted">days</span></div></Field>
           <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Receipt number, nominee…" maxLength={2000} /></Field>
         </div>
         <Check checked={autoRenew} onChange={setAutoRenew}>Set to renew automatically at maturity</Check>

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/anand34577/lekhamint/server/internal/backup"
@@ -42,14 +43,23 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"name": "lekhamint", "version": s.Version, "api_version": 1,
 		"schema_version": db.LatestSchemaVersion(), "database": s.DB.Dialect().String(),
-		"signup_allowed": signup, "entities": entity.Names(),
+		"signup_allowed": signup && !s.OIDCOnly, "entities": entity.Names(),
 		"limits":      map[string]int{"push_batch": syncer.MaxPushBatch, "pull_page": syncer.MaxPullLimit, "batch_ops": MaxBatchOps},
 		"server_time": time.Now().UnixMilli(),
 		"ai":          s.AI.info(),
+		"oidc":        s.oidcInfo(),
+		"notify":      s.notifier().Info(),
 	})
 }
 
 // --- auth ---
+
+func deviceLabel(d string) string {
+	if d = strings.TrimSpace(d); d != "" {
+		return d
+	}
+	return "an unknown device"
+}
 
 type credentials struct {
 	Email      string `json:"email"`
@@ -59,6 +69,10 @@ type credentials struct {
 }
 
 func (s *Server) register(w http.ResponseWriter, r *http.Request) {
+	if s.OIDCOnly {
+		s.fail(w, r, errPasswordOff)
+		return
+	}
 	var in credentials
 	if err := decode(w, r, smallBody, &in); err != nil {
 		s.fail(w, r, err)
@@ -73,6 +87,10 @@ func (s *Server) register(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	if s.OIDCOnly {
+		s.fail(w, r, errPasswordOff)
+		return
+	}
 	var in credentials
 	if err := decode(w, r, smallBody, &in); err != nil {
 		s.fail(w, r, err)
@@ -83,6 +101,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.securityNotice(u, "New sign-in", "Your account was just signed in on "+deviceLabel(in.DeviceName)+" at "+time.Now().Format("2 Jan 2006 15:04 MST")+". If this was not you, change your password and sign out other devices under Settings.")
 	writeJSON(w, http.StatusOK, map[string]any{"user": u, "token": token})
 }
 
@@ -152,6 +171,7 @@ func (s *Server) changePassword(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.securityNotice(currentUser(r), "Password changed", "The password for your account was just changed and your other devices were signed out. If this was not you, contact the administrator now.")
 	w.WriteHeader(http.StatusNoContent)
 }
 

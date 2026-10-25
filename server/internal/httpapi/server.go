@@ -16,6 +16,8 @@ import (
 	"github.com/anand34577/lekhamint/server/internal/db"
 	"github.com/anand34577/lekhamint/server/internal/ids"
 	"github.com/anand34577/lekhamint/server/internal/ledger"
+	"github.com/anand34577/lekhamint/server/internal/notify"
+	"github.com/anand34577/lekhamint/server/internal/oidc"
 	"github.com/anand34577/lekhamint/server/internal/report"
 	"github.com/anand34577/lekhamint/server/internal/store"
 	"github.com/anand34577/lekhamint/server/internal/syncer"
@@ -37,6 +39,13 @@ type Server struct {
 	Web http.Handler
 	// AI forwards assistant requests to a configured model; nil disables it.
 	AI *AIProxy
+	// OIDC enables single sign-on; OIDCAutoCreate lets new people create their account on first
+	// sign-in, and OIDCOnly turns password sign-in off.
+	OIDC           *oidc.Client
+	OIDCAutoCreate bool
+	OIDCOnly       bool
+	// Notice delivers email and Gotify messages; nil disables notifications.
+	Notice *notify.Dispatcher
 
 	authLimiter *rateLimiter
 }
@@ -70,6 +79,13 @@ func (s *Server) Handler() http.Handler {
 	private("GET /api/v1/auth/sessions", s.listSessions)
 	private("DELETE /api/v1/auth/sessions/{id}", s.deleteSession)
 	private("POST /api/v1/auth/password", s.changePassword)
+	public("GET /api/v1/auth/oidc/start", s.limited(s.oidcStart))
+	public("GET /api/v1/auth/oidc/callback", s.limited(s.oidcCallback))
+	public("POST /api/v1/auth/oidc/exchange", s.limited(s.oidcExchange))
+
+	private("GET /api/v1/notifications", s.getPrefs)
+	private("PUT /api/v1/notifications", s.putPrefs)
+	private("POST /api/v1/notifications/test", s.limited(s.testNotification))
 
 	private("GET /api/v1/ledgers", s.listLedgers)
 	private("POST /api/v1/ledgers", s.createLedger)

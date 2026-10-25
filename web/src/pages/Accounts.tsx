@@ -6,6 +6,7 @@ import { isoDate } from '../lib/util'
 import { Bar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Skeleton, errorText, saveErrorText, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
+import { Select, NumInput } from '../controls'
 
 const PALETTE = ['#2E7D32', '#1E88E5', '#00897B', '#5E35B1', '#D81B60', '#EF6C00', '#546E7A', '#8D6E63']
 const TYPE_ICON: Record<string, string> = { cash: 'coins', bank: 'bank', wallet: 'device', credit_card: 'wallet', savings: 'target', investment: 'chart', deposit: 'piggy', loan: 'hand', other: 'grid' }
@@ -156,13 +157,13 @@ function AccountForm({ account, onClose }: { account?: WithId<Account>; onClose:
         <form id="accform" onSubmit={submit}>
           <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required placeholder="HDFC Savings, Amex, Paytm…" autoFocus={!account} /></Field>
           <div className="two">
-            <Field label="Type"><select value={type} onChange={(e) => setType(e.target.value)}>{ACCOUNT_TYPES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+            <Field label="Type"><Select value={type} onChange={(e) => setType(e.target.value)}>{ACCOUNT_TYPES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
             <Field label="Currency" hint={account ? 'Changing it does not convert past amounts' : undefined}><CurrencySelect value={cur} onChange={setCur} /></Field>
           </div>
           <Field label={liability ? 'Amount owed when you start tracking' : 'Balance when you start tracking'} hint={liability ? 'What the statement shows you owe; 0 if nothing' : 'Today’s balance is fine'}>
-            <input inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="0" />
+            <NumInput kind="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="0" />
           </Field>
-          {type === 'credit_card' && <Field label="Credit limit (optional)" hint="Shows how much of the limit you have used"><input inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} /></Field>}
+          {type === 'credit_card' && <Field label="Credit limit (optional)" hint="Shows how much of the limit you have used"><NumInput kind="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} /></Field>}
           <Field label="Colour"><div className="row">{PALETTE.map((c) => <button type="button" key={c} className={`swatch ${c === color ? 'on' : ''}`} style={{ background: c }} aria-label={`Colour ${c}`} aria-pressed={c === color} onClick={() => setColor(c)} />)}</div></Field>
           <Field label="Note (optional)"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Last 4 digits, branch…" /></Field>
           <Check checked={inWorth} onChange={setInWorth}>Include in net worth</Check>
@@ -212,7 +213,7 @@ function ReconcileForm({ account, current, onClose }: { account: WithId<Account>
         } catch (x) { setErr(saveErrorText(x)) }
       }}>Adjust</button></>}>
       <p>LekhaMint shows <strong><Money value={liability ? -current : current} currency={account.currency} /></strong>{liability ? ' owed' : ''}. Enter what your {liability ? 'statement says you owe' : 'bank or wallet shows'} now.</p>
-      <Field label={liability ? 'Amount owed' : 'Actual balance'}><input inputMode="decimal" value={actual} onChange={(e) => setActual(e.target.value)} autoFocus /></Field>
+      <Field label={liability ? 'Amount owed' : 'Actual balance'}><NumInput kind="decimal" value={actual} onChange={(e) => setActual(e.target.value)} autoFocus /></Field>
       {diff !== null && diff !== 0 && <p>Adjustment: <Money value={diff} currency={account.currency} signed /> <span className="muted small">(not counted as spending or income)</span></p>}
       {diff === 0 && <p className="muted"><Icon name="check" size={14} /> Already matches.</p>}
       {actual.trim() && value === null && <p className="error">Enter the amount as a number, like 12500.50</p>}

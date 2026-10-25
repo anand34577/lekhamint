@@ -4,11 +4,12 @@ import { useAccounts, useCanWrite, useCategoryIndex, useLedger, useRules, useSta
 import { dueDates, initialNextDate, nextAfter, nextDate, occurrenceData, occurrenceId, type RuleWithId } from '../lib/recurrence'
 import { parseMoney, toPlain } from '../lib/money'
 import { addDays, dayLabel, isoDate } from '../lib/util'
-import { Card, Check, Dot, Empty, Field, Modal, Money, Segmented, Skeleton, errorText, toast } from '../components'
-import { Icon } from '../icons'
+import { Card, Check, Empty, Field, Modal, Money, Segmented, Skeleton, errorText, toast } from '../components'
+import { CatIcon, Icon } from '../icons'
 import { CategorySelect } from './Transactions'
 import { TagInput } from './parts'
 import type { PageProps } from '../App'
+import { Select, DateField, NumInput } from '../controls'
 
 const FREQ: Record<string, string> = { daily: 'day', weekly: 'week', monthly: 'month', yearly: 'year' }
 const describe = (r: RecurringRule) => (r.every > 1 ? `Every ${r.every} ${FREQ[r.frequency]}s` : `Every ${FREQ[r.frequency]}`)
@@ -108,7 +109,7 @@ export function Recurring({ go }: PageProps) {
           <ul className="list">
             {due.map(({ r, d }) => (
               <li key={r.id + d}>
-                <Dot color={r.type === 'transfer' ? 'var(--transfer)' : cats.color(r.category_id)} />
+                {r.type === 'transfer' ? <CatIcon name="transfer" color="var(--transfer)" /> : <CatIcon name={cats.icon(r.category_id)} color={cats.color(r.category_id)} />}
                 <div className="grow"><div>{r.name || r.payee || cats.name(r.category_id)}</div><div className="sub">{dayLabel(d)}{d < today ? ' · overdue' : ''}</div></div>
                 <Money value={r.type === 'income' ? r.amount : -r.amount} currency={cur(r.account_id)} signed={r.type !== 'transfer'} />
                 <button onClick={() => skip(r, d)}>Skip</button>
@@ -124,7 +125,7 @@ export function Recurring({ go }: PageProps) {
       ) : (
         <Card><ul className="list">{live.map(({ r, next }) => (
           <li key={r.id} className={`clickable ${r.paused || !next ? 'muted-row' : ''}`} onClick={() => setEdit(r)} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter') setEdit(r) }}>
-            <Dot color={r.type === 'transfer' ? 'var(--transfer)' : cats.color(r.category_id)} />
+            {r.type === 'transfer' ? <CatIcon name="transfer" color="var(--transfer)" /> : <CatIcon name={cats.icon(r.category_id)} color={cats.color(r.category_id)} />}
             <div className="grow"><div>{r.name || r.payee || cats.name(r.category_id)}</div>
               <div className="sub">{describe(r)} · {r.paused ? 'paused' : next ? `next ${dayLabel(next)}` : 'ended'} · {r.mode === 'auto' ? 'automatic' : 'reminder'}
                 {r.type === 'transfer' ? ` · ${accName(r.account_id)} → ${accName(r.to_account_id)}` : ` · ${cats.name(r.category_id)}`}</div></div>
@@ -211,27 +212,27 @@ function RuleForm({ rule, onClose, onConfirm }: { rule?: WithId<RuleWithId>; onC
           <Segmented label="Type" value={type} onChange={(t) => { setType(t); setCategoryId('') }} options={[['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer']]} />
           <div className="two">
             <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} placeholder={type === 'transfer' ? 'SIP, savings…' : 'Rent, Netflix, Salary…'} /></Field>
-            <Field label={`Amount (${code})`} hint="Reminders let you adjust it each time"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required /></Field>
+            <Field label={`Amount (${code})`} hint="Reminders let you adjust it each time"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required /></Field>
           </div>
           <div className="two">
-            <Field label={type === 'transfer' ? 'From account' : 'Account'}><select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{live.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+            <Field label={type === 'transfer' ? 'From account' : 'Account'}><Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{live.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
             {type === 'transfer'
-              ? <Field label="To account"><select value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>{live.filter((a) => a.id !== accountId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+              ? <Field label="To account"><Select value={toAccountId} onChange={(e) => setToAccountId(e.target.value)}>{live.filter((a) => a.id !== accountId).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
               : <Field label="Category"><CategorySelect value={categoryId} onChange={setCategoryId} cats={cats} kind={type === 'expense' ? 'expense' : 'income'} /></Field>}
           </div>
-          {cross && <Field label={`Amount received (${toCode})`}><input inputMode="decimal" value={toAmount} onChange={(e) => setToAmount(e.target.value)} /></Field>}
+          {cross && <Field label={`Amount received (${toCode})`}><NumInput kind="decimal" value={toAmount} onChange={(e) => setToAmount(e.target.value)} /></Field>}
           <div className="two">
             <Field label="Repeats"><div className="row nowrap">
-              <span>Every</span><input type="number" min={1} max={366} value={every} onChange={(e) => setEvery(Math.min(366, Math.max(1, Number(e.target.value) || 1)))} style={{ width: 80 }} />
-              <select value={frequency} onChange={(e) => setFrequency(e.target.value)}>{Object.entries(FREQ).map(([k, v]) => <option key={k} value={k}>{v}{every > 1 ? 's' : ''}</option>)}</select></div></Field>
-            <Field label="Starts" hint="Day 29–31 falls on the last day of shorter months"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} required /></Field>
+              <span>Every</span><NumInput kind="int" value={every} onChange={(e) => setEvery(Math.min(366, Math.max(1, Number(e.target.value) || 1)))} style={{ width: 80 }} />
+              <Select value={frequency} onChange={(e) => setFrequency(e.target.value)}>{Object.entries(FREQ).map(([k, v]) => <option key={k} value={k}>{v}{every > 1 ? 's' : ''}</option>)}</Select></div></Field>
+            <Field label="Starts" hint="Day 29–31 falls on the last day of shorter months"><DateField value={start} onChange={(e) => setStart(e.target.value)} required /></Field>
           </div>
           <div className="two">
             <Field label="Ends">
-              <select value={endMode} onChange={(e) => setEndMode(e.target.value as typeof endMode)}><option value="never">Never</option><option value="date">On a date</option><option value="count">After a number of times</option></select>
+              <Select value={endMode} onChange={(e) => setEndMode(e.target.value as typeof endMode)}><option value="never">Never</option><option value="date">On a date</option><option value="count">After a number of times</option></Select>
             </Field>
-            {endMode === 'date' && <Field label="Last date"><input type="date" value={endDate} min={start} onChange={(e) => setEndDate(e.target.value)} /></Field>}
-            {endMode === 'count' && <Field label="Times" hint="Counted from the start date, e.g. 12 EMIs"><input type="number" min={1} value={count} onChange={(e) => setCount(Math.max(1, Number(e.target.value) || 1))} /></Field>}
+            {endMode === 'date' && <Field label="Last date"><DateField value={endDate} min={start} onChange={(e) => setEndDate(e.target.value)} /></Field>}
+            {endMode === 'count' && <Field label="Times" hint="Counted from the start date, e.g. 12 EMIs"><NumInput kind="int" value={count} onChange={(e) => setCount(Math.max(1, Number(e.target.value) || 1))} /></Field>}
           </div>
           <p className="muted small">{preview.length ? <>Next: {preview.map(dayLabel).join(', ')}{preview.length === 3 ? '…' : ''}</> : 'No more occurrences with these settings.'}</p>
           <Field label="When it is due"><Segmented label="Mode" value={mode} onChange={setMode} options={[['remind', 'Remind me'], ['auto', 'Record automatically']]} /></Field>

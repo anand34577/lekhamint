@@ -6,6 +6,17 @@ import { DEMO, demoFetch } from './demo'
 export interface User { id: string; email: string; name: string; is_admin: boolean }
 export interface Ledger { id: string; name: string; base_currency: string; seq: number; role?: string }
 
+export interface Meta {
+  version: string; signup_allowed: boolean
+  oidc?: { enabled: boolean; name?: string; only?: boolean }
+  notify?: { email: boolean; gotify: boolean; gotify_host?: string }
+}
+export interface NotificationPrefs {
+  notify_email: boolean; notify_gotify: boolean; gotify_token_set: boolean
+  ev_security: boolean; ev_due: boolean; ev_budget: boolean
+  channels?: { email: boolean; gotify: boolean; gotify_host?: string }
+}
+
 export interface Rec<T> { entity: string; id: string; hlc: string; seq: number; deleted: boolean; data: T }
 
 export interface Account {
@@ -131,7 +142,11 @@ async function call<T>(method: string, path: string, body?: unknown, raw = false
 const L = (lid: string) => `/ledgers/${lid}`
 
 export const api = {
-  meta: () => call<{ version: string; signup_allowed: boolean }>('GET', '/meta'),
+  meta: () => call<Meta>('GET', '/meta'),
+  oidcExchange: (code: string) => call<{ user: User; token: string }>('POST', '/auth/oidc/exchange', { code }),
+  notifications: () => call<NotificationPrefs>('GET', '/notifications'),
+  saveNotifications: (patch: Partial<Omit<NotificationPrefs, 'gotify_token_set' | 'channels'>> & { gotify_token?: string }) => call<NotificationPrefs>('PUT', '/notifications', patch),
+  testNotification: (channel: 'email' | 'gotify', gotify_token?: string) => call<{ sent: boolean }>('POST', '/notifications/test', { channel, ...(gotify_token ? { gotify_token } : {}) }),
   login: (email: string, password: string) => call<{ user: User; token: string }>('POST', '/auth/login', { email, password, device_name: 'Web browser' }),
   register: (email: string, password: string, name: string) =>
     call<{ user: User; token: string }>('POST', '/auth/register', { email, password, name, device_name: 'Web browser' }),

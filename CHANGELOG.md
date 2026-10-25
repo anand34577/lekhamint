@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.3.0
+
+**Web app redesign**
+- New design system: richer palette with seven accent colours (Settings > Appearance), light, dark and black themes, slim themed scrollbars, a collapsible sidebar and a top bar with search, theme and privacy toggles.
+- Dropdowns, date pickers, number fields, password fields, checkboxes, switches, sliders and file pickers are drawn by the app instead of the browser. Dates can be typed (`25/10/2026`, `today`) or picked; dropdowns are searchable and become bottom sheets on phones.
+- Inputs only accept what makes sense (digits for amounts, one decimal point), and form errors appear under the field in plain words instead of browser pop-ups.
+- Categories show their own icons; the sign-in page has a new layout; cards and tables no longer clip or scroll sideways on narrow screens.
+
+**Server**
+- Single sign-on with any OpenID Connect provider (Keycloak, Authentik, Authelia, Google...): `LEKHAMINT_OIDC_*`, `LEKHAMINT_PUBLIC_URL`. Optional password-less mode with `LEKHAMINT_OIDC_ONLY`.
+- Email (SMTP) and Gotify notifications: security alerts, bills due and budget limits, with per-person choices in Settings. See `docs/13-sso-and-notifications.md`.
+- Schema v4 adds `user_prefs` and `notify_log`.
+
 ## 1.2.0
 
 **Fixes**

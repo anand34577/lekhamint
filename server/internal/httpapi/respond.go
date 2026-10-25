@@ -61,6 +61,10 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", err.Error(), nil)
 	case errors.Is(err, auth.ErrSignupClosed):
 		writeError(w, http.StatusForbidden, "signup_closed", err.Error(), nil)
+	case errors.Is(err, auth.ErrSSOClosed), errors.Is(err, auth.ErrAccountDisabled), errors.Is(err, errPasswordOff):
+		writeError(w, http.StatusForbidden, "forbidden", err.Error(), nil)
+	case errors.Is(err, auth.ErrSSOAccount):
+		writeError(w, http.StatusBadRequest, "bad_request", err.Error(), nil)
 	case errors.Is(err, auth.ErrEmailTaken), errors.Is(err, syncer.ErrExists), errors.Is(err, store.ErrDuplicate):
 		writeError(w, http.StatusConflict, "conflict", err.Error(), nil)
 	case errors.Is(err, auth.ErrWeakPassword), errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrInvalidName),
