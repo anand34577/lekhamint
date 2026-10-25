@@ -4,6 +4,16 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.input.pointer.pointerInput
+import app.kosh.core.Money
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -77,17 +87,28 @@ fun DonutChart(
 
 data class BarPoint(val label: String, val income: Long, val expense: Long)
 
-/** Paired income/expense bars per period. */
+/** Paired income/expense bars per period. Tap a period to read its exact amounts. */
 @Composable
-fun IncomeExpenseBars(points: List<BarPoint>, description: String, modifier: Modifier = Modifier, height: Dp = 160.dp) {
+fun IncomeExpenseBars(points: List<BarPoint>, description: String, modifier: Modifier = Modifier, height: Dp = 160.dp, currency: String? = null) {
     val colors = LocalMoneyColors.current
+    var picked by remember(points) { mutableStateOf<Int?>(null) }
     val max = points.maxOfOrNull { maxOf(it.income, it.expense) }?.coerceAtLeast(1) ?: 1
     val progress = remember(points) { Animatable(0f) }
     LaunchedEffect(points) { progress.animateTo(1f, spring(stiffness = Spring.StiffnessLow)) }
     Column(modifier.semantics { contentDescription = description }) {
+        val sel = picked?.let(points::getOrNull)
+        if (currency != null) {
+            Text(
+                if (sel == null) "Tap a month for the exact amounts" else "${sel.label}: income ${Money.format(sel.income, currency)} · spent ${Money.format(sel.expense, currency)}",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
         Row(Modifier.fillMaxWidth().height(height), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.Bottom) {
-            for (p in points) {
-                Row(Modifier.weight(1f).fillMaxHeight(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.Bottom) {
+            for ((i, p) in points.withIndex()) {
+                Row(
+                    Modifier.weight(1f).fillMaxHeight().clickable { picked = if (picked == i) null else i },
+                    horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.Bottom,
+                ) {
                     Bar(p.income.toFloat() / max * progress.value, colors.income)
                     Box(Modifier.width(3.dp))
                     Bar(p.expense.toFloat() / max * progress.value, colors.expense)
@@ -147,6 +168,59 @@ fun StackedBar(parts: List<Pair<Float, Color>>, modifier: Modifier = Modifier) {
             val w = size.width * f.coerceIn(0f, 1f)
             drawRect(c, Offset(x, 0f), Size(w, size.height))
             x += w
+        }
+    }
+}
+
+
+/**
+ * Cumulative spending through a month against the month before it, so "am I
+ * spending faster than last month?" is one glance. Drag or tap to read any day.
+ * [current] has one value per day up to today; [previous] covers the whole earlier month.
+ */
+@Composable
+fun PaceChart(current: List<Long>, previous: List<Long>, currency: String, description: String, modifier: Modifier = Modifier, height: Dp = 140.dp) {
+    val days = maxOf(current.size, previous.size, 2)
+    val top = (maxOf(current.maxOrNull() ?: 0L, previous.maxOrNull() ?: 0L)).coerceAtLeast(1L).toFloat()
+    var picked by remember(current, previous) { mutableStateOf<Int?>(null) }
+    val line = MaterialTheme.colorScheme.primary
+    val ghost = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+    val grid = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+    val anim = remember { Animatable(0f) }
+    LaunchedEffect(current, previous) { anim.animateTo(1f, spring(stiffness = Spring.StiffnessLow)) }
+    val day = picked ?: (current.size - 1).coerceAtLeast(0)
+    Column(modifier.semantics { contentDescription = description }) {
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Column {
+                Text("This month \u00b7 day ${day + 1}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Money.format(current.getOrElse(day) { current.lastOrNull() ?: 0L }, currency), style = MaterialTheme.typography.titleMedium, color = line)
+            }
+            Column(horizontalAlignment = Alignment.End) {
+                Text("Last month \u00b7 day ${day + 1}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(Money.format(previous.getOrElse(day) { previous.lastOrNull() ?: 0L }, currency), style = MaterialTheme.typography.titleMedium)
+            }
+        }
+        Canvas(
+            Modifier.fillMaxWidth().height(height)
+                .pointerInput(days) { detectTapGestures { o -> picked = ((o.x / size.width) * (days - 1)).toInt().coerceIn(0, days - 1) } }
+                .pointerInput(days) { detectHorizontalDragGestures { change, _ -> picked = ((change.position.x / size.width) * (days - 1)).toInt().coerceIn(0, days - 1) } },
+        ) {
+            val w = size.width
+            val h = size.height
+            fun x(i: Int) = w * i / (days - 1)
+            fun y(v: Long) = h - (h * (v / top)) * anim.value
+            drawLine(grid, Offset(0f, h), Offset(w, h), strokeWidth = 2f)
+            drawLine(grid, Offset(0f, 0f), Offset(w, 0f), strokeWidth = 1f)
+            fun path(values: List<Long>) = Path().apply {
+                values.forEachIndexed { i, v -> if (i == 0) moveTo(x(i), y(v)) else lineTo(x(i), y(v)) }
+            }
+            if (previous.size > 1) drawPath(path(previous), ghost, style = Stroke(3f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(14f, 10f)), cap = StrokeCap.Round))
+            if (current.size > 1) drawPath(path(current), line, style = Stroke(6f, cap = StrokeCap.Round))
+            if (current.isNotEmpty()) {
+                val i = day.coerceIn(0, current.size - 1)
+                drawLine(line.copy(alpha = 0.25f), Offset(x(i), 0f), Offset(x(i), h), strokeWidth = 2f)
+                drawCircle(line, 8f, Offset(x(i), y(current[i])))
+            }
         }
     }
 }

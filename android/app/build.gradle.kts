@@ -18,13 +18,14 @@ val copySeed by tasks.registering(Copy::class) {
 // Release signing: keystore.properties next to this project (storeFile, storePassword,
 // keyAlias, keyPassword) or, in CI, ANDROID_KEYSTORE_FILE plus the ANDROID_KEYSTORE_PASSWORD,
 // ANDROID_KEY_ALIAS and ANDROID_KEY_PASSWORD environment variables (see .github/workflows/release.yml).
-// Without either, release builds use the debug key so they still install for testing.
+// Without either, a release build fails fast instead of silently producing a debug-signed
+// APK that pretends to be a release; pass -PallowDebugSigning=true for a local test build.
 val keystoreProps = Properties().apply {
     rootProject.file("keystore.properties").takeIf { it.isFile }?.inputStream()?.use { load(it) }
     System.getenv("ANDROID_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }?.let { setProperty("storeFile", it) }
     System.getenv("ANDROID_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }?.let { setProperty("storePassword", it) }
     System.getenv("ANDROID_KEY_ALIAS")?.takeIf { it.isNotBlank() }?.let { setProperty("keyAlias", it) }
-    System.getenv("ANDROID_KEY_PASSWORD")?.takeIf { it.isNotBlank() }?.let { setProperty("keyPassword", it) }
+    System.getenv("ANDROID_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }?.let { setProperty("keyPassword", it) }
 }
 val hasReleaseKey = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").all { !keystoreProps.getProperty(it).isNullOrBlank() }
 
@@ -59,11 +60,26 @@ android {
     }
 
     buildTypes {
+        val allowDebugSigning = (findProperty("allowDebugSigning") as String?)?.toBoolean() == true
+        // Fail only when a release artifact is actually requested; plain debug
+        // builds configure the release block too and must keep working.
+        val wantsRelease = gradle.startParameter.taskNames.any {
+            it.contains("Release", ignoreCase = true) || it.equals("build", true) || it.equals("assemble", true) || it.equals("check", true)
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            signingConfig = signingConfigs.getByName(if (hasReleaseKey) "release" else "debug")
+            if (hasReleaseKey) {
+                signingConfig = signingConfigs.getByName("release")
+            } else if (allowDebugSigning || !wantsRelease) {
+                signingConfig = signingConfigs.getByName("debug")
+            } else {
+                throw GradleException(
+                    "No release keystore found. Add keystore.properties (or the ANDROID_KEYSTORE_* variables), " +
+                        "or build with -PallowDebugSigning=true for a debug-signed test build.",
+                )
+            }
         }
         debug {
             applicationIdSuffix = ".debug"

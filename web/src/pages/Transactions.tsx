@@ -113,7 +113,7 @@ export function Transactions({ params, go }: PageProps) {
     const lines = rows.map((t) => [t.local_date, t.type, toPlain(t.type === 'income' ? t.amount : -t.amount, cur(t.account_id)), cur(t.account_id),
       accName(t.account_id), t.to_account_id ? accName(t.to_account_id) : '', t.type === 'transfer' ? '' : categoryLabel(t),
       t.payee ?? '', t.note ?? '', t.tag_ids.map((id) => tags.name(id)).filter(Boolean).join(' '), t.status].map(csvEscape).join(','))
-    download(`kosh-transactions-${ranged ? from.slice(0, 7) : isoDate()}.csv`, new Blob(['﻿' + [head.join(','), ...lines].join('\r\n')], { type: 'text/csv' }))
+    download(`lekhamint-transactions-${ranged ? from.slice(0, 7) : isoDate()}.csv`, new Blob(['﻿' + [head.join(','), ...lines].join('\r\n')], { type: 'text/csv' }))
   }
   const clearFilters = () => { setType(''); setAccount(''); setCategory(''); setTag(''); setQ(''); go('transactions') }
 
@@ -242,7 +242,7 @@ export function CategorySelect({ value, onChange, cats, all, kind, uncategorised
  * Add or edit a transaction. Amount accepts arithmetic like "450+800".
  * For new entries, rules suggest the category, payee name and tags.
  */
-type TxFormProps = { tx?: TxRow; onClose: () => void; onDelete?: (id: string) => void; presetAccount?: string; draft?: Resolved }
+type TxFormProps = { tx?: TxRow; onClose: () => void; onDelete?: (id: string) => void; presetAccount?: string; draft?: Resolved; payCard?: { cardId: string; minor: number } }
 
 export function TxForm(props: TxFormProps) {
   // The form starts from loaded data: an edit opened before splits arrive must not drop them on save.
@@ -259,7 +259,7 @@ export function TxForm(props: TxFormProps) {
     onAnother={() => { setCopy(undefined); setKey((k) => k + 1) }} onDuplicate={(t) => { setCopy(t); setKey((k) => k + 1) }} />
 }
 
-function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAnother, onDuplicate }: TxFormProps & { copyOf?: TxRow; onAnother: () => void; onDuplicate: (t: TxRow) => void }) {
+function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, payCard, copyOf, onAnother, onDuplicate }: TxFormProps & { copyOf?: TxRow; onAnother: () => void; onDuplicate: (t: TxRow) => void }) {
   const l = useLedger()
   const accounts = useAccounts()
   const cats = useCategoryIndex()
@@ -275,17 +275,25 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
   const src = tx ?? copyOf
   const live = useMemo(() => (accounts.data ?? []).filter((a) => !a.deleted && !a.archived), [accounts.data])
   const lastUsed = (() => { try { return localStorage.getItem(`kosh.lastAccount.${l.id}`) } catch { return null } })()
-  const [type, setType] = useState<Transaction['type']>(src?.type ?? draft?.draft.type ?? 'expense')
-  const [accountId, setAccountId] = useState(src?.account_id ?? draft?.accountId ?? presetAccount ?? (live.find((a) => a.id === lastUsed) ?? live[0])?.id ?? '')
+  const [type, setType] = useState<Transaction['type']>(src?.type ?? (payCard ? 'transfer' : draft?.draft.type) ?? 'expense')
+  const cardCur = payCard ? (accounts.data ?? []).find((a) => a.id === payCard.cardId)?.currency : undefined
+  const payer = payCard ? live.find((a) => a.id === lastUsed && a.id !== payCard.cardId && !isLiability(a.type) && a.currency === cardCur) ?? live.find((a) => a.id !== payCard.cardId && !isLiability(a.type) && a.currency === cardCur) : undefined
+  const [accountId, setAccountId] = useState(src?.account_id ?? payer?.id ?? draft?.accountId ?? presetAccount ?? (live.find((a) => a.id === lastUsed) ?? live.find((a) => ['cash', 'bank', 'wallet', 'credit_card', 'savings'].includes(a.type)) ?? live[0])?.id ?? '')
   const acc = (accounts.data ?? []).find((a) => a.id === accountId)
   const code = acc?.currency ?? l.base_currency
-  const [amount, setAmount] = useState(src ? toPlain(src.amount, code) : draft?.minor ? toPlain(draft.minor, code) : '')
-  const [toAccountId, setToAccountId] = useState(src?.to_account_id ?? '')
+  const [amount, setAmount] = useState(src ? toPlain(src.amount, code) : payCard ? toPlain(payCard.minor, code) : draft?.minor ? toPlain(draft.minor, code) : '')
+  const [toAccountId, setToAccountId] = useState(src?.to_account_id ?? payCard?.cardId ?? '')
   useEffect(() => { if (type === 'transfer' && (!toAccountId || toAccountId === accountId)) setToAccountId(live.find((a) => a.id !== accountId)?.id ?? '') }, [type, accountId, toAccountId, live])
   const toAcc = (accounts.data ?? []).find((a) => a.id === toAccountId)
   const [toAmount, setToAmount] = useState(src?.to_amount ? toPlain(src.to_amount, toAcc?.currency ?? code) : '')
   const [categoryId, setCategoryId] = useState(src?.category_id ?? draft?.categoryId ?? '')
   const [catTouched, setCatTouched] = useState(!!src || !!draft?.categoryId)
+  // Time of day, "HH:MM". Empty means "now" for a new entry; an edit keeps the time it was saved with.
+  const [time, setTime] = useState(() => {
+    if (!tx) return ''
+    const d = new Date(tx.occurred_at)
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  })
   const [date, setDate] = useState(copyOf ? isoDate() : src?.local_date ?? draft?.draft.date ?? isoDate())
   const [payee, setPayee] = useState(src?.payee ?? draft?.payee ?? '')
   const [note, setNote] = useState(src?.note ?? '')
@@ -335,6 +343,14 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
         }
       }
     }
+    if (type === 'transfer' && toAcc && isLiability(toAcc.type)) {
+      const owedNow = -(balances.data?.find((b) => b.account_id === toAccountId)?.balance ?? 0)
+      const received = cross ? parseMoney(toAmount, toAcc.currency) ?? 0 : minor
+      // Editing: the old payment is already counted in the balance.
+      const back = tx && tx.to_account_id === toAccountId && tx.status !== 'planned' ? (tx.to_amount ?? tx.amount) : 0
+      const extra = received - (owedNow + back)
+      if (owedNow + back >= 0 && extra > 0) out.push(`${toAcc.name} shows ${formatMoney(Math.max(0, owedNow + back), toAcc.currency)} owed, so this pays ${formatMoney(extra, toAcc.currency)} more than that. The card will be in credit by that amount (fine for an advance payment or a refund due).`)
+    }
     if (!tx && type !== 'transfer') {
       try {
         const same = await api.transactions(l.id, { from: date, to: date, account_id: accountId, type, min_amount: String(minor), max_amount: String(minor), limit: '5' })
@@ -372,8 +388,13 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
       const lines = await checks()
       if (lines.length) { setWarn({ key: warnKey, lines }); return }
     }
-    const keepTime = tx && tx.local_date === date
-    const occurred = keepTime ? tx.occurred_at : (() => { const d = new Date(date + 'T12:00:00'); const n = new Date(); d.setHours(n.getHours(), n.getMinutes()); return d.getTime() })()
+    const occurred = (() => {
+      const d = new Date(date + 'T12:00:00')
+      const m = /^(\d{1,2}):(\d{2})$/.exec(time)
+      if (m) d.setHours(Math.min(23, +m[1]), Math.min(59, +m[2]), 0, 0)
+      else { const n = new Date(); d.setHours(n.getHours(), n.getMinutes(), 0, 0) }
+      return d.getTime()
+    })()
     const finalPayee = (!tx && hint?.payee) || payee.trim()
     const data: Partial<Transaction> = {
       type, account_id: accountId, amount: minor, to_account_id: type === 'transfer' ? toAccountId : null, to_amount: toMinor,
@@ -442,16 +463,17 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
           {split && type !== 'transfer' && <SplitEditor lines={split} onChange={setSplit} total={minor} code={code} kind={type === 'expense' ? 'expense' : undefined} />}
           {cross && <Field label={`Amount received (${toAcc!.currency})`}><NumInput kind="decimal" value={toAmount} onChange={(e) => setToAmount(e.target.value)} /></Field>}
           <div className="two">
-            <Field label="Date">
-              <DateField value={date} onChange={(e) => setDate(e.target.value)} required />
+            <Field label="Date"><DateField value={date} onChange={(e) => setDate(e.target.value)} required /></Field>
+            <Field label="Time (optional)" hint={time ? undefined : 'Defaults to now'}>
+              <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
             </Field>
-            {type !== 'transfer' && (
-              <Field label={type === 'income' ? 'From (payer)' : 'Paid to (payee)'}
-                hint={hint ? `Rule “${hint.matched[0].name ?? hint.matched[0].pattern}”: ${[hint.categoryId && cats.path(hint.categoryId), hint.payee && `saved as “${hint.payee}”`].filter(Boolean).join(', ') || 'tags added'}` : undefined}>
-                <input value={payee} onChange={(e) => setPayee(e.target.value)} />
-              </Field>
-            )}
           </div>
+          {type !== 'transfer' && (
+            <Field label={type === 'income' ? 'From (payer)' : 'Paid to (payee)'}
+              hint={hint ? `Rule “${hint.matched[0].name ?? hint.matched[0].pattern}”: ${[hint.categoryId && cats.path(hint.categoryId), hint.payee && `saved as “${hint.payee}”`].filter(Boolean).join(', ') || 'tags added'}` : undefined}>
+              <input value={payee} onChange={(e) => setPayee(e.target.value)} />
+            </Field>
+          )}
           {!readOnly && (
             <div className="row date-chips">
               <button type="button" className={`chip-btn ${date === isoDate() ? 'on' : ''}`} onClick={() => setDate(isoDate())}>Today</button>

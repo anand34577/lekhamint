@@ -117,13 +117,15 @@ class BackupManager(
         try {
             val digest = MessageDigest.getInstance("SHA-256")
             var encryption: BackupEncryption? = null
+            var key: ByteArray? = null
             val count: Int
             tmp.outputStream().buffered().use { fileOut ->
                 val sink: OutputStream = if (passphrase != null && passphrase.isNotEmpty()) {
                     val salt = BackupCrypto.randomBytes(16)
                     val prefix = BackupCrypto.randomBytes(8)
                     encryption = BackupEncryption(salt = b64(salt), nonce_prefix = mapOf(entryName to b64(prefix)))
-                    BackupCrypto.encrypting(fileOut, BackupCrypto.deriveKey(passphrase, salt), prefix)
+                    key = BackupCrypto.deriveKey(passphrase, salt)
+                    BackupCrypto.encrypting(fileOut, key!!, prefix)
                 } else {
                     fileOut
                 }
@@ -131,6 +133,7 @@ class BackupManager(
                 count = writeLedgerJson(writer)
                 writer.close()
             }
+            key?.fill(0)
             val manifest = BackupManifest(
                 created_at = System.currentTimeMillis(),
                 ledgers = listOf(BackupLedger(s.ledgerId, s.ledgerName, s.baseCurrency, count)),
@@ -196,18 +199,22 @@ class BackupManager(
 
     // --- Automatic backups ----------------------------------------------------
 
-    /** Daily backup into app storage (and the user's folder, if chosen). Keeps 7 daily + 4 weekly. */
+    /** Daily backup into app storage (and the user's folder, if chosen). Keeps 7 daily + 4 weekly.
+     *  Encrypted with the saved passphrase when one is set, so "I chose a password" means every
+     *  automatic copy is protected too. */
     suspend fun autoBackup(today: LocalDate = LocalDate.now()): File = withContext(Dispatchers.IO) {
         val file = File(autoDir, "kosh-auto-$today.kosh")
         val tmp = File(autoDir, "${file.name}.tmp")
-        tmp.outputStream().use { writeBackup(it, null) }
+        val pass = secrets.get(PASS_KEY)?.toCharArray()
+        tmp.outputStream().use { writeBackup(it, pass) }
+        pass?.fill('\u0000')
         if (!tmp.renameTo(file)) {
             file.delete()
             tmp.renameTo(file)
         }
         pruneAuto()
         settings.current.backupFolderUri?.let { folder ->
-            runCatching { copyToFolder(Uri.parse(folder), "kosh-backup-$today.kosh") }
+            runCatching { copyToFolder(Uri.parse(folder), "lekhamint-backup-$today.kosh") }
                 .onFailure { settings.setBackupResult(System.currentTimeMillis(), "Couldn't write to the backup folder: ${it.message}") }
                 .onSuccess { settings.setBackupResult(System.currentTimeMillis(), null) }
         } ?: settings.setBackupResult(System.currentTimeMillis(), null)
@@ -217,7 +224,9 @@ class BackupManager(
     /** Safety copy before a destructive operation. */
     suspend fun safetyBackup(reason: String): File = withContext(Dispatchers.IO) {
         val file = File(autoDir, "kosh-$reason-${System.currentTimeMillis()}.kosh")
-        file.outputStream().use { writeBackup(it, null) }
+        val pass = secrets.get(PASS_KEY)?.toCharArray()
+        file.outputStream().use { writeBackup(it, pass) }
+        pass?.fill('\u0000')
         autoDir.listFiles { f -> f.name.startsWith("kosh-$reason-") }?.sortedByDescending { it.name }?.drop(3)?.forEach { it.delete() }
         file
     }
@@ -245,6 +254,7 @@ class BackupManager(
             ?: throw BackupException("The folder refused the file")
         val pass = secrets.get(PASS_KEY)?.toCharArray()
         resolver.openOutputStream(doc, "wt")!!.use { writeBackup(it, pass) }
+        pass?.fill('\u0000')
         pruneFolder(tree)
     }
 
@@ -259,7 +269,7 @@ class BackupManager(
         )?.use { c ->
             while (c.moveToNext()) {
                 val name = c.getString(1) ?: continue
-                if (name.startsWith("kosh-backup-") && name.endsWith(".kosh")) found += c.getString(0) to name
+                if ((name.startsWith("kosh-backup-") || name.startsWith("lekhamint-backup-")) && name.endsWith(".kosh")) found += c.getString(0) to name
             }
         }
         found.sortedByDescending { it.second }.drop(FOLDER_KEEP).forEach { (id, _) ->
@@ -300,6 +310,9 @@ class BackupManager(
     suspend fun restore(open: () -> InputStream, passphrase: CharArray?, mode: RestoreMode): RestoreResult =
         withContext(Dispatchers.IO) {
             val plain = File.createTempFile("kosh-restore", ".json", context.cacheDir)
+            // Best effort against a crash mid-restore leaving the decrypted
+            // ledger behind in the cache dir.
+            plain.deleteOnExit()
             try {
                 extractVerified(open, passphrase, plain)
                 if (mode == RestoreMode.REPLACE) safetyBackup("pre-restore")
@@ -341,9 +354,18 @@ class BackupManager(
                     if (enc.kdf != BackupCrypto.KDF || enc.cipher != BackupCrypto.CIPHER) {
                         throw BackupException("Unsupported encryption (${enc.kdf}/${enc.cipher})")
                     }
+                    // Bound the KDF cost a crafted manifest can demand; without
+                    // this, memory_kib of ~1 GB would be attempted on restore.
+                    if (enc.memory_kib !in 8 * 1024..256 * 1024 || enc.iterations !in 1..10 || enc.parallelism !in 1..8) {
+                        throw BackupException("This backup's encryption settings are unreasonable; refusing it")
+                    }
                     val key = BackupCrypto.deriveKey(passphrase, unb64(enc.salt), enc.memory_kib, enc.iterations, enc.parallelism)
                     val prefix = enc.nonce_prefix[entryName] ?: throw BackupException("The backup is damaged")
-                    BackupCrypto.decrypt(zip, out, key, unb64(prefix))
+                    try {
+                        BackupCrypto.decrypt(zip, out, key, unb64(prefix))
+                    } finally {
+                        key.fill(0)
+                    }
                 }
             }
             if (hex(digest.digest()) != m.sha256[entryName]) {

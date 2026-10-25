@@ -125,9 +125,9 @@ interface TransactionDao : SyncDao<TransactionEntity> {
     @Query(
         """SELECT * FROM transactions WHERE deleted = 0
            AND (payee LIKE '%' || :q || '%' ESCAPE '\' OR note LIKE '%' || :q || '%' ESCAPE '\')
-           ORDER BY local_date DESC, occurred_at DESC, id DESC LIMIT 500""",
+           ORDER BY local_date DESC, occurred_at DESC, id DESC LIMIT :limit""",
     )
-    fun search(q: String): Flow<List<TransactionEntity>>
+    fun search(q: String, limit: Int): Flow<List<TransactionEntity>>
 
     /** Loans and repayments (docs/02 §9). */
     @Query("SELECT * FROM transactions WHERE deleted = 0 AND debt_id IS NOT NULL ORDER BY local_date, occurred_at")
@@ -328,6 +328,14 @@ interface DepositDao : SyncDao<DepositEntity> {
 }
 
 @Dao
+interface SyncBaseDao {
+    @Upsert suspend fun upsertAll(rows: List<SyncBaseEntity>)
+    @Query("SELECT * FROM sync_base WHERE entity = :entity AND id = :id") suspend fun find(entity: String, id: String): SyncBaseEntity?
+    @Query("DELETE FROM sync_base WHERE entity = :entity AND id = :id") suspend fun delete(entity: String, id: String)
+    @Query("DELETE FROM sync_base") suspend fun wipe()
+}
+
+@Dao
 interface RawRecordDao {
     @Upsert suspend fun upsertAll(rows: List<RawRecordEntity>)
     @Query("SELECT * FROM raw_records WHERE entity = :entity AND id = :id") suspend fun find(entity: String, id: String): RawRecordEntity?
@@ -340,6 +348,7 @@ interface RawRecordDao {
     @Query("SELECT COUNT(*) FROM raw_records WHERE deleted = 0") suspend fun countLive(): Int
     @Query("SELECT * FROM raw_records WHERE entity = :entity") suspend fun ofEntity(entity: String): List<RawRecordEntity>
     @Query("DELETE FROM raw_records WHERE entity = :entity") suspend fun deleteEntity(entity: String)
+    @Query("SELECT * FROM raw_records WHERE entity = :entity AND deleted = 0") fun observeOfEntity(entity: String): Flow<List<RawRecordEntity>>
 }
 
 /** Totals for the sync status screen. */

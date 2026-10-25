@@ -49,13 +49,14 @@ class AppContainer(app: Application) {
 
     val lookup: StateFlow<Lookup> = combine(
         combine(repo.accounts, repo.balances, ::Pair), repo.categories, repo.tags, settings.state,
-        combine(repo.allSplits, repo.debts, repo.debtMoves, ::Triple),
-    ) { (accounts, balances), categories, tags, s, (splits, debts, moves) ->
+        combine(combine(repo.allSplits, repo.debts, repo.debtMoves, ::Triple), repo.exchangeRates, ::Pair),
+    ) { (accounts, balances), categories, tags, s, (parts, rates) ->
+        val (splits, debts, moves) = parts
         val (owedToMe, iOwe) = Debts.totals(debts, moves)
         Lookup(
             accounts, balances.associate { it.accountId to it.balance }, categories, tags, s.baseCurrency,
             splitCategories = splits.groupBy({ it.transactionId }, { it.categoryId }),
-            receivable = owedToMe, payable = iOwe,
+            receivable = owedToMe, payable = iOwe, rates = rates,
         )
     }.stateIn(appScope, SharingStarted.Eagerly, Lookup(baseCurrency = settings.current.baseCurrency))
 

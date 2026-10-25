@@ -264,3 +264,76 @@ func TestImportMergesAndSkipsNewer(t *testing.T) {
 		t.Fatalf("import %+v", res)
 	}
 }
+
+// Two devices edit different fields of one record while apart: neither edit may be lost.
+func TestStaleEditMergesByField(t *testing.T) {
+	svc, _, lid := setup(t)
+	phone, laptop := newDevice(), newDevice()
+	a := ids.NewV7()
+	base := account("HDFC")
+	base["note"] = "joint"
+	if _, err := svc.Push(ctx, lid, []syncer.Change{phone.change("accounts", a, base)}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
+
+	// The phone edits the note offline, based on the version above.
+	phoneEdit := map[string]any{}
+	for k, v := range base {
+		phoneEdit[k] = v
+	}
+	phoneEdit["note"] = "salary account"
+	stale := phone.change("accounts", a, phoneEdit)
+	stale.Base = base
+	time.Sleep(2 * time.Millisecond)
+
+	// Meanwhile the laptop renames the account and pushes first.
+	renamed := account("HDFC Savings")
+	renamed["note"] = "joint"
+	if _, err := svc.Push(ctx, lid, []syncer.Change{laptop.change("accounts", a, renamed)}); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := svc.Push(ctx, lid, []syncer.Change{stale})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.Conflicts) != 1 {
+		t.Fatalf("want the merged record back as a conflict, got %+v", res)
+	}
+	got := res.Conflicts[0].Data
+	if got["name"] != "HDFC Savings" || got["note"] != "salary account" {
+		t.Fatalf("merged data %+v", got)
+	}
+	if res.Conflicts[0].HLC <= stale.HLC {
+		t.Fatalf("merged record must be newer than both edits: %s vs %s", res.Conflicts[0].HLC, stale.HLC)
+	}
+	// Everyone pulling sees the merged version.
+	pull, _ := svc.Pull(ctx, lid, 0, 100)
+	last := pull.Changes[len(pull.Changes)-1]
+	if last.Data["name"] != "HDFC Savings" || last.Data["note"] != "salary account" {
+		t.Fatalf("pulled %+v", last.Data)
+	}
+}
+
+// If both devices changed the same field, the newer write still wins.
+func TestStaleEditSameFieldKeepsNewer(t *testing.T) {
+	svc, _, lid := setup(t)
+	phone, laptop := newDevice(), newDevice()
+	a := ids.NewV7()
+	base := account("HDFC")
+	if _, err := svc.Push(ctx, lid, []syncer.Change{phone.change("accounts", a, base)}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * time.Millisecond)
+	stale := phone.change("accounts", a, account("Phone name"))
+	stale.Base = base
+	time.Sleep(2 * time.Millisecond)
+	if _, err := svc.Push(ctx, lid, []syncer.Change{laptop.change("accounts", a, account("Laptop name"))}); err != nil {
+		t.Fatal(err)
+	}
+	res, _ := svc.Push(ctx, lid, []syncer.Change{stale})
+	if len(res.Conflicts) != 1 || res.Conflicts[0].Data["name"] != "Laptop name" {
+		t.Fatalf("%+v", res)
+	}
+}

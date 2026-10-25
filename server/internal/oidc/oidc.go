@@ -30,6 +30,11 @@ type Config struct {
 	RedirectURL  string // PublicURL + /api/v1/auth/oidc/callback
 	Scopes       []string
 	DisplayName  string // shown on the sign-in button
+	// AllowUnverifiedEmail accepts identities whose provider never sends the
+	// email_verified claim. Accounts are additionally bound to the provider's
+	// subject on first sign-in, so this is safe only for providers whose
+	// addresses the administrator trusts.
+	AllowUnverifiedEmail bool
 }
 
 // Identity is who the provider says signed in.
@@ -217,9 +222,10 @@ func (c *Client) Finish(ctx context.Context, state, code string) (Identity, stri
 	case string:
 		id.EmailVerified = strings.EqualFold(v, "true")
 	case nil:
-		// Some providers never send the claim. The administrator chose this provider, so
-		// its address is accepted; a provider that does send false is refused by the caller.
-		id.EmailVerified = true
+		// The provider does not send the claim. Treat it as unverified unless
+		// the administrator explicitly opted in for this provider; a provider
+		// that sends an explicit false is always refused by the caller.
+		id.EmailVerified = c.AllowUnverifiedEmail
 	}
 	if id.Email == "" {
 		return Identity{}, "", fmt.Errorf("%w: the identity provider did not share an email address (request the email scope)", ErrFlow)

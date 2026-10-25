@@ -65,6 +65,7 @@ import app.kosh.ui.components.IconBadge
 import app.kosh.ui.components.KoshCard
 import app.kosh.ui.components.LocalContainer
 import app.kosh.ui.components.MoneyText
+import app.kosh.ui.components.PaceChart
 import app.kosh.ui.components.SectionHeader
 import app.kosh.ui.components.TransactionRow
 import app.kosh.ui.components.ago
@@ -75,6 +76,9 @@ import app.kosh.ui.koshViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -83,6 +87,9 @@ import java.time.YearMonth
 data class HomeState(
     val lookup: Lookup = Lookup(),
     val month: CurrencySummary? = null,
+    /** This month's income and spending across every currency, in the main currency; null when only one is used. */
+    val monthAll: MonthAll? = null,
+    val pace: Pace? = null,
     val recent: List<TransactionEntity> = emptyList(),
     val budgets: List<BudgetStatus> = emptyList(),
     val upcoming: List<Upcoming> = emptyList(),
@@ -91,21 +98,51 @@ data class HomeState(
     val loaded: Boolean = false,
 )
 
-class HomeViewModel(private val c: AppContainer) : ViewModel() {
-    private val month = YearMonth.now()
+/** Cumulative spending by day: this month so far, and the whole month before it. */
+data class Pace(val current: List<Long>, val previous: List<Long>, val currency: String)
 
-    private val monthSummary = combine(
-        c.repo.reportRows(month.atDay(1), month.atEndOfMonth()), c.lookup,
-    ) { rows, lookup -> Reports.summarize(rows, lookup.categoryById, lookup.baseCurrency)[lookup.baseCurrency] }
+data class MonthAll(val income: Long, val expense: Long, val missing: List<String>)
+
+class HomeViewModel(private val c: AppContainer) : ViewModel() {
+    /** The month on screen follows the calendar, so an app left open over a month end rolls over. */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val monthSummary = app.kosh.ui.todayFlow().map { YearMonth.from(it) }.distinctUntilChanged().flatMapLatest { month ->
+        combine(c.repo.reportRows(month.atDay(1), month.atEndOfMonth()), c.lookup) { rows, lookup ->
+            val all = Reports.summarize(rows, lookup.categoryById, lookup.baseCurrency)
+            val asOf = month.atEndOfMonth().coerceAtMost(Dates.today()).toString()
+            val multi = all.keys.any { it != lookup.baseCurrency }
+            val income = if (multi) app.kosh.domain.Fx.total(all.mapValues { it.value.income }, lookup.baseCurrency, lookup.rates, asOf) else null
+            val expense = if (multi) app.kosh.domain.Fx.total(all.mapValues { it.value.expense }, lookup.baseCurrency, lookup.rates, asOf) else null
+            all[lookup.baseCurrency] to if (income != null && expense != null) MonthAll(income.total, expense.total, income.missing) else null
+        }
+    }
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val pace = app.kosh.ui.todayFlow().distinctUntilChanged().flatMapLatest { today ->
+        val month = YearMonth.from(today)
+        val prev = month.minusMonths(1)
+        combine(c.repo.reportRows(prev.atDay(1), month.atEndOfMonth()), c.lookup) { rows, lookup ->
+            val cur = lookup.baseCurrency
+            val now = Reports.dailyCumulative(rows, lookup.categoryById, cur, cur, month, today.dayOfMonth)
+            val before = Reports.dailyCumulative(rows, lookup.categoryById, cur, cur, prev, prev.lengthOfMonth())
+            if ((now.lastOrNull() ?: 0L) <= 0L && (before.lastOrNull() ?: 0L) <= 0L) null else Pace(now, before, cur)
+        }
+    }
 
     val state: StateFlow<HomeState> = combine(
-        combine(c.lookup, monthSummary, c.repo.recentTransactions(25)) { l, m, r -> Triple(l, m, r) },
+        combine(c.lookup, monthSummary, c.repo.recentTransactions(25), pace) { l, m, r, p -> arrayOf<Any?>(l, m, r, p) },
         budgetStatuses(c),
         c.repo.recurringRules,
         c.settings.state,
         c.repo.pendingCount,
-    ) { (lookup, summary, recent), budgets, rules, settings, pending ->
-        HomeState(lookup, summary, recent, budgets, c.recurring.upcoming(rules, days = 7), settings, pending, loaded = true)
+    ) { parts, budgets, rules, settings, pending ->
+        @Suppress("UNCHECKED_CAST")
+        val lookup = parts[0] as Lookup
+        @Suppress("UNCHECKED_CAST")
+        val monthly = parts[1] as Pair<CurrencySummary?, MonthAll?>
+        @Suppress("UNCHECKED_CAST")
+        val recent = parts[2] as List<TransactionEntity>
+        HomeState(lookup, monthly.first, monthly.second, parts[3] as Pace?, recent, budgets, c.recurring.upcoming(rules, days = 7), settings, pending, loaded = true)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), HomeState(lookup = c.lookup.value, settings = c.settings.current))
 
     fun confirm(u: Upcoming) = viewModelScope.launch { c.recurring.confirm(u.rule, u.date) }
@@ -194,6 +231,27 @@ fun HomeScreen() {
                 items(s.budgets.take(3), key = { "b-${it.budget.id}" }) { b -> BudgetMini(b) { nav.navigate(Routes.editBudget(b.budget.id)) } }
             }
 
+            s.pace?.let { pace ->
+                item { SectionHeader("Spending pace", action = "Reports", onAction = { nav.navigate(Routes.REPORTS) }) }
+                item {
+                    KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        Column(Modifier.padding(16.dp)) {
+                            val now = pace.current.lastOrNull() ?: 0L
+                            val last = pace.previous.getOrNull(pace.current.size - 1) ?: 0L
+                            PaceChart(pace.current, pace.previous, pace.currency, "Spending so far this month compared with last month")
+                            Text(
+                                when {
+                                    last <= 0L -> "Nothing was spent by this day last month."
+                                    now > last -> "${app.kosh.core.Money.format(now - last, pace.currency)} more than by this day last month."
+                                    now < last -> "${app.kosh.core.Money.format(last - now, pace.currency)} less than by this day last month."
+                                    else -> "Exactly the same as by this day last month."
+                                },
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp),
+                            )
+                        }
+                    }
+                }
+            }
             item { SpendingCard(s, onClick = { nav.navigate(Routes.REPORTS) }) }
 
             item { SectionHeader("Recent activity", action = "See all", onAction = { nav.navigate(Routes.TRANSACTIONS) }) }
@@ -228,23 +286,39 @@ private fun BalanceCard(s: HomeState, onClick: () -> Unit) {
             }
             MoneyText(p.available[base] ?: 0, base, style = MaterialTheme.typography.displaySmall, modifier = Modifier.padding(vertical = 4.dp))
             for ((cur, v) in p.available.filterKeys { it != base }) {
-                MoneyText(v, cur, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MoneyText(v, cur, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("in $cur accounts", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 2.dp))
+                }
             }
             Text("Cash, bank and wallet accounts. Credit limits are not counted.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             if (p.investments.isNotEmpty() || p.debt.isNotEmpty() || p.receivable.isNotEmpty() || p.payable.isNotEmpty()) {
                 Spacer(Modifier.height(12.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                    Column {
+                Text("Net worth", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                MoneyText(p.netWorth[base] ?: 0, base, style = MaterialTheme.typography.headlineSmall)
+                val all = s.lookup.netWorthInBase(Dates.today().toString())
+                if (all != null) {
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "All currencies together: " + app.kosh.core.Money.format(all.total, base),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (all.missing.isNotEmpty()) {
+                        val nav = LocalNav.current
+                        TextButton(onClick = { nav.navigate(Routes.RATES) }, contentPadding = PaddingValues(0.dp)) {
+                            Text("Add a rate for ${all.missing.joinToString(", ")} to include it")
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.weight(1f)) {
                         Text("Investments", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         MoneyText(p.investments[base] ?: 0, base, style = MaterialTheme.typography.titleMedium)
                     }
-                    Column {
-                        Text("Debt", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.weight(1f)) {
+                        Text("Owed on cards & loans", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         MoneyText(p.debt[base] ?: 0, base, style = MaterialTheme.typography.titleMedium, color = if ((p.debt[base] ?: 0) > 0) typeColor("expense") else androidx.compose.ui.graphics.Color.Unspecified)
-                    }
-                    Column {
-                        Text("Net worth", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        MoneyText(p.netWorth[base] ?: 0, base, style = MaterialTheme.typography.titleMedium)
                     }
                 }
                 if ((p.receivable[base] ?: 0) != 0L || (p.payable[base] ?: 0) != 0L) {
@@ -262,12 +336,18 @@ private fun BalanceCard(s: HomeState, onClick: () -> Unit) {
             Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 Column {
                     Text("Income this month", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    MoneyText(s.month?.income ?: 0, base, signed = true, color = typeColor("income"), style = MaterialTheme.typography.titleMedium)
+                    MoneyText(s.monthAll?.income ?: s.month?.income ?: 0, base, signed = true, color = typeColor("income"), style = MaterialTheme.typography.titleMedium)
                 }
                 Column {
                     Text("Spent this month", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    MoneyText(-(s.month?.expense ?: 0), base, signed = true, color = typeColor("expense"), style = MaterialTheme.typography.titleMedium)
+                    MoneyText(-(s.monthAll?.expense ?: s.month?.expense ?: 0), base, signed = true, color = typeColor("expense"), style = MaterialTheme.typography.titleMedium)
                 }
+            }
+            s.monthAll?.let { all ->
+                Text(
+                    if (all.missing.isEmpty()) "Includes other currencies, converted with your rates." else "Leaves out ${all.missing.joinToString(", ")}: add an exchange rate to include it.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
+                )
             }
         }
     }

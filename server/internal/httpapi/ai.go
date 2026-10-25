@@ -8,7 +8,10 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
+
+	"github.com/anand34577/lekhamint/server/internal/store"
 )
 
 // AIProxy forwards the assistant's chat requests to an OpenAI-compatible
@@ -53,6 +56,11 @@ func RedactURL(raw string) string {
 func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	if s.AI == nil {
 		writeError(w, http.StatusServiceUnavailable, "ai_disabled", "the assistant is not set up on this server (LEKHAMINT_AI_BASE_URL)", nil)
+		return
+	}
+	if !s.aiLimiter.allow(currentUser(r).ID) {
+		w.Header().Set("Retry-After", "60")
+		writeError(w, http.StatusTooManyRequests, "rate_limited", "too many assistant questions; try again in a minute", nil)
 		return
 	}
 	var body map[string]any
@@ -129,4 +137,52 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(res.StatusCode)
 	_, _ = w.Write(out)
+}
+
+// --- personal assistant key -------------------------------------------------------------------
+
+// The web app can connect to a model straight from the browser (for example a
+// local Ollama). Its API key is kept here, server-side, so it never sits in the
+// browser's localStorage; the owner's own session can read it back.
+
+const maxAiKeyLen = 400
+
+func validAiKey(k string) bool {
+	return k != "" && len(k) <= maxAiKeyLen && !strings.ContainsAny(k, " \r\n\t")
+}
+
+func (s *Server) getAiKey(w http.ResponseWriter, r *http.Request) {
+	p, err := store.GetPrefs(r.Context(), s.DB, currentUser(r).ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"key": p.AiAPIKey, "key_set": p.AiAPIKey != ""})
+}
+
+func (s *Server) putAiKey(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Key string `json:"key"`
+	}
+	if err := decode(w, r, smallBody, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	if !validAiKey(strings.TrimSpace(in.Key)) {
+		s.fail(w, r, badReq("the key looks wrong: it is one long code without spaces"))
+		return
+	}
+	if err := store.SetAiAPIKey(r.Context(), s.DB, currentUser(r).ID, strings.TrimSpace(in.Key)); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"key_set": true})
+}
+
+func (s *Server) deleteAiKey(w http.ResponseWriter, r *http.Request) {
+	if err := store.SetAiAPIKey(r.Context(), s.DB, currentUser(r).ID, ""); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }

@@ -20,6 +20,8 @@ data class Lookup(
     /** Open personal debts per currency: what others owe you, and what you owe them (Debts.totals). */
     val receivable: Map<String, Long> = emptyMap(),
     val payable: Map<String, Long> = emptyMap(),
+    /** Manual exchange rates for totalling several currencies in [baseCurrency]. */
+    val rates: List<Fx.Rate> = emptyList(),
 ) {
     val tagById: Map<String, TagEntity> = tags.associateBy { it.id }
     val activeTags: List<TagEntity> = tags.filter { !it.archived }
@@ -104,6 +106,10 @@ data class Lookup(
         for ((c, v) in payable) m[c] = (m[c] ?: 0) - v
         m
     }
+
+    /** Net worth of every currency expressed in [baseCurrency], with the currencies that have no rate yet. Null when only one currency is held. */
+    fun netWorthInBase(asOf: String): Fx.Total? =
+        netWorth.filterValues { it != 0L }.takeIf { it.keys.any { c -> c != baseCurrency } }?.let { Fx.total(it, baseCurrency, rates, asOf) }
 
     /** Archived or excluded accounts that still hold money, so screens can say they are not counted. */
     val excluded: List<app.kosh.data.db.AccountEntity> by lazy {

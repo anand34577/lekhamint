@@ -1,5 +1,8 @@
-# LekhaMint with PostgreSQL. Set POSTGRES_PASSWORD in .env first, then from the repository root:
+# LekhaMint with PostgreSQL. Set POSTGRES_PASSWORD in .env first (a long random
+# value; the installers generate one), then from the repository root:
 #   docker compose --env-file .env -f deploy/docker-compose.postgres.yml up -d
+#
+# The port binds to 127.0.0.1 only by default; see the note in docker-compose.yml.
 
 services:
   lekhamint:
@@ -9,7 +12,7 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
     ports:
-      - "${LEKHAMINT_PORT:-8080}:8080"
+      - "${LEKHAMINT_BIND:-127.0.0.1}:${LEKHAMINT_PORT:-8080}:8080"
     environment:
       LEKHAMINT_DB_DRIVER: postgres
       LEKHAMINT_DB_DSN: postgres://lekhamint:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/lekhamint?sslmode=disable
@@ -17,6 +20,25 @@ services:
       LEKHAMINT_TRUST_PROXY: ${LEKHAMINT_TRUST_PROXY:-false}
       LEKHAMINT_BACKUP_INTERVAL: ${LEKHAMINT_BACKUP_INTERVAL:-24h}
       LEKHAMINT_BACKUP_KEEP: ${LEKHAMINT_BACKUP_KEEP:-14}
+      LEKHAMINT_LOG_LEVEL: ${LEKHAMINT_LOG_LEVEL:-info}
+      LEKHAMINT_PUBLIC_URL: ${LEKHAMINT_PUBLIC_URL:-}
+      LEKHAMINT_OIDC_ISSUER: ${LEKHAMINT_OIDC_ISSUER:-}
+      LEKHAMINT_OIDC_CLIENT_ID: ${LEKHAMINT_OIDC_CLIENT_ID:-}
+      LEKHAMINT_OIDC_CLIENT_SECRET: ${LEKHAMINT_OIDC_CLIENT_SECRET:-}
+      LEKHAMINT_OIDC_NAME: ${LEKHAMINT_OIDC_NAME:-Single sign-on}
+      LEKHAMINT_OIDC_ONLY: ${LEKHAMINT_OIDC_ONLY:-false}
+      LEKHAMINT_SMTP_HOST: ${LEKHAMINT_SMTP_HOST:-}
+      LEKHAMINT_SMTP_PORT: ${LEKHAMINT_SMTP_PORT:-}
+      LEKHAMINT_SMTP_USER: ${LEKHAMINT_SMTP_USER:-}
+      LEKHAMINT_SMTP_PASSWORD: ${LEKHAMINT_SMTP_PASSWORD:-}
+      LEKHAMINT_SMTP_FROM: ${LEKHAMINT_SMTP_FROM:-}
+      LEKHAMINT_SMTP_SECURITY: ${LEKHAMINT_SMTP_SECURITY:-starttls}
+      LEKHAMINT_SMTP_SKIP_VERIFY: ${LEKHAMINT_SMTP_SKIP_VERIFY:-false}
+      LEKHAMINT_REMINDER_HOUR: ${LEKHAMINT_REMINDER_HOUR:-8}
+      LEKHAMINT_GOTIFY_URL: ${LEKHAMINT_GOTIFY_URL:-}
+      LEKHAMINT_AI_BASE_URL: ${LEKHAMINT_AI_BASE_URL:-}
+      LEKHAMINT_AI_API_KEY: ${LEKHAMINT_AI_API_KEY:-}
+      LEKHAMINT_AI_MODEL: ${LEKHAMINT_AI_MODEL:-}
       TZ: ${TZ:-UTC}
     volumes:
       - lekhamint-data:/data   # scheduled JSON backups land in /data/backups

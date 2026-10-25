@@ -182,6 +182,15 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
             Notifications.show(applicationContext, key.hashCode(), d.name, text)
             c.settings.setFlag(key)
         }
+        for (a in accounts) {
+            val due = app.kosh.domain.CardBilling.due(a, balances[a.id] ?: a.openingBalance, today) ?: continue
+            if (due.daysLeft > 3) continue
+            val key = "remind.card.${a.id}.${due.date}"
+            if (c.settings.flag(key)) continue
+            val text = if (due.daysLeft == 0L) "Payment is due today" else "Payment is due ${Dates.relativeDay(due.date)}"
+            Notifications.show(applicationContext, key.hashCode(), "${a.name} bill", text)
+            c.settings.setFlag(key)
+        }
         val debtMoves = c.repo.debtMoves.first()
         for (d in c.repo.debts.first()) {
             val dueDate = d.dueDate ?: continue

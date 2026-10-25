@@ -223,6 +223,8 @@ func (g *gen) accounts() {
 			"color": x.color, "icon": x.icon, "sort_order": int64(i)}
 		if x.limit != nil {
 			data["credit_limit"] = x.limit
+			data["statement_day"] = int64(5)
+			data["due_day"] = int64(25)
 		}
 		g.add("accounts", id, data)
 	}

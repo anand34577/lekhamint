@@ -20,7 +20,7 @@ export interface NotificationPrefs {
 export interface Rec<T> { entity: string; id: string; hlc: string; seq: number; deleted: boolean; data: T }
 
 export interface Account {
-  name: string; type: string; currency: string; opening_balance: number; credit_limit: number | null
+  name: string; type: string; currency: string; opening_balance: number; credit_limit: number | null; statement_day?: number | null; due_day?: number | null
   color: string | null; icon: string | null; include_in_net_worth: boolean; archived: boolean
   sort_order: number; note: string | null; created_at: number
 }
@@ -103,20 +103,33 @@ export class ApiError extends Error {
 
 const TOKEN_KEY = 'kosh.token'
 
+// The session lives in an HttpOnly cookie set by the server, so no script on
+// the page — and no XSS — can read it. Writes carry the X-Kosh-Client header
+// (the CSRF defence for cookie-authenticated requests). `signedIn` only tracks
+// whether to treat a 401 as "the session ended". The in-browser demo has no
+// cookie jar (its server is a WASM module in this tab), so demo builds keep
+// the token in memory for the life of the tab instead.
+let signedIn = false
+let demoBearer = ''
 export const session = {
-  get token(): string | null { try { return localStorage.getItem(TOKEN_KEY) } catch { return null } },
-  set token(v: string | null) {
-    try { if (v) localStorage.setItem(TOKEN_KEY, v); else localStorage.removeItem(TOKEN_KEY) } catch { /* private mode */ }
+  get signedIn() { return signedIn },
+  start(token?: string) {
+    signedIn = true
+    if (DEMO && token) demoBearer = token
+    try { localStorage.removeItem(TOKEN_KEY) } catch { /* private mode */ }
   },
+  end() { signedIn = false; demoBearer = ''; try { localStorage.removeItem(TOKEN_KEY) } catch { /* private mode */ } },
+  /** Removes a token left by older builds that kept it in localStorage. */
+  clearLegacyToken() { try { localStorage.removeItem(TOKEN_KEY) } catch { /* private mode */ } },
 }
+if (!DEMO) session.clearLegacyToken()
 
 let onUnauthorized: () => void = () => {}
 export function setUnauthorizedHandler(fn: () => void) { onUnauthorized = fn }
 
 async function call<T>(method: string, path: string, body?: unknown, raw = false): Promise<T> {
-  const headers: Record<string, string> = { Accept: 'application/json' }
-  const t = session.token
-  if (t) headers.Authorization = `Bearer ${t}`
+  const headers: Record<string, string> = { Accept: 'application/json', 'X-Kosh-Client': 'web' }
+  if (DEMO && demoBearer) headers.Authorization = `Bearer ${demoBearer}`
   let payload: BodyInit | undefined
   if (body instanceof Blob) payload = body
   else if (body !== undefined) { headers['Content-Type'] = 'application/json'; payload = JSON.stringify(body) }
@@ -131,7 +144,7 @@ async function call<T>(method: string, path: string, body?: unknown, raw = false
     let code = `http_${res.status}`, message = res.statusText, fields
     try { const e = (await res.json()).error; code = e.code; message = e.message; fields = e.fields } catch { /* not JSON */ }
     // A wrong password (change password, delete account) is also a 401 but the session is still fine.
-    if (res.status === 401 && t && code !== 'invalid_credentials') { session.token = null; onUnauthorized() }
+    if (res.status === 401 && signedIn && code !== 'invalid_credentials') { session.end(); onUnauthorized() }
     throw new ApiError(res.status, code, message, fields, res.headers.get('X-Request-ID') ?? undefined)
   }
   if (raw) return res as unknown as T
@@ -152,6 +165,9 @@ export const api = {
     call<{ user: User; token: string }>('POST', '/auth/register', { email, password, name, device_name: 'Web browser' }),
   logout: () => call<void>('POST', '/auth/logout'),
   me: () => call<{ user: User }>('GET', '/auth/me'),
+  aiKey: () => call<{ key: string; key_set: boolean }>('GET', '/ai/key'),
+  saveAiKey: (key: string) => call<{ key_set: boolean }>('PUT', '/ai/key', { key }),
+  clearAiKey: () => call<void>('DELETE', '/ai/key'),
   sessions: () => call<{ sessions: Session[] }>('GET', '/auth/sessions').then((r) => r.sessions),
   revokeSession: (id: string) => call<void>('DELETE', `/auth/sessions/${id}`),
   changePassword: (current_password: string, new_password: string) => call<void>('POST', '/auth/password', { current_password, new_password }),

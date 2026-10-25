@@ -13,6 +13,7 @@ import app.kosh.data.db.DepositEntity
 import app.kosh.data.db.LoanEntity
 import app.kosh.data.db.Dirty
 import app.kosh.data.db.KoshDatabase
+import app.kosh.data.db.RawRecordEntity
 import app.kosh.data.db.RecurringRuleEntity
 import app.kosh.data.db.ReportRow
 import app.kosh.data.db.RuleEntity
@@ -22,6 +23,7 @@ import app.kosh.data.db.TagEntity
 import app.kosh.data.db.TransactionEntity
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.serialization.Serializable
 import java.time.LocalDate
 
@@ -54,6 +56,9 @@ class Repository(
     val depositMoves: Flow<List<TransactionEntity>> = db.transactions().observeDepositMoves()
     val rules: Flow<List<RuleEntity>> = db.rules().observeAll()
     val allSplits: Flow<List<SplitEntity>> = db.splits().observeAllLive()
+    /** Manual exchange rates, kept as raw records because only totals use them. */
+    val exchangeRates: Flow<List<app.kosh.domain.Fx.Rate>> =
+        db.raw().observeOfEntity(app.kosh.domain.Fx.ENTITY).map { rows -> rows.mapNotNull(app.kosh.domain.Fx::parse) }
     val pendingCount = db.stats().observePending()
     val rejectedCount = db.stats().observeRejected()
 
@@ -62,7 +67,7 @@ class Repository(
 
     fun recentTransactions(limit: Int = 30) = db.transactions().observeRecent(limit)
     fun accountTransactions(accountId: String, limit: Int = 300) = db.transactions().observeForAccount(accountId, limit)
-    fun search(q: String) = db.transactions().search(escapeLike(q))
+    fun search(q: String, limit: Int = 200) = db.transactions().search(escapeLike(q), limit)
     /** Reportable rows with split transactions expanded into one row per split. */
     fun reportRows(from: LocalDate, to: LocalDate): Flow<List<ReportRow>> = combine(
         db.transactions().observeReportRows(from.toString(), to.toString()),
@@ -95,6 +100,16 @@ class Repository(
         db.transactions().topCategories(type, LocalDate.now().minusDays(90).toString(), limit).map { it.categoryId }
 
     suspend fun lastUsedAccountId() = db.transactions().lastAccountId()
+    /** What still points at an account besides transactions: recurring rules, loans and deposits. */
+    suspend fun accountUses(id: String): List<String> = buildList {
+        val rules = db.recurring().active().count { it.accountId == id || it.toAccountId == id }
+        if (rules > 0) add("$rules recurring ${if (rules == 1) "rule" else "rules"}")
+        val loans = db.loans().everything().count { !it.deleted && !it.closed && (it.accountId == id || it.payFromAccountId == id) }
+        if (loans > 0) add("$loans ${if (loans == 1) "loan" else "loans"}")
+        val deps = db.deposits().everything().count { !it.deleted && it.status == "active" && (it.accountId == id || it.payoutAccountId == id) }
+        if (deps > 0) add("$deps ${if (deps == 1) "deposit" else "deposits"}")
+    }
+
     suspend fun transactionCountForAccount(id: String) = db.transactions().countForAccount(id)
     suspend fun transactionCountForCategory(id: String) = db.transactions().countForCategory(id)
 
@@ -159,6 +174,29 @@ class Repository(
         return t
     }
 
+    /** Moves several transactions to Trash in one go; returns the ones that were moved so the UI can offer Undo. */
+    suspend fun deleteTransactions(ids: Collection<String>): List<TransactionEntity> {
+        val rows = ids.mapNotNull { db.transactions().find(it) }.filter { !it.deleted }
+        write(tables.transactions, rows, deleted = true)
+        return rows
+    }
+
+    suspend fun restoreTransactions(ids: Collection<String>) {
+        write(tables.transactions, ids.mapNotNull { db.transactions().find(it) }, deleted = false)
+    }
+
+    /** Gives every listed transaction a category; the previous categories are returned for Undo. */
+    suspend fun recategorize(ids: Collection<String>, categoryId: String?): Map<String, String?> {
+        val rows = ids.mapNotNull { db.transactions().find(it) }
+        write(tables.transactions, rows.map { it.copy(categoryId = categoryId) })
+        return rows.associate { it.id to it.categoryId }
+    }
+
+    suspend fun setCategories(previous: Map<String, String?>) {
+        val rows = previous.keys.mapNotNull { db.transactions().find(it) }
+        write(tables.transactions, rows.map { it.copy(categoryId = previous[it.id]) })
+    }
+
     suspend fun restoreTransaction(id: String) {
         val t = db.transactions().find(id) ?: return
         write(tables.transactions, listOf(t), deleted = false)
@@ -197,6 +235,27 @@ class Repository(
         return true
     }
 
+
+    /** Saves a rate (1 [base] = [rate] [quote]); a new ID is a new rate, the same ID edits it. */
+    suspend fun saveRate(id: String, base: String, quote: String, rate: String, date: String) {
+        val data = kotlinx.serialization.json.buildJsonObject {
+            put("base", kotlinx.serialization.json.JsonPrimitive(base)); put("quote", kotlinx.serialization.json.JsonPrimitive(quote))
+            put("rate", kotlinx.serialization.json.JsonPrimitive(rate)); put("effective_date", kotlinx.serialization.json.JsonPrimitive(date))
+            put("source", kotlinx.serialization.json.JsonPrimitive("manual"))
+        }
+        val row = RawRecordEntity(
+            entity = app.kosh.domain.Fx.ENTITY, id = id, hlc = clock.now(), deleted = false, dirty = Dirty.PENDING,
+            data = KoshJson.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), data),
+        )
+        db.raw().upsertAll(listOf(row))
+        onLocalChange()
+    }
+
+    suspend fun deleteRate(id: String) {
+        val row = db.raw().find(app.kosh.domain.Fx.ENTITY, id) ?: return
+        db.raw().upsertAll(listOf(row.copy(hlc = clock.now(), deleted = true, dirty = Dirty.PENDING)))
+        onLocalChange()
+    }
 
     // --- Tags, splits and rules ---------------------------------------------
 
@@ -325,6 +384,7 @@ class Repository(
         db.withTransaction {
             tables.typed.forEach { it.wipe() }
             db.raw().wipe()
+            db.syncBase().wipe()
         }
     }
 

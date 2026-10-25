@@ -24,12 +24,19 @@ var (
 	ErrUnauthenticated    = errors.New("not signed in or session expired")
 	ErrSSOClosed          = errors.New("this server has no account for that identity; ask the administrator to invite you")
 	ErrSSOAccount         = errors.New("this account signs in through your identity provider and has no password here")
+	ErrSSOMismatch        = errors.New("this account is already linked to a different identity at your provider; ask the administrator if you believe that is wrong")
 	ErrAccountDisabled    = errors.New("this account is disabled")
 )
 
 // NoPassword is stored as the password hash of accounts created through single
 // sign-on. It is not a valid hash, so no password ever matches it.
 const NoPassword = "!sso"
+
+// AbsoluteSessionTTL caps how long a session may live however often it is
+// used. The sliding expiry can keep an actively used session alive much
+// longer; this forces a fresh sign-in at least once a year so a stolen token
+// cannot work forever.
+const AbsoluteSessionTTL = 365 * 24 * time.Hour
 
 // Service implements registration, login and session validation.
 type Service struct {
@@ -40,6 +47,10 @@ type Service struct {
 
 	dummyOnce sync.Once
 	dummyHash string
+	// firstUser guards the "the first account becomes admin" decision. Two
+	// concurrent sign-ups on a fresh server would otherwise both count zero
+	// users and both become admin.
+	firstUser sync.Mutex
 }
 
 // NewService returns an auth service with defaults.
@@ -84,6 +95,8 @@ func (s *Service) CreateUser(ctx context.Context, email, name, password string) 
 	now := s.Now().UnixMilli()
 	u := store.User{ID: ids.NewV7(), Email: email, Name: name, PasswordHash: hash, CreatedAt: now, UpdatedAt: now}
 	err = s.DB.InTx(ctx, func(tx *db.Tx) error {
+		s.firstUser.Lock()
+		defer s.firstUser.Unlock()
 		n, err := store.CountUsers(ctx, tx)
 		if err != nil {
 			return err
@@ -134,14 +147,25 @@ func (s *Service) Login(ctx context.Context, email, password, device string) (st
 	return u, token, err
 }
 
-// SSOLogin signs in the person an identity provider vouched for. An existing
-// account with the same email is used; otherwise one is created when
+// SSOLogin signs in the person an identity provider vouched for. subject is
+// the provider's "sub" claim for that person. An existing account with the
+// same email is used only if it is not bound to a different subject: the
+// first SSO sign-in binds the account to that subject, and every later one
+// must present the same subject, so another identity bearing the same email
+// cannot take the account over. Otherwise an account is created when
 // autoCreate allows it. The first user of a fresh server becomes admin.
-func (s *Service) SSOLogin(ctx context.Context, email, name, device string, autoCreate bool) (store.User, string, error) {
+func (s *Service) SSOLogin(ctx context.Context, email, name, subject, device string, autoCreate bool) (store.User, string, error) {
 	email = store.NormalizeEmail(email)
 	u, err := store.UserByEmail(ctx, s.DB, email)
 	switch {
 	case err == nil:
+		if u.SSOSub != "" {
+			if u.SSOSub != subject {
+				return store.User{}, "", ErrSSOMismatch
+			}
+		} else if err := store.BindUserSSO(ctx, s.DB, u.ID, subject); err != nil {
+			return store.User{}, "", err
+		}
 	case errors.Is(err, store.ErrNotFound):
 		n, cerr := store.CountUsers(ctx, s.DB)
 		if cerr != nil {
@@ -162,8 +186,10 @@ func (s *Service) SSOLogin(ctx context.Context, email, name, device string, auto
 			name = string([]rune(name)[:100])
 		}
 		now := s.Now().UnixMilli()
-		u = store.User{ID: ids.NewV7(), Email: email, Name: name, PasswordHash: NoPassword, CreatedAt: now, UpdatedAt: now}
+		u = store.User{ID: ids.NewV7(), Email: email, Name: name, PasswordHash: NoPassword, SSOSub: subject, CreatedAt: now, UpdatedAt: now}
 		err = s.DB.InTx(ctx, func(tx *db.Tx) error {
+			s.firstUser.Lock()
+			defer s.firstUser.Unlock()
 			count, err := store.CountUsers(ctx, tx)
 			if err != nil {
 				return err
@@ -173,6 +199,14 @@ func (s *Service) SSOLogin(ctx context.Context, email, name, device string, auto
 		})
 		if errors.Is(err, store.ErrDuplicate) { // created by a parallel sign-in
 			u, err = store.UserByEmail(ctx, s.DB, email)
+			if err == nil {
+				// Someone else just created it; apply the same binding rules.
+				if u.SSOSub != "" && u.SSOSub != subject {
+					return store.User{}, "", ErrSSOMismatch
+				} else if u.SSOSub == "" {
+					err = store.BindUserSSO(ctx, s.DB, u.ID, subject)
+				}
+			}
 		}
 		if err != nil {
 			return store.User{}, "", err
@@ -226,7 +260,7 @@ func (s *Service) Authenticate(ctx context.Context, token string) (store.User, s
 		return store.User{}, store.Session{}, err
 	}
 	now := s.Now()
-	if now.UnixMilli() > sess.ExpiresAt {
+	if now.UnixMilli() > sess.ExpiresAt || now.Sub(time.UnixMilli(sess.CreatedAt)) > AbsoluteSessionTTL {
 		return store.User{}, store.Session{}, ErrUnauthenticated
 	}
 	u, err := store.UserByID(ctx, s.DB, sess.UserID)

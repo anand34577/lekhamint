@@ -43,6 +43,7 @@ import app.kosh.core.Dates
 import app.kosh.core.Money
 import app.kosh.data.db.ReportRow
 import app.kosh.domain.CurrencySummary
+import app.kosh.domain.Fx
 import app.kosh.domain.Lookup
 import app.kosh.domain.NatureSplit
 import app.kosh.domain.Reports
@@ -78,7 +79,9 @@ import java.time.YearMonth
 
 enum class ReportSpan { MONTH, YEAR }
 
-data class ReportQuery(val span: ReportSpan = ReportSpan.MONTH, val month: YearMonth = YearMonth.now(), val currency: String? = null)
+data class ReportQuery(val span: ReportSpan = ReportSpan.MONTH, val month: YearMonth = YearMonth.now(), val currency: String? = null) {
+    companion object { const val ALL = "*" }
+}
 
 data class ReportState(
     val query: ReportQuery = ReportQuery(),
@@ -91,6 +94,10 @@ data class ReportState(
     val payees: List<Pair<String, Long>> = emptyList(),
     val tags: List<TagSpend> = emptyList(),
     val rows: List<ReportRow> = emptyList(),
+    /** True when every currency was converted into the base one with your exchange rates. */
+    val converted: Boolean = false,
+    /** Currencies left out of a converted view because no rate was entered. */
+    val missing: List<String> = emptyList(),
     val loaded: Boolean = false,
 )
 
@@ -104,11 +111,20 @@ class ReportsViewModel(private val c: AppContainer) : ViewModel() {
         val trendMonths = if (q.span == ReportSpan.MONTH) (5 downTo 0).map { q.month.minusMonths(it.toLong()) }
         else (1..12).map { YearMonth.of(q.month.year, it) }
         val trendFrom = trendMonths.first().atDay(1)
-        combine(c.repo.reportRows(minOf(from, trendFrom), maxOf(to, trendMonths.last().atEndOfMonth())), c.lookup) { all, lookup ->
+        combine(c.repo.reportRows(minOf(from, trendFrom), maxOf(to, trendMonths.last().atEndOfMonth())), c.lookup) { raw, lookup ->
+            val currencies = (listOf(lookup.baseCurrency) + Reports.summarize(raw.filter { LocalDate.parse(it.localDate) in from..to }, lookup.categoryById, lookup.baseCurrency).keys).distinct()
+            // "All together": each amount is converted on its own date with the newest rate entered up to then.
+            val together = q.currency == ReportQuery.ALL && currencies.size > 1
+            val missing = linkedSetOf<String>()
+            val all = if (!together) raw else raw.mapNotNull { r ->
+                val from = r.currency ?: lookup.baseCurrency
+                if (from == lookup.baseCurrency) r
+                else Fx.find(lookup.rates, from, lookup.baseCurrency, r.localDate)?.let { rate -> r.copy(amount = Fx.convert(r.amount, from, lookup.baseCurrency, rate), currency = lookup.baseCurrency) }
+                    ?: run { missing += from; null }
+            }
             val rows = all.filter { LocalDate.parse(it.localDate) in from..to }
             val byCur = Reports.summarize(rows, lookup.categoryById, lookup.baseCurrency)
-            val currencies = (listOf(lookup.baseCurrency) + byCur.keys).distinct()
-            val cur = q.currency?.takeIf { it in currencies } ?: lookup.baseCurrency
+            val cur = if (together) lookup.baseCurrency else q.currency?.takeIf { it in currencies } ?: lookup.baseCurrency
             val summary = byCur[cur]
             val trend = Reports.trend(all, lookup.categoryById, cur, lookup.baseCurrency, trendMonths)
                 .map { BarPoint(Dates.shortMonth(it.month), it.income, it.expense) }
@@ -116,7 +132,7 @@ class ReportsViewModel(private val c: AppContainer) : ViewModel() {
                 q, lookup, currencies, cur, summary, trend,
                 Reports.natureSplit(summary, rows, lookup.categoryById, lookup.baseCurrency),
                 Reports.topPayees(rows, lookup.categoryById, cur, lookup.baseCurrency),
-                Reports.byTag(rows, lookup.categoryById, cur, lookup.baseCurrency), rows, loaded = true,
+                Reports.byTag(rows, lookup.categoryById, cur, lookup.baseCurrency), rows, together, missing.toList(), loaded = true,
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ReportState())
@@ -158,8 +174,14 @@ fun ReportsScreen() {
                     }
                     if (s.currencies.size > 1) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            for (cur in s.currencies) FilterChip(s.currency == cur, { vm.query.value = q.copy(currency = cur) }, { Text(cur) })
+                            FilterChip(s.converted, { vm.query.value = q.copy(currency = ReportQuery.ALL) }, { Text("All in ${s.lookup.baseCurrency}") })
+                            for (cur in s.currencies) FilterChip(!s.converted && s.currency == cur, { vm.query.value = q.copy(currency = cur) }, { Text(cur) })
                         }
+                        if (s.converted) Text(
+                            if (s.missing.isEmpty()) "Everything is converted into ${s.lookup.baseCurrency} with the rates you entered."
+                            else "Left out, no exchange rate: ${s.missing.joinToString(", ")}. Add one under More > Exchange rates.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
+                        )
                     }
                 }
             }
@@ -210,7 +232,7 @@ fun ReportsScreen() {
                 item {
                     KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
                         Column(Modifier.padding(16.dp)) {
-                            IncomeExpenseBars(s.trend, "Income and spending per month")
+                            IncomeExpenseBars(s.trend, "Income and spending per month", currency = s.currency)
                             Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                                 Legend("Income", LocalMoneyColors.current.income)
                                 Legend("Spending", LocalMoneyColors.current.expense)

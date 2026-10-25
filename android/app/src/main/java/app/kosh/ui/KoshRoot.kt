@@ -100,7 +100,7 @@ object Routes {
     const val TRANSACTIONS = "transactions"
     const val BUDGETS = "budgets"
     const val MORE = "more"
-    const val EDIT_TX = "tx?id={id}&type={type}&copy={copy}&account={account}"
+    const val EDIT_TX = "tx?id={id}&type={type}&copy={copy}&account={account}&to={to}&amount={amount}"
     const val ACCOUNTS = "accounts"
     const val ACCOUNT = "account/{id}"
     const val EDIT_ACCOUNT = "account_edit?id={id}"
@@ -114,6 +114,7 @@ object Routes {
     const val LOAN = "loan/{id}"
     const val DEPOSITS = "deposits"
     const val DEPOSIT = "deposit/{id}"
+    const val RATES = "rates"
     const val TOOLS = "tools"
     const val STATEMENTS = "statements"
     const val ASSISTANT = "assistant"
@@ -124,8 +125,8 @@ object Routes {
     const val CAT_RULES = "cat_rules"
     const val EDIT_CAT_RULE = "cat_rule_edit?id={id}"
 
-    fun editTx(id: String? = null, type: String = "expense", copy: Boolean = false, account: String? = null) =
-        "tx?id=${id.orEmpty()}&type=$type&copy=$copy&account=${account.orEmpty()}"
+    fun editTx(id: String? = null, type: String = "expense", copy: Boolean = false, account: String? = null, to: String? = null, amount: String? = null) =
+        "tx?id=${id.orEmpty()}&type=$type&copy=$copy&account=${account.orEmpty()}&to=${to.orEmpty()}&amount=${amount.orEmpty()}"
     fun account(id: String) = "account/$id"
     fun editAccount(id: String? = null) = "account_edit?id=${id.orEmpty()}"
     fun editRule(id: String? = null) = "rule_edit?id=${id.orEmpty()}"
@@ -193,6 +194,8 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
                         navArgument("type") { type = NavType.StringType; defaultValue = "expense" },
                         navArgument("copy") { type = NavType.BoolType; defaultValue = false },
                         navArgument("account") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("to") { type = NavType.StringType; defaultValue = "" },
+                        navArgument("amount") { type = NavType.StringType; defaultValue = "" },
                     ),
                 ) { e ->
                     val a = e.arguments!!
@@ -201,6 +204,8 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
                         initialType = a.getString("type") ?: "expense",
                         copy = a.getBoolean("copy"),
                         presetAccount = a.getString("account").orEmpty().ifEmpty { null },
+                        presetTo = a.getString("to").orEmpty().ifEmpty { null },
+                        presetAmount = a.getString("amount").orEmpty().ifEmpty { null },
                     )
                 }
                 composable(Routes.ACCOUNTS) { AccountsScreen() }
@@ -218,10 +223,12 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
                     EditBudgetScreen(e.arguments?.getString("id").orEmpty().ifEmpty { null })
                 }
                 composable(Routes.DEBTS) { DebtsScreen() }
+                composable(app.kosh.ui.screens.PERSON_ROUTE) { e -> app.kosh.ui.screens.PersonScreen(e.arguments?.getString("key").orEmpty()) }
                 composable(Routes.LOANS) { LoansScreen() }
                 composable(Routes.LOAN) { e -> LoanDetailScreen(e.arguments?.getString("id").orEmpty()) }
                 composable(Routes.DEPOSITS) { DepositsScreen() }
                 composable(Routes.DEPOSIT) { e -> DepositDetailScreen(e.arguments?.getString("id").orEmpty()) }
+                composable(Routes.RATES) { app.kosh.ui.screens.RatesScreen() }
                 composable(Routes.TOOLS) { ToolsScreen() }
                 composable(Routes.STATEMENTS) { StatementsScreen() }
                 composable(Routes.ASSISTANT) { AssistantScreen() }

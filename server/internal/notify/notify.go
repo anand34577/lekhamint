@@ -33,6 +33,11 @@ type SMTPConfig struct {
 	// Security is "starttls" (default, usually port 587), "tls" (implicit TLS,
 	// usually port 465) or "none" (plain, only for a trusted local relay).
 	Security string
+	// SkipVerify accepts a mail server certificate that is self-signed or
+	// issued for another name (an internal relay). Traffic is still encrypted.
+	SkipVerify bool
+	// Hello is the name sent in EHLO; empty uses the sender's domain.
+	Hello string
 }
 
 // GotifyConfig points at a Gotify server.
@@ -124,7 +129,7 @@ func (n *Notifier) Email(ctx context.Context, to, subject, body string) error {
 	if dl, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(dl)
 	}
-	tlsCfg := &tls.Config{ServerName: c.Host, MinVersion: tls.VersionTLS12}
+	tlsCfg := &tls.Config{ServerName: c.Host, MinVersion: tls.VersionTLS12, InsecureSkipVerify: c.SkipVerify} //nolint:gosec // opt-in for internal relays
 	if c.Security == "tls" {
 		conn = tls.Client(conn, tlsCfg)
 	}
@@ -134,6 +139,14 @@ func (n *Notifier) Email(ctx context.Context, to, subject, body string) error {
 		return fmt.Errorf("mail server greeting: %w", err)
 	}
 	defer cl.Close()
+	// Many relays reject the default "localhost" greeting.
+	hello := c.Hello
+	if hello == "" {
+		hello = hostOf(from.Address)
+	}
+	if err := cl.Hello(hello); err != nil {
+		return fmt.Errorf("mail server greeting: %w", err)
+	}
 	if c.Security == "" || c.Security == "starttls" {
 		if ok, _ := cl.Extension("STARTTLS"); !ok {
 			return errors.New("mail server does not offer STARTTLS; set LEKHAMINT_SMTP_SECURITY to tls or none")
@@ -143,8 +156,16 @@ func (n *Notifier) Email(ctx context.Context, to, subject, body string) error {
 		}
 	}
 	if c.Username != "" {
-		if err := cl.Auth(&plainAuth{user: c.Username, pass: c.Password}); err != nil {
-			return fmt.Errorf("mail login: %w", err)
+		// A relay that does not offer login (trusted by address) is used as it is
+		// when security is none; otherwise a missing login is a configuration error.
+		offered, mechs := cl.Extension("AUTH")
+		switch {
+		case offered:
+			if err := cl.Auth(pickAuth(mechs, c.Username, c.Password)); err != nil {
+				return fmt.Errorf("mail login: %w", err)
+			}
+		case c.Security != "none":
+			return errors.New("mail server does not offer login; remove LEKHAMINT_SMTP_USER or use a server that does")
 		}
 	}
 	if err := cl.Mail(from.Address); err != nil {
@@ -179,6 +200,33 @@ func (a *plainAuth) Next(_ []byte, more bool) ([]byte, error) {
 		return nil, errors.New("unexpected server challenge")
 	}
 	return nil, nil
+}
+
+// pickAuth chooses PLAIN when the server lists it, else LOGIN (older relays,
+// some Microsoft servers), else PLAIN anyway.
+func pickAuth(mechs, user, pass string) smtp.Auth {
+	m := " " + strings.ToUpper(mechs) + " "
+	if !strings.Contains(m, " PLAIN ") && strings.Contains(m, " LOGIN ") {
+		return &loginAuth{user: user, pass: pass}
+	}
+	return &plainAuth{user: user, pass: pass}
+}
+
+// loginAuth is the LOGIN mechanism: the server asks for the user, then the password.
+type loginAuth struct{ user, pass string }
+
+func (a *loginAuth) Start(*smtp.ServerInfo) (string, []byte, error) { return "LOGIN", nil, nil }
+func (a *loginAuth) Next(challenge []byte, more bool) ([]byte, error) {
+	if !more {
+		return nil, nil
+	}
+	switch strings.ToLower(strings.TrimSpace(string(challenge))) {
+	case "username:", "user name", "username":
+		return []byte(a.user), nil
+	case "password:", "password":
+		return []byte(a.pass), nil
+	}
+	return nil, errors.New("unexpected server challenge")
 }
 
 func hostOf(addr string) string {

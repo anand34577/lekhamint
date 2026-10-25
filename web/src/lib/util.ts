@@ -22,6 +22,19 @@ export function parseDate(s: string): Date {
   return new Date(y, m - 1, d)
 }
 
+/** The first date on or after [today] that falls on [day] of a month; short months use their last day. */
+export function nextDayOfMonth(today: string, day: number): string {
+  const t = parseDate(today)
+  const at = (y: number, m: number) => isoDate(new Date(y, m, Math.min(day, new Date(y, m + 1, 0).getDate())))
+  const here = at(t.getFullYear(), t.getMonth())
+  return here >= today ? here : at(t.getFullYear(), t.getMonth() + 1)
+}
+
+/** Whole days from [a] to [b] (both YYYY-MM-DD). */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((parseDate(b).getTime() - parseDate(a).getTime()) / 86400000)
+}
+
 export function addDays(s: string, n: number): string { const d = parseDate(s); d.setDate(d.getDate() + n); return isoDate(d) }
 
 /** First and last day of the month containing [s], plus [offset] months. */

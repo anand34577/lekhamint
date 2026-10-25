@@ -18,7 +18,7 @@ server, or a small model served on the phone itself at a `localhost` address.
 
 | Mode | Where the key lives | Notes |
 |---|---|---|
-| Web: from this browser | Browser `localStorage` | The page may only call origins in its CSP: OpenAI, OpenRouter and `localhost` by default; add more with `LEKHAMINT_AI_CONNECT_ORIGINS`. Local servers need CORS (`OLLAMA_ORIGINS`). |
+| Web: from this browser | Your LekhaMint server (per person), held in memory for the tab | The page may only call origins in its CSP: OpenAI, OpenRouter and `localhost` by default; add more with `LEKHAMINT_AI_CONNECT_ORIGINS`. Local servers need CORS (`OLLAMA_ORIGINS`). |
 | Web: through the server | Server environment | Set `LEKHAMINT_AI_BASE_URL` (e.g. `http://localhost:11434/v1`), `LEKHAMINT_AI_API_KEY`, `LEKHAMINT_AI_MODEL`, optional `LEKHAMINT_AI_TIMEOUT`. Endpoint: `POST /api/v1/ai/chat/completions` (signed in). Bodies are never logged. |
 | Android | Android Keystore (encrypted) | Base URL, model and key in Assistant settings. |
 

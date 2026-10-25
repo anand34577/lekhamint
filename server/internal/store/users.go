@@ -15,10 +15,14 @@ type User struct {
 	Email        string `json:"email"`
 	Name         string `json:"name"`
 	PasswordHash string `json:"-"`
-	IsAdmin      bool   `json:"is_admin"`
-	Disabled     bool   `json:"disabled"`
-	CreatedAt    int64  `json:"created_at"`
-	UpdatedAt    int64  `json:"updated_at"`
+	// SSOSub is the identity provider's subject claim this account is bound to
+	// ("" for password accounts). Later single sign-ins must present the same
+	// subject, so a different identity bearing the same email cannot sign in.
+	SSOSub    string `json:"-"`
+	IsAdmin   bool   `json:"is_admin"`
+	Disabled  bool   `json:"disabled"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 // ErrDuplicate is returned when a unique key already exists.
@@ -27,23 +31,31 @@ var ErrDuplicate = errors.New("already exists")
 // NormalizeEmail lowercases and trims an email address.
 func NormalizeEmail(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
-const userCols = "id, email, name, password_hash, is_admin, disabled, created_at, updated_at"
+const userCols = "id, email, name, password_hash, sso_sub, is_admin, disabled, created_at, updated_at"
 
 func scanUser(sc interface{ Scan(...any) error }) (User, error) {
 	var u User
 	var admin, disabled int64
-	err := sc.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &admin, &disabled, &u.CreatedAt, &u.UpdatedAt)
+	err := sc.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.SSOSub, &admin, &disabled, &u.CreatedAt, &u.UpdatedAt)
 	u.IsAdmin, u.Disabled = admin != 0, disabled != 0
 	return u, err
 }
 
 // CreateUser inserts a user. Returns ErrDuplicate if the email is taken.
 func CreateUser(ctx context.Context, q db.Querier, u User) error {
-	_, err := q.ExecContext(ctx, "INSERT INTO users ("+userCols+") VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		u.ID, u.Email, u.Name, u.PasswordHash, boolInt(u.IsAdmin), boolInt(u.Disabled), u.CreatedAt, u.UpdatedAt)
+	_, err := q.ExecContext(ctx, "INSERT INTO users ("+userCols+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		u.ID, u.Email, u.Name, u.PasswordHash, u.SSOSub, boolInt(u.IsAdmin), boolInt(u.Disabled), u.CreatedAt, u.UpdatedAt)
 	if db.IsUniqueViolation(err) {
 		return ErrDuplicate
 	}
+	return err
+}
+
+// BindUserSSO records the identity provider subject an account is bound to.
+// The WHERE clause keeps a racing second binding from replacing the first.
+func BindUserSSO(ctx context.Context, q db.Querier, userID, sub string) error {
+	_, err := q.ExecContext(ctx, "UPDATE users SET sso_sub = ?, updated_at = ? WHERE id = ? AND sso_sub = ''",
+		sub, time.Now().UnixMilli(), userID)
 	return err
 }
 

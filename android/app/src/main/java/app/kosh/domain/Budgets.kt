@@ -29,7 +29,8 @@ data class BudgetStatus(
         if (!window.contains(today)) return 1f
         return (ChronoUnit.DAYS.between(window.start, today) + 1).toFloat() / window.days
     }
-    val overAlert: Boolean get() = fraction * 100 >= budget.alertPercent
+    /** Integer compare: float rounding must not swallow the exact-threshold day. */
+    val overAlert: Boolean get() = limit > 0 && spent * 100 >= budget.alertPercent * limit
     val over: Boolean get() = spent > limit
 }
 

@@ -11,6 +11,7 @@ import app.kosh.ui.components.LocalContainer
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -22,13 +23,20 @@ inline fun <reified VM : ViewModel> koshViewModel(key: String? = null, crossinli
     return viewModel(key = key) { create(c) }
 }
 
+/** Today's date, re-emitted when midnight passes so screens left open overnight (or over a month end) roll over. */
+fun todayFlow(): Flow<java.time.LocalDate> = kotlinx.coroutines.flow.flow {
+    while (true) {
+        emit(Dates.today())
+        kotlinx.coroutines.delay(30_000)
+    }
+}.distinctUntilChanged()
+
 /** Live status of every active budget, including rollover from earlier periods. */
 @OptIn(ExperimentalCoroutinesApi::class)
 fun budgetStatuses(c: AppContainer): Flow<List<BudgetStatus>> =
-    c.repo.budgets.flatMapLatest { budgets ->
+    combine(c.repo.budgets, todayFlow()) { budgets, today -> budgets to today }.flatMapLatest { (budgets, today) ->
         val active = budgets.filter { !it.archived }
         if (active.isEmpty()) return@flatMapLatest flowOf(emptyList())
-        val today = Dates.today()
         val from = active.minOf { Budgets.neededFrom(it, today) }
         val to = active.maxOf { b -> Budgets.window(b, today)?.end ?: today }.coerceAtLeast(today)
         combine(c.repo.reportRows(from, to), c.lookup) { rows, lookup -> rows to lookup }.map { (rows, lookup) ->

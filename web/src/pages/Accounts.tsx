@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react'
 import { api, type Account } from '../lib/api'
 import { ACCOUNT_TYPES, accountTypeLabel, isLiability, useAccounts, useBalances, useCanWrite, useDeposits, useLedger, useLoans, usePosition, useStableId, useWrite, type WithId } from '../lib/data'
 import { parseMoney, toPlain } from '../lib/money'
-import { isoDate } from '../lib/util'
+import { daysBetween, isoDate, nextDayOfMonth } from '../lib/util'
+import { TxForm } from './Transactions'
 import { Bar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Skeleton, errorText, saveErrorText, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
@@ -18,6 +19,7 @@ export function Accounts({ go }: PageProps) {
   const can = useCanWrite()
   const [edit, setEdit] = useState<WithId<Account> | 'new' | null>(null)
   const [reconcile, setReconcile] = useState<WithId<Account> | null>(null)
+  const [pay, setPay] = useState<{ cardId: string; minor: number } | null>(null)
   const bal = (id: string) => balances.data?.find((b) => b.account_id === id)?.balance ?? 0
   const live = (accounts.data ?? []).filter((a) => !a.deleted)
   const groups = ACCOUNT_TYPES.map(([t, label]) => [label, live.filter((a) => a.type === t && !a.archived).sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name))] as const).filter(([, list]) => list.length)
@@ -34,7 +36,7 @@ export function Accounts({ go }: PageProps) {
   }, [loans.data, deposits.data])
   // Credit still available on cards: limit minus what is owed. Not an asset, so shown on its own.
   const credit = new Map<string, number>()
-  for (const a of live) if (a.type === 'credit_card' && a.credit_limit && !a.archived) credit.set(a.currency, (credit.get(a.currency) ?? 0) + Math.max(0, a.credit_limit - Math.max(0, -bal(a.id))))
+  for (const a of live) if (a.type === 'credit_card' && a.credit_limit && !a.archived) credit.set(a.currency, (credit.get(a.currency) ?? 0) + Math.max(0, a.credit_limit + bal(a.id)))
   const open = (a: WithId<Account>) => { const to = linked.get(a.id); if (to) go(to, { id: a.id }); else go('transactions', { account: a.id }) }
 
   const row = (a: WithId<Account>) => {
@@ -47,10 +49,15 @@ export function Accounts({ go }: PageProps) {
           <div>{a.name}</div>
           <div className="sub">{accountTypeLabel(a.type)} · {a.currency}{!a.include_in_net_worth && ' · not in net worth'}{linked.get(a.id) === 'loans' ? ' · managed in Loans' : linked.get(a.id) === 'deposits' ? ' · managed in Deposits' : ''}{a.note ? ` · ${a.note}` : ''}</div>
           {a.type === 'credit_card' && a.credit_limit ? (
-            <div className="limit"><Bar fraction={owed / a.credit_limit} danger={owed > a.credit_limit * 0.9} /><span className="muted small"><Money value={Math.max(0, a.credit_limit - owed)} currency={a.currency} /> available of <Money value={a.credit_limit} currency={a.currency} /></span></div>
+            <div className="limit"><Bar fraction={owed / a.credit_limit} danger={owed > a.credit_limit * 0.9} /><span className="muted small"><Money value={Math.max(0, a.credit_limit + b)} currency={a.currency} /> available of <Money value={a.credit_limit} currency={a.currency} /></span></div>
           ) : null}
+          {a.type === 'credit_card' && a.due_day && owed > 0 ? (() => {
+            const due = nextDayOfMonth(isoDate(), a.due_day), left = daysBetween(isoDate(), due)
+            return <div className={`small ${left <= 3 ? 'warn-text' : 'muted'}`}>Payment due {left === 0 ? 'today' : left === 1 ? 'tomorrow' : `in ${left} days`} ({due})</div>
+          })() : null}
         </div>
         <div className="acc-actions">
+          {can && isLiability(a.type) && owed > 0 && <button className="link" onClick={(e) => { e.stopPropagation(); setPay({ cardId: a.id, minor: owed }) }} title="Transfer money to pay what is owed">Pay {a.type === 'credit_card' ? 'bill' : 'now'}</button>}
           {can && <button className="link" onClick={(e) => { e.stopPropagation(); setReconcile(a) }} title="Match the balance your bank shows">Reconcile</button>}
           {can && <button className="icon-btn" onClick={(e) => { e.stopPropagation(); setEdit(a) }} aria-label={`Edit ${a.name}`}><Icon name="edit" size={16} /></button>}
         </div>
@@ -90,6 +97,7 @@ export function Accounts({ go }: PageProps) {
       {archived.length > 0 && <Card title="Archived" className="mb"><ul className="list">{archived.map(row)}</ul></Card>}
       {live.length > 0 && <p className="muted small">Balances are calculated from transactions, so they are always exact. Reconcile when your bank shows a different number. Click an account to see its transactions.</p>}
       {edit && <AccountForm account={edit === 'new' ? undefined : edit} onClose={() => setEdit(null)} />}
+      {pay && <TxForm payCard={pay} onClose={() => setPay(null)} />}
       {reconcile && <ReconcileForm account={reconcile} current={bal(reconcile.id)} onClose={() => setReconcile(null)} />}
     </>
   )
@@ -110,6 +118,8 @@ function AccountForm({ account, onClose }: { account?: WithId<Account>; onClose:
   const liability = isLiability(type)
   const [opening, setOpening] = useState(account && account.opening_balance ? toPlain(isLiability(account.type) ? -account.opening_balance : account.opening_balance, account.currency) : '')
   const [limit, setLimit] = useState(account?.credit_limit ? toPlain(account.credit_limit, account.currency) : '')
+  const [stmtDay, setStmtDay] = useState(account?.statement_day ? String(account.statement_day) : '')
+  const [dueDay, setDueDay] = useState(account?.due_day ? String(account.due_day) : '')
   const [color, setColor] = useState(account?.color ?? PALETTE[1])
   const [note, setNote] = useState(account?.note ?? '')
   const [inWorth, setInWorth] = useState(account?.include_in_net_worth ?? true)
@@ -124,12 +134,15 @@ function AccountForm({ account, onClose }: { account?: WithId<Account>; onClose:
     if (!name.trim()) return setErr('Give the account a name')
     const raw = opening.trim() ? parseMoney(opening, cur) : 0
     if (raw === null) return setErr('The starting balance should be a number, like 25000 or 25,000.50')
-    if (liability && raw < 0) return setErr('Enter what you owe as a positive amount. If the card is in credit, enter 0 and record the credit as a refund.')
+    
     const lim = type === 'credit_card' && limit.trim() ? parseMoney(limit, cur) : null
     if (type === 'credit_card' && limit.trim() && (lim === null || lim <= 0)) return setErr('The credit limit should be a positive number, or leave it empty')
+    const dayOf = (v: string) => (v.trim() === '' ? null : /^\d{1,2}$/.test(v.trim()) && +v >= 1 && +v <= 31 ? +v : NaN)
+    const sd = type === 'credit_card' ? dayOf(stmtDay) : null, dd = type === 'credit_card' ? dayOf(dueDay) : null
+    if (Number.isNaN(sd) || Number.isNaN(dd)) return setErr('Statement and due days should be a day of the month, from 1 to 31')
     try {
       await write.save.mutateAsync({ entity: 'accounts', id: account?.id, newId, data: {
-        name: name.trim(), type, currency: cur, opening_balance: liability ? -raw : raw, credit_limit: lim, color,
+        name: name.trim(), type, currency: cur, opening_balance: liability ? -raw : raw, credit_limit: lim, statement_day: sd, due_day: dd, color,
         include_in_net_worth: inWorth, archived, icon: account?.icon ?? null, note: note.trim() || null,
       } satisfies Partial<Account> })
       toast(account ? 'Account saved' : `${name.trim()} added`)
@@ -160,10 +173,14 @@ function AccountForm({ account, onClose }: { account?: WithId<Account>; onClose:
             <Field label="Type"><Select value={type} onChange={(e) => setType(e.target.value)}>{ACCOUNT_TYPES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
             <Field label="Currency" hint={account ? 'Changing it does not convert past amounts' : undefined}><CurrencySelect value={cur} onChange={setCur} /></Field>
           </div>
-          <Field label={liability ? 'Amount owed when you start tracking' : 'Balance when you start tracking'} hint={liability ? 'What the statement shows you owe; 0 if nothing' : 'Today’s balance is fine'}>
+          <Field label={liability ? 'Amount owed when you start tracking' : 'Balance when you start tracking'} hint={liability ? 'What the statement shows you owe; 0 if nothing. If you have paid more than you owe, enter it as a negative number, like -500' : 'Today’s balance is fine'}>
             <NumInput kind="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="0" />
           </Field>
           {type === 'credit_card' && <Field label="Credit limit (optional)" hint="Shows how much of the limit you have used"><NumInput kind="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} /></Field>}
+          {type === 'credit_card' && <div className="two">
+            <Field label="Statement day (optional)" hint="Day of the month your statement is generated"><NumInput kind="int" value={stmtDay} onChange={(e) => setStmtDay(e.target.value)} placeholder="e.g. 5" /></Field>
+            <Field label="Payment due day (optional)" hint="You get a reminder a few days before"><NumInput kind="int" value={dueDay} onChange={(e) => setDueDay(e.target.value)} placeholder="e.g. 25" /></Field>
+          </div>}
           <Field label="Colour"><div className="row">{PALETTE.map((c) => <button type="button" key={c} className={`swatch ${c === color ? 'on' : ''}`} style={{ background: c }} aria-label={`Colour ${c}`} aria-pressed={c === color} onClick={() => setColor(c)} />)}</div></Field>
           <Field label="Note (optional)"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Last 4 digits, branch…" /></Field>
           <Check checked={inWorth} onChange={setInWorth}>Include in net worth</Check>

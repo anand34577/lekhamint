@@ -1,9 +1,9 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useLedger } from '../lib/data'
-import { AiError, PROVIDERS, ask, destination, loadAi, saveAi, type AiSettings, type ServerAi, type Turn } from '../lib/ai'
-import { Card, Check, Field, Modal, Segmented, toast } from '../components'
+import { AiError, PROVIDERS, ask, destination, hydrateKey, loadAi, persistAiKey, saveAi, toolLabel, type AiSettings, type ServerAi, type Turn } from '../lib/ai'
+import { Check, Field, Modal, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps, Route } from '../App'
 import { Select, PasswordInput } from '../controls'
@@ -12,90 +12,168 @@ import { Select, PasswordInput } from '../controls'
  * Ask questions about your own money (docs/11-assistant.md). Answers come from
  * read-only lookups over your records; each answer lists what it looked at,
  * with links to the screens that show it. Nothing is sent until you agree.
+ *
+ * The conversation lives in its own scroll region (like a messaging app), shows
+ * the question immediately, streams which lookups are running, keeps the last
+ * turns across navigation, and works down to small phones.
  */
 
-const SUGGESTIONS = [
-  'How much did I spend this month, and on what?',
-  'Why was my spending higher this month than last month?',
-  'How much do I still owe across all my loans?',
-  'What EMIs and bills are coming up in the next 30 days?',
-  'Who owes me money, and how much?',
-  'Which deposits mature in the next six months?',
-  'How much did I spend on groceries over the last 12 months?',
-  'How has my net worth changed this year?',
-  'Which recurring expenses could I review to cut my monthly costs?',
+const SUGGESTIONS: [string, string][] = [
+  ['How much did I spend this month, and on what?', 'chart'],
+  ['Why was my spending higher this month than last month?', 'trendUp'],
+  ['How much do I still owe across all my loans?', 'bank'],
+  ['What EMIs and bills are coming up in the next 30 days?', 'clock'],
+  ['Who owes me money, and how much?', 'hand'],
+  ['Which deposits mature in the next six months?', 'piggy'],
+  ['How much did I spend on groceries over the last 12 months?', 'cart'],
+  ['How has my net worth changed this year?', 'trendUp'],
+  ['Which recurring expenses could I review to cut my monthly costs?', 'repeat'],
 ]
 
 export function useServerAi() {
   return useQuery({ queryKey: ['meta-ai'], queryFn: async () => ((await api.meta()) as { ai?: ServerAi }).ai ?? null, staleTime: 5 * 60_000 })
 }
 
+const chatStore = (lid: string) => `kosh.assistant.${lid}`
+const MAX_SAVED_TURNS = 30
+
+function loadTurns(lid: string): Turn[] {
+  try { return (JSON.parse(sessionStorage.getItem(chatStore(lid)) ?? '[]') as Turn[]).slice(-MAX_SAVED_TURNS) } catch { return [] }
+}
+function saveTurns(lid: string, turns: Turn[]) {
+  try { sessionStorage.setItem(chatStore(lid), JSON.stringify(turns.slice(-MAX_SAVED_TURNS))) } catch { /* full or private mode */ }
+}
+
 export function Assistant({ go }: PageProps) {
   const l = useLedger()
   const server = useServerAi()
   const [s, setS] = useState<AiSettings>(loadAi)
-  const [turns, setTurns] = useState<Turn[]>([])
+  const [turns, setTurns] = useState<Turn[]>(() => loadTurns(l.id))
   const [q, setQ] = useState('')
   const [busy, setBusy] = useState(false)
   const [setup, setSetup] = useState(false)
   const [consent, setConsent] = useState<string | null>(null)
+  /** The question being answered right now, with the lookups it has run so far. */
+  const [pending, setPending] = useState<{ q: string; runs: string[] } | null>(null)
   const abort = useRef<AbortController | null>(null)
-  const end = useRef<HTMLDivElement>(null)
-  useEffect(() => { end.current?.scrollIntoView({ behavior: 'smooth', block: 'end' }) }, [turns, busy])
+  const scrollBox = useRef<HTMLDivElement>(null)
+  const atBottom = useRef(true)
+
+  // A key saved on the server (its durable home) is loaded into memory once.
+  useEffect(() => { if (s.mode === 'direct' && !s.apiKey) hydrateKey().then((k) => { if (k) setS(loadAi()) }) }, []) // eslint-disable-line
+
   const update = (patch: Partial<AiSettings>) => { const n = { ...s, ...patch }; setS(n); saveAi(n) }
   const dest = destination(s, server.data)
   const configured = s.mode === 'server' ? !!server.data?.enabled : s.mode === 'direct' && !!s.baseUrl
+
+  // Keep pinned to the newest message unless the reader scrolled up.
+  useLayoutEffect(() => {
+    const el = scrollBox.current
+    if (el && atBottom.current) el.scrollTop = el.scrollHeight
+  }, [turns, pending])
+  const onScroll = () => {
+    const el = scrollBox.current
+    if (el) atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+  }
+
+  const record = (t: Turn) => setTurns((x) => { const n = [...x, t]; saveTurns(l.id, n); return n })
+  const reset = () => { setTurns([]); saveTurns(l.id, []) }
 
   const send = async (question: string, agreed = false) => {
     const text = question.trim()
     if (!text || busy) return
     if (!configured) { setSetup(true); return }
     if (!agreed && s.consentFor !== dest) { setConsent(text); return }
-    setBusy(true); setQ('')
+    setBusy(true); setQ(''); atBottom.current = true
+    setPending({ q: text, runs: [] })
     abort.current = new AbortController()
     try {
-      const t = await ask(s, { ledgerId: l.id, base: l.base_currency, share: s.shareDetails }, l.name, turns, text, abort.current.signal)
-      setTurns((x) => [...x, t])
+      const t = await ask(s, { ledgerId: l.id, base: l.base_currency, share: s.shareDetails }, l.name, turns, text, abort.current.signal,
+        (r) => setPending((p) => (p ? { ...p, runs: [...p.runs, r.name] } : p)))
+      record(t)
     } catch (e) {
-      if ((e as Error).name === 'AbortError') { setTurns((x) => [...x, { question: text, answer: '', runs: [], mode: 'tools', error: 'Stopped.' }]) }
-      else setTurns((x) => [...x, { question: text, answer: '', runs: [], mode: 'tools', error: e instanceof AiError ? e.message : `Something went wrong: ${(e as Error).message}` }])
-    } finally { setBusy(false); abort.current = null }
+      if ((e as Error).name === 'AbortError') record({ question: text, answer: '', runs: [], mode: 'tools', error: 'Stopped before finishing. Ask again to retry.' })
+      else record({ question: text, answer: '', runs: [], mode: 'tools', error: e instanceof AiError ? e.message : `Something went wrong: ${(e as Error).message}` })
+    } finally { setBusy(false); setPending(null); abort.current = null }
   }
 
   return (
     <div className="assistant">
-      <div className="page-head">
-        <h1>Assistant</h1>
+      <div className="chat-head">
+        <div className="chat-title">
+          <span className="ai-avatar" aria-hidden><Icon name="sparkles" size={18} /></span>
+          <div className="ellipsis">
+            <h2>Assistant</h2>
+            <span className="muted small ellipsis">{configured ? (s.mode === 'server' ? `Via your server → ${server.data?.host || 'model'}` : dest) : 'Not set up'}</span>
+          </div>
+        </div>
         <div className="row">
-          {turns.length > 0 && <button onClick={() => setTurns([])}>New conversation</button>}
-          <button onClick={() => setSetup(true)}><Icon name="settings" size={16} /> {configured ? (s.mode === 'server' ? 'Via server' : dest) : 'Set up'}</button>
+          {turns.length > 0 && <button className="sm" onClick={reset} title="Start a new conversation"><Icon name="plus" size={15} /> New</button>}
+          <button className="sm" onClick={() => setSetup(true)}><Icon name="settings" size={15} /> Settings</button>
         </div>
       </div>
-      {!configured && (
-        <Card className="mb onboarding">
-          <h2><Icon name="sparkles" /> Ask about your money in plain words</h2>
-          <p className="muted">Connect a language model: a cloud service such as OpenAI or OpenRouter, or a model on your own computer or home server (Ollama, LM Studio, vLLM). The assistant reads your records only through read-only lookups, shows what it used for every answer, and can never change anything.</p>
-          <button className="primary" onClick={() => setSetup(true)}>Set up the assistant</button>
-        </Card>
-      )}
-      <div className="chat" aria-live="polite">
-        {turns.length === 0 && configured && (
-          <div className="suggestions">
-            <p className="muted small">Try asking:</p>
-            {SUGGESTIONS.map((x) => <button key={x} className="chip-btn" onClick={() => send(x)}>{x}</button>)}
-          </div>
+
+      <div className="chat-scroll" ref={scrollBox} onScroll={onScroll} aria-live="polite">
+        {turns.length === 0 && !pending && !busy && (
+          configured ? (
+            <div className="chat-welcome">
+              <span className="ai-avatar big" aria-hidden><Icon name="sparkles" size={26} /></span>
+              <h3>Ask about your money</h3>
+              <p className="muted">Answers come from your own records through read-only lookups. Each answer shows what it used, with links to check every figure.</p>
+              <div className="suggestion-grid">
+                {SUGGESTIONS.map(([text, icon]) => (
+                  <button key={text} className="suggestion" onClick={() => send(text)}>
+                    <Icon name={icon as never} size={17} />
+                    <span>{text}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="chat-welcome">
+              <span className="ai-avatar big" aria-hidden><Icon name="sparkles" size={26} /></span>
+              <h3>Ask about your money in plain words</h3>
+              <p className="muted">Connect a language model: a cloud service such as OpenAI or OpenRouter, or a model on your own computer or home server (Ollama, LM Studio, vLLM). The assistant reads your records only through read-only lookups, shows what it used for every answer, and can never change anything.</p>
+              <button className="primary" onClick={() => setSetup(true)}><Icon name="plug" size={16} /> Set up the assistant</button>
+            </div>
+          )
         )}
-        {turns.map((t, i) => <TurnView key={i} t={t} go={go} />)}
-        {busy && <div className="msg assistant-msg"><div className="bubble"><span className="typing" aria-label="Thinking"><i /><i /><i /></span> Looking through your records…</div></div>}
-        <div ref={end} />
+
+        {turns.map((t, i) => <TurnView key={i} t={t} go={go} onRetry={busy ? undefined : () => send(t.question, s.consentFor === dest)} />)}
+
+        {pending && (
+          <>
+            <div className="msg user-msg"><div className="bubble">{pending.q}</div></div>
+            <div className="msg assistant-msg">
+              <div className="bubble">
+                <span className="typing" aria-label="Thinking"><i /><i /><i /></span>
+                <span className="muted">{pending.runs.length === 0 ? 'Thinking…' : 'Looking through your records…'}</span>
+                {pending.runs.length > 0 && (
+                  <div className="live-runs">
+                    {pending.runs.map((name, i) => (
+                      <span key={i} className="run-chip"><Icon name="check" size={12} /> {toolLabel(name)}</span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </div>
-      <form className="ask-bar" onSubmit={(e) => { e.preventDefault(); send(q) }}>
-        <textarea value={q} onChange={(e) => setQ(e.target.value)} rows={1} placeholder={configured ? 'Ask about your spending, loans, deposits, budgets…' : 'Set up the assistant to start'} aria-label="Question"
-          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(q) } }} />
-        {busy ? <button type="button" onClick={() => abort.current?.abort()}>Stop</button> : <button className="primary" disabled={!q.trim()} aria-label="Send"><Icon name="send" size={18} /></button>}
+
+      <form className="composer" onSubmit={(e) => { e.preventDefault(); send(q) }}>
+        <div className="composer-box">
+          <textarea value={q} onChange={(e) => setQ(e.target.value)} rows={1} placeholder={configured ? 'Ask about your spending, loans, deposits, budgets…' : 'Set up the assistant to start'}
+            aria-label="Question" disabled={busy}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(q) } }} />
+          {busy
+            ? <button type="button" className="composer-send stop" onClick={() => abort.current?.abort()} aria-label="Stop"><Icon name="circleX" size={18} /><span>Stop</span></button>
+            : <button type="submit" className="composer-send" disabled={!q.trim()} aria-label="Send"><Icon name="send" size={18} /></button>}
+        </div>
+        <p className="composer-note muted small">Answers are generated by a language model from your records — check important figures on the linked screens. Balances and totals always come from LekhaMint, never the model.</p>
       </form>
-      <p className="muted small center">Answers are generated by a language model from your records. Check important figures on the linked screens. Calculations and balances come from LekhaMint, not the model.</p>
-      {setup && <AiSetup s={s} server={server.data ?? null} onSave={(n) => { setS(n); saveAi(n); setSetup(false) }} onClose={() => setSetup(false)} />}
+
+      {setup && <AiSetup s={s} server={server.data ?? null} onSave={(n) => { setS(n); saveAi(n); persistAiKey(n).catch(() => toast('The key could not be saved on the server; it works in this tab', { label: 'Retry', run: () => persistAiKey(n).catch(() => {}) })); setSetup(false) }} onClose={() => setSetup(false)} />}
       {consent !== null && (
         <Modal title="Share your records with the model?" onClose={() => setConsent(null)} footer={<>
           <button onClick={() => setConsent(null)}>Not now</button>
@@ -110,25 +188,48 @@ export function Assistant({ go }: PageProps) {
   )
 }
 
-function TurnView({ t, go }: { t: Turn; go: PageProps['go'] }) {
+function TurnView({ t, go, onRetry }: { t: Turn; go: PageProps['go']; onRetry?: () => void }) {
   const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
   const links = [...new Map(t.runs.filter((r) => r.link).map((r) => [r.link!.route + JSON.stringify(r.link!.params), r.link!])).values()]
+  const copy = () => {
+    navigator.clipboard?.writeText(t.answer).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500) }).catch(() => { })
+  }
   return (
     <>
       <div className="msg user-msg"><div className="bubble">{t.question}</div></div>
       <div className="msg assistant-msg">
+        <span className="ai-avatar" aria-hidden><Icon name="sparkles" size={14} /></span>
         <div className="bubble">
-          {t.error ? <p className="error">{t.error}</p> : <Markdown text={t.answer || '(No answer.)'} />}
-          {t.mode === 'snapshot' && !t.error && <p className="muted small"><Icon name="info" size={12} /> This model can't look things up, so it answered from a summary of this month, last month, loans, deposits, debts and what is coming up.</p>}
-          {(t.runs.length > 0 || links.length > 0) && (
+          {t.error ? (
+            <div className="turn-error">
+              <p className="error">{t.error}</p>
+              {onRetry && <button className="sm" onClick={onRetry}><Icon name="refresh" size={14} /> Try again</button>}
+            </div>
+          ) : (
+            <>
+              <Markdown text={t.answer || '(No answer.)'} />
+              <div className="bubble-actions">
+                <button className="link small" onClick={copy} title="Copy the answer">{copied ? 'Copied' : 'Copy'}</button>
+                {t.mode === 'snapshot' && <span className="muted small"><Icon name="info" size={12} /> Answered from a summary (this model can't look things up)</span>}
+              </div>
+            </>
+          )}
+          {(t.runs.length > 0 || links.length > 0) && !t.error && (
             <div className="sources">
               {links.map((x) => <button key={x.route + JSON.stringify(x.params)} className="chip-btn" onClick={() => go(x.route as Route, x.params)}>Open {x.route === 'tools' ? 'net worth' : x.route}</button>)}
               {t.runs.length > 0 && <button className="link small" onClick={() => setOpen(!open)}>{open ? 'Hide' : 'Show'} the {t.runs.length} {t.runs.length === 1 ? 'lookup' : 'lookups'} behind this answer</button>}
             </div>
           )}
           {open && t.runs.map((r, i) => (
-            <details key={i} className="lookup"><summary><code>{r.name}</code> {Object.keys(r.args).length ? <span className="muted small">{JSON.stringify(r.args)}</span> : ''}{r.error && <span className="error small"> · {r.error}</span>}</summary>
-              <pre>{JSON.stringify(r.result, null, 2).slice(0, 8000)}</pre></details>
+            <details key={i} className="lookup" open={t.runs.length === 1}>
+              <summary>
+                <code>{toolLabel(r.name)}</code>
+                {Object.keys(r.args).length ? <span className="muted small">{Object.entries(r.args).map(([k, v]) => `${k}=${String(v)}`).slice(0, 4).join(', ')}</span> : ''}
+                {r.error ? <span className="error small"> · {r.error}</span> : <span className="pos-text small"> · ok</span>}
+              </summary>
+              <pre>{JSON.stringify(r.result, null, 2).slice(0, 8000)}</pre>
+            </details>
           ))}
         </div>
       </div>
@@ -136,21 +237,44 @@ function TurnView({ t, go }: { t: Turn; go: PageProps['go'] }) {
   )
 }
 
-/** Renders the model's answer: paragraphs, bullet and numbered lists, **bold** and `code`. No HTML is interpreted. */
+/** Renders the model's answer: paragraphs, bullet and numbered lists, headings, tables (| a | b |), **bold** and `code`. No HTML is interpreted. */
 function Markdown({ text }: { text: string }) {
   const inline = (s: string): ReactNode[] => s.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((p, i) => p.startsWith('**') && p.endsWith('**') ? <strong key={i}>{p.slice(2, -2)}</strong> : p.startsWith('`') && p.endsWith('`') ? <code key={i}>{p.slice(1, -1)}</code> : <Fragment key={i}>{p}</Fragment>)
   const blocks: ReactNode[] = []
   let list: { ordered: boolean; items: string[] } | null = null
-  const flush = () => { if (list) { const L = list.ordered ? 'ol' : 'ul'; blocks.push(<L key={blocks.length}>{list.items.map((x, i) => <li key={i}>{inline(x)}</li>)}</L>); list = null } }
+  let table: string[][] | null = null
+  const flushList = () => { if (list) { const L = list.ordered ? 'ol' : 'ul'; blocks.push(<L key={blocks.length}>{list.items.map((x, i) => <li key={i}>{inline(x)}</li>)}</L>); list = null } }
+  const flushTable = () => {
+    if (table && table.length) {
+      const [head, ...rows] = table
+      blocks.push(
+        <div key={blocks.length} className="md-table-wrap">
+          <table className="md-table">
+            <thead><tr>{head.map((c, i) => <th key={i}>{inline(c)}</th>)}</tr></thead>
+            <tbody>{rows.map((r, ri) => <tr key={ri}>{r.map((c, ci) => <td key={ci}>{inline(c)}</td>)}</tr>)}</tbody>
+          </table>
+        </div>,
+      )
+    }
+    table = null
+  }
+  const cells = (line: string) => line.replace(/^\s*\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim())
   for (const raw of text.split('\n')) {
     const line = raw.trimEnd()
+    const isTableRow = line.trim().startsWith('|') && line.includes('|', 1)
+    if (isTableRow) {
+      if (!/^\s*\|?[\s:|-]+\|?\s*$/.test(line)) { flushList(); table ??= []; table.push(cells(line)) }
+      continue // rule rows (|---|---|) just separate the header
+    }
+    flushTable()
     const b = /^\s*[-*•]\s+(.*)$/.exec(line), n = /^\s*\d+[.)]\s+(.*)$/.exec(line), h = /^#{1,4}\s+(.*)$/.exec(line)
-    if (b || n) { const ordered = !!n; if (list && list.ordered !== ordered) flush(); list ??= { ordered, items: [] }; list.items.push((b ?? n)![1]); continue }
-    flush()
+    if (b || n) { const ordered = !!n; if (list && list.ordered !== ordered) flushList(); list ??= { ordered, items: [] }; list.items.push((b ?? n)![1]); continue }
+    flushList()
     if (h) blocks.push(<h4 key={blocks.length}>{inline(h[1])}</h4>)
     else if (line.trim()) blocks.push(<p key={blocks.length}>{inline(line)}</p>)
   }
-  flush()
+  flushList()
+  flushTable()
   return <div className="md">{blocks}</div>
 }
 
@@ -193,16 +317,25 @@ function AiSetup({ s, server, onSave, onClose }: { s: AiSettings; server: Server
   }
   return (
     <Modal wide title="Assistant settings" onClose={onClose} footer={<>
-      {s.mode !== 'off' && <button className="danger" onClick={() => { onSave({ ...s, mode: 'off' }); toast('Assistant turned off') }}>Turn off</button>}
+      {s.mode !== 'off' && <button className="danger" onClick={() => { onSave({ ...s, mode: 'off', apiKey: '' }); toast('Assistant turned off') }}>Turn off</button>}
       <span className="spacer" /><button onClick={onClose}>Cancel</button>
-      <button className="primary" onClick={() => { if (mode === 'direct' && !baseUrl.trim()) { setTest({ ok: false, text: 'Enter the address of the model server' }); return } onSave(next()); toast('Assistant settings saved on this device') }}>Save</button>
+      <button className="primary" onClick={() => { if (mode === 'direct' && !baseUrl.trim()) { setTest({ ok: false, text: 'Enter the address of the model server' }); return } onSave(next()); toast('Assistant settings saved') }}>Save</button>
     </>}>
-      <Segmented label="Connection" value={mode} onChange={setMode} options={[['direct', 'Connect from this browser'], ['server', 'Through my LekhaMint server']]} />
+      <div className="choice-cards">
+        <button className={`choice ${mode === 'direct' ? 'on' : ''}`} onClick={() => setMode('direct')}>
+          <strong><Icon name="device" size={16} /> Connect from this browser</strong>
+          <span>Works with cloud keys (OpenAI, OpenRouter) and with a model on this computer. The key is stored on your LekhaMint server, not in the browser.</span>
+        </button>
+        <button className={`choice ${mode === 'server' ? 'on' : ''}`} onClick={() => setMode('server')} disabled={!server?.enabled && !s.mode}>
+          <strong><Icon name="server" size={16} /> Through my LekhaMint server</strong>
+          <span>{server?.enabled ? <>Forwards to <strong>{server.host}</strong>{server.model ? ` using ${server.model}` : ''}; its key never leaves the server.</> : 'Not set up on this server (the admin sets LEKHAMINT_AI_BASE_URL).'}</span>
+        </button>
+      </div>
       {mode === 'server' ? (
         <div className="subtle-box small">
-          {server?.enabled ? <p>Your server forwards questions to <strong>{server.host}</strong>{server.model ? ` using ${server.model}` : ''}. Its key stays on the server.</p>
-            : <p>Not set up on this server. The admin can set <code>LEKHAMINT_AI_BASE_URL</code>, <code>LEKHAMINT_AI_API_KEY</code> and <code>LEKHAMINT_AI_MODEL</code> (for example Ollama on the same machine: <code>http://localhost:11434/v1</code>) and restart.</p>}
-          <p className="muted">Good for a model on your home server: no browser CORS settings needed, and the API key never reaches your devices.</p>
+          {server?.enabled
+            ? <p>Your server forwards questions to <strong>{server.host}</strong>{server.model ? ` using ${server.model}` : ''}. Its key stays on the server.</p>
+              : <p>Not set up on this server. The admin can set <code>LEKHAMINT_AI_BASE_URL</code>, <code>LEKHAMINT_AI_API_KEY</code> and <code>LEKHAMINT_AI_MODEL</code> (for example Ollama on the same machine: <code>http://localhost:11434/v1</code>) and restart.</p>}
           <Field label="Model (optional)" hint="Leave empty to use the server's default"><input value={model} onChange={(e) => setModel(e.target.value)} placeholder={server?.model || 'default'} /></Field>
         </div>
       ) : <>
@@ -210,7 +343,7 @@ function AiSetup({ s, server, onSave, onClose }: { s: AiSettings; server: Server
         <p className="muted small">{p.note}</p>
         <div className="two">
           <Field label="Base URL" hint="Up to /v1, without /chat/completions"><input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://…/v1" spellCheck={false} /></Field>
-          <Field label={p.key ? 'API key' : 'API key (if your server needs one)'} hint="Stored only in this browser"><PasswordInput value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" /></Field>
+          <Field label={p.key ? 'API key' : 'API key (if your server needs one)'} hint="Saved on your LekhaMint server; never in browser storage"><PasswordInput value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" /></Field>
         </div>
         <Field label="Model" hint={models.length ? undefined : 'For example gpt-4o-mini, openai/gpt-4o-mini, llama3.1:8b or qwen2.5:7b'}>
           {models.length ? <Select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((x) => <option key={x}>{x}</option>)}</Select> : <input value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} />}

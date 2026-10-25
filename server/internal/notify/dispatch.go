@@ -159,6 +159,7 @@ func (d *Dispatcher) RunOnce(ctx context.Context, now time.Time) error {
 		for _, l := range ledgers {
 			if pr.EvDue {
 				d.dueBills(ctx, u, pr, l, now)
+				d.dueCards(ctx, u, pr, l, now)
 			}
 			if pr.EvBudget {
 				d.budgetAlerts(ctx, u, pr, l, today)
@@ -218,6 +219,64 @@ func (d *Dispatcher) dueBills(ctx context.Context, u store.User, pr store.Prefs,
 		}
 		d.once(ctx, u, pr, EventDue, "due:"+r.ID+":"+next, subject,
 			fmt.Sprintf("%s (%s, %s) %s in %q.", name, verb, Money(amount, l.BaseCurrency), when, l.Name))
+	}
+}
+
+// NextDueDate is the first date on or after today that falls on day of the
+// month, using the last day of months that are too short.
+func NextDueDate(today time.Time, day int) time.Time {
+	at := func(y int, m time.Month) time.Time {
+		last := time.Date(y, m+1, 0, 0, 0, 0, 0, time.UTC).Day()
+		return time.Date(y, m, min(day, last), 0, 0, 0, 0, time.UTC)
+	}
+	t := time.Date(today.Year(), today.Month(), today.Day(), 0, 0, 0, 0, time.UTC)
+	if c := at(t.Year(), t.Month()); !c.Before(t) {
+		return c
+	}
+	n := t.AddDate(0, 1, 0)
+	return at(n.Year(), n.Month())
+}
+
+// dueCards reminds about credit cards whose payment date is near and that still owe money.
+func (d *Dispatcher) dueCards(ctx context.Context, u store.User, pr store.Prefs, l store.Ledger, now time.Time) {
+	if d.Reports == nil {
+		return
+	}
+	recs, err := store.ListRecords(ctx, d.DB, entity.Accounts, l.ID, store.ListOptions{Limit: 1000})
+	if err != nil {
+		return
+	}
+	bals, err := d.Reports.Balances(ctx, l.ID, "")
+	if err != nil {
+		return
+	}
+	owed := map[string]report.Balance{}
+	for _, b := range bals {
+		owed[b.AccountID] = b
+	}
+	for _, r := range recs {
+		day, _ := r.Data["due_day"].(int64)
+		if r.Deleted || day < 1 {
+			continue
+		}
+		if archived, _ := r.Data["archived"].(bool); archived {
+			continue
+		}
+		b, ok := owed[r.ID]
+		if !ok || b.Type != "credit_card" || b.Balance >= 0 {
+			continue
+		}
+		due := NextDueDate(now, int(day))
+		days := int(due.Sub(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)).Hours() / 24)
+		if days > dueLeadDays {
+			continue
+		}
+		when, subject := "is due on "+due.Format("2006-01-02"), "Card bill due soon: "+b.Name
+		if days == 0 {
+			when, subject = "is due today", "Card bill due today: "+b.Name
+		}
+		d.once(ctx, u, pr, EventDue, "card:"+r.ID+":"+due.Format("2006-01-02"), subject,
+			fmt.Sprintf("%s owes %s, and the payment %s in %q.", b.Name, Money(-b.Balance, b.Currency), when, l.Name))
 	}
 }
 

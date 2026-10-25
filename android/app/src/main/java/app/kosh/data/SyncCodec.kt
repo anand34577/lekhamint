@@ -36,6 +36,8 @@ data class WireRecord(
     val deleted: Boolean = false,
     val data: JsonObject = JsonObject(emptyMap()),
     val seq: Long = 0,
+    /** Push only: the server version this edit started from, so a clash can be merged by field. */
+    val base: JsonObject? = null,
 )
 
 val KoshJson = Json {
@@ -100,13 +102,14 @@ private fun JsonObjectBuilder.put(k: String, v: List<String>) { put(k, JsonArray
 
 class AccountsTable(dao: SyncDao<AccountEntity>) : SyncTable<AccountEntity>("accounts", dao) {
     override val fields = setOf(
-        "name", "type", "currency", "opening_balance", "credit_limit", "color", "icon",
+        "name", "type", "currency", "opening_balance", "credit_limit", "statement_day", "due_day", "color", "icon",
         "include_in_net_worth", "archived", "sort_order", "note", "created_at",
     )
 
     override fun JsonObjectBuilder.encodeFields(row: AccountEntity) {
         put("name", row.name); put("type", row.type); put("currency", row.currency)
         put("opening_balance", row.openingBalance); put("credit_limit", row.creditLimit)
+        put("statement_day", row.statementDay); put("due_day", row.dueDay)
         put("color", row.color); put("icon", row.icon); put("include_in_net_worth", row.includeInNetWorth)
         put("archived", row.archived); put("sort_order", row.sortOrder); put("note", row.note)
         put("created_at", row.createdAt)
@@ -115,7 +118,7 @@ class AccountsTable(dao: SyncDao<AccountEntity>) : SyncTable<AccountEntity>("acc
     override fun decodeFields(id: String, d: JsonObject, extras: String, hlc: String, deleted: Boolean, dirty: Int) =
         AccountEntity(
             id = id, name = d.str("name") ?: "", type = d.str("type") ?: "other", currency = d.str("currency") ?: "XXX",
-            openingBalance = d.long("opening_balance") ?: 0, creditLimit = d.long("credit_limit"),
+            openingBalance = d.long("opening_balance") ?: 0, creditLimit = d.long("credit_limit"), statementDay = d.long("statement_day")?.toInt(), dueDay = d.long("due_day")?.toInt(),
             color = d.str("color"), icon = d.str("icon"), includeInNetWorth = d.bool("include_in_net_worth", true),
             archived = d.bool("archived", false), sortOrder = d.long("sort_order") ?: 0, note = d.str("note"),
             createdAt = d.long("created_at") ?: 0, hlc = hlc, deleted = deleted, dirty = dirty, extras = extras,

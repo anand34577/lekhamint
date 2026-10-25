@@ -100,6 +100,7 @@ fun MoreScreen() {
                 SettingRow("Loans & EMIs", "Schedules, EMI split, prepayment, reminders", Icons.Rounded.AccountBalance, onClick = { nav.navigate(Routes.LOANS) })
                 SettingRow("Deposits", "Fixed and recurring deposits, maturity dates", Icons.Rounded.Savings, onClick = { nav.navigate(Routes.DEPOSITS) })
                 SettingRow("Lent & borrowed", "Friends and family: who owes what", Icons.Rounded.Handshake, onClick = { nav.navigate(Routes.DEBTS) })
+                SettingRow("Exchange rates", "Add up money held in other currencies", Icons.Rounded.CurrencyExchange, onClick = { nav.navigate(Routes.RATES) })
                 SettingRow("Categories", null, Icons.Rounded.Category, onClick = { nav.navigate(Routes.CATEGORIES) })
                 SettingRow("Tags", "Group spending across categories: trips, projects", Icons.Rounded.Sell, onClick = { nav.navigate(Routes.TAGS) })
                 SettingRow("Auto-categorise", "Rules that fill in category, payee and tags", Icons.Rounded.AutoFixHigh, onClick = { nav.navigate(Routes.CAT_RULES) })
