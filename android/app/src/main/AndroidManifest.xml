@@ -39,8 +39,25 @@
                 <action android:name="app.kosh.action.ADD" />
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
+            <!-- Share a bank SMS, a payment app's message, a receipt photo or a PDF bill to start a transaction. -->
+            <intent-filter android:label="@string/share_add">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="image/*" />
+                <data android:mimeType="application/pdf" />
+            </intent-filter>
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- Opens receipts in a viewer app, and receives camera photos. Only app-private files are shared. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
+        </provider>
 
         <service
             android:name=".QuickAddTileService"

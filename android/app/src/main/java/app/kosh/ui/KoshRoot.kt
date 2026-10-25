@@ -123,6 +123,8 @@ object Routes {
     const val BACKUP = "backup"
     const val TAGS = "tags"
     const val CAT_RULES = "cat_rules"
+    const val GOALS = "goals"
+    const val YEAR_TAX = "year_tax"
     const val EDIT_CAT_RULE = "cat_rule_edit?id={id}"
 
     fun editTx(id: String? = null, type: String = "expense", copy: Boolean = false, account: String? = null, to: String? = null, amount: String? = null) =
@@ -159,7 +161,7 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
     LaunchedEffect(request, onboarded) {
         val r = request ?: return@LaunchedEffect
         if (onboarded) {
-            nav.navigate(Routes.editTx(type = r.addType ?: "expense"))
+            nav.navigate(Routes.editTx(type = r.addType ?: "expense", amount = r.amount))
             launch.value = null
         }
     }
@@ -237,6 +239,8 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
                 composable(Routes.BACKUP) { BackupScreen(onRestored = { nav.navigate(Routes.HOME) { popUpTo(0) } }) }
                 composable(Routes.TAGS) { TagsScreen() }
                 composable(Routes.CAT_RULES) { CategorizationRulesScreen() }
+                composable(Routes.GOALS) { app.kosh.ui.screens.GoalsScreen() }
+                composable(Routes.YEAR_TAX) { app.kosh.ui.screens.YearTaxScreen() }
                 composable(Routes.EDIT_CAT_RULE, arguments = listOf(navArgument("id") { type = NavType.StringType; defaultValue = "" })) { e ->
                     EditCategorizationRuleScreen(e.arguments?.getString("id").orEmpty().ifEmpty { null })
                 }

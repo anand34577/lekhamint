@@ -60,6 +60,10 @@ class SyncViewModel(private val c: AppContainer) : ViewModel() {
     var password by mutableStateOf("")
     var name by mutableStateOf("")
     var register by mutableStateOf(false)
+    /** The account has two-step sign-in on: the password was right and a code is needed. */
+    var needsCode by mutableStateOf(false)
+        private set
+    var code by mutableStateOf("")
     var busy by mutableStateOf(false)
         private set
     var error by mutableStateOf<String?>(null)
@@ -91,9 +95,16 @@ class SyncViewModel(private val c: AppContainer) : ViewModel() {
             val meta = api.meta()
             if (meta.schema_version in 1 until SyncEngine.SCHEMA_VERSION) error("This server is too old for this app. Update the server.")
             val device = android.os.Build.MODEL ?: "Android"
-            val auth = if (register) api.register(email.trim(), password, name.trim(), device) else api.login(email.trim(), password, device)
+            val auth = try {
+                if (register) api.register(email.trim(), password, name.trim(), device) else api.login(email.trim(), password, device, code.trim().takeIf { needsCode })
+            } catch (e: app.kosh.sync.ApiException) {
+                if (e.code == "otp_required") { needsCode = true; return@launchBusy }
+                throw e
+            }
             pendingToken = auth.token
             password = ""
+            code = ""
+            needsCode = false
             val list = api.ledgers()
             val localId = c.settings.current.ledgerId
             if (c.settings.current.onboarded && list.any { it.id == localId }) {
@@ -285,7 +296,20 @@ fun SyncScreen(onJoined: () -> Unit) {
                         supportingText = if (vm.register) ({ Text("At least 8 characters") }) else null,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Button(onClick = vm::signIn, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text(if (vm.register) "Create account & connect" else "Connect") }
+                    if (vm.needsCode) {
+                        Text("Two-step sign-in is on for this account. Open your authenticator app and type the 6-digit code for LekhaMint, or one of your recovery codes.", style = MaterialTheme.typography.bodyMedium)
+                        OutlinedTextField(
+                            vm.code, { vm.code = it }, label = { Text("Code from your app") }, singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii), modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Button(onClick = vm::signIn, enabled = !vm.busy && (!vm.needsCode || vm.code.trim().length >= 6), modifier = Modifier.fillMaxWidth()) {
+                        Text(if (vm.register) "Create account & connect" else if (vm.needsCode) "Check code & connect" else "Connect")
+                    }
+                    if (!vm.register && vm.url.isNotBlank()) {
+                        val uri = androidx.compose.ui.platform.LocalUriHandler.current
+                        TextButton(onClick = { runCatching { uri.openUri(KoshApi.normalize(vm.url) + "/#/login") } }) { Text("Forgot password? Reset it on the web") }
+                    }
                 }
             }
             if (vm.busy) Row(verticalAlignment = Alignment.CenterVertically) { CircularProgressIndicator(Modifier.size(20.dp)); Spacer(Modifier.size(8.dp)); Text("Working…") }

@@ -113,6 +113,11 @@ class Settings(context: Context) {
         update { remove(K_SERVER); remove(K_EMAIL); remove(K_SYNC_ERROR); putLong(K_CURSOR, 0) }
     }
 
+    /** Month the financial year starts (1-12) for Year & tax; null until chosen. */
+    var fyStartMonth: Int?
+        get() = prefs.getInt("fy_start_month", 0).takeIf { it in 1..12 }
+        set(v) = prefs.edit { putInt("fy_start_month", v ?: 0) }
+
     var syncCursor: Long
         get() = prefs.getLong(K_CURSOR, 0)
         set(v) = prefs.edit(commit = true) { putLong(K_CURSOR, v) }

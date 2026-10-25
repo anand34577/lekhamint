@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Folders the FileProvider may hand out: attachment files and fresh camera photos. -->
+<paths>
+    <files-path name="blobs" path="blobs/" />
+    <cache-path name="camera" path="camera/" />
+    <cache-path name="open" path="open/" />
+</paths>

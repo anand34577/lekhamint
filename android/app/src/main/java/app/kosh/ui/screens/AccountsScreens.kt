@@ -119,7 +119,7 @@ fun AccountsScreen() {
             }
             val (active, archived) = lookup.accounts.partition { !it.archived }
             if (active.isEmpty()) item { EmptyState(Icons.Rounded.AccountBalanceWallet, "No accounts", "Add cash, bank accounts, cards and wallets.") }
-            items(active, key = { it.id }) { a -> AccountRow(a, lookup.balances[a.id] ?: a.openingBalance) { nav.navigate(Routes.account(a.id)) } }
+            items(active, key = { it.id }) { a -> AccountRow(a, lookup.worth(a)) { nav.navigate(Routes.account(a.id)) } }
             if (archived.isNotEmpty()) {
                 item { SectionHeader("Archived") }
                 items(archived, key = { it.id }) { a -> AccountRow(a, lookup.balances[a.id] ?: a.openingBalance) { nav.navigate(Routes.account(a.id)) } }
@@ -158,6 +158,7 @@ fun AccountDetailScreen(id: String) {
     val txs by remember(id, limit) { c.repo.accountTransactions(id, limit) }.collectAsStateWithLifecycle(emptyList())
     val account = lookup.accountById[id]
     var reconcile by remember { mutableStateOf(false) }
+    var valuing by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val snackbar = LocalSnackbar.current
 
@@ -207,6 +208,7 @@ fun AccountDetailScreen(id: String) {
                                 Text(if (account.type == "credit_card") "Pay card bill · ${Money.format(-balance, account.currency)}" else "Make a payment · ${Money.format(-balance, account.currency)}")
                             }
                         }
+                        if (isValued(account.type)) ValueSummary(account, lookup, onUpdate = { valuing = true })
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { reconcile = true }) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Reconcile") }
                             OutlinedButton(onClick = { nav.navigate(Routes.editTx(type = "transfer", account = id)) }) { Text("Transfer") }
@@ -221,6 +223,7 @@ fun AccountDetailScreen(id: String) {
                 TextButton(onClick = { limit += 200 }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Show older transactions") }
             }
         }
+        if (valuing) ValuationSheet(account, lookup, onDismiss = { valuing = false })
         if (reconcile) {
             ReconcileDialog(account, balance, onDismiss = { reconcile = false }) { actual ->
                 scope.launch {

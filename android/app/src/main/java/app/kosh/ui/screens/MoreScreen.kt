@@ -17,6 +17,8 @@ import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Category
+import androidx.compose.material.icons.rounded.Flag
+import androidx.compose.material.icons.rounded.Percent
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.CurrencyExchange
 import androidx.compose.material.icons.rounded.DarkMode
@@ -99,6 +101,7 @@ fun MoreScreen() {
                 SettingRow("Recurring & bills", "Subscriptions, rent, salary", Icons.Rounded.Repeat, onClick = { nav.navigate(Routes.RECURRING) })
                 SettingRow("Loans & EMIs", "Schedules, EMI split, prepayment, reminders", Icons.Rounded.AccountBalance, onClick = { nav.navigate(Routes.LOANS) })
                 SettingRow("Deposits", "Fixed and recurring deposits, maturity dates", Icons.Rounded.Savings, onClick = { nav.navigate(Routes.DEPOSITS) })
+                SettingRow("Goals", "Save for a trip, a gadget or an emergency fund", Icons.Rounded.Flag, onClick = { nav.navigate(Routes.GOALS) })
                 SettingRow("Lent & borrowed", "Friends and family: who owes what", Icons.Rounded.Handshake, onClick = { nav.navigate(Routes.DEBTS) })
                 SettingRow("Exchange rates", "Add up money held in other currencies", Icons.Rounded.CurrencyExchange, onClick = { nav.navigate(Routes.RATES) })
                 SettingRow("Categories", null, Icons.Rounded.Category, onClick = { nav.navigate(Routes.CATEGORIES) })
@@ -108,6 +111,7 @@ fun MoreScreen() {
 
                 SectionHeader("Tools")
                 SettingRow("Calculators", "EMI, FD and RD, bill splitter, loan affordability", Icons.Rounded.Calculate, onClick = { nav.navigate(Routes.TOOLS) })
+                SettingRow("Year & tax", "The financial year at a glance, and spending that counts for tax", Icons.Rounded.Percent, onClick = { nav.navigate(Routes.YEAR_TAX) })
                 SettingRow("Statements & export", "PDF and Excel: account, income & spending, loan, person", Icons.Rounded.PictureAsPdf, onClick = { nav.navigate(Routes.STATEMENTS) })
                 SettingRow("Assistant", "Ask about your money; cloud, home server or on-phone model", Icons.Rounded.AutoAwesome, onClick = { nav.navigate(Routes.ASSISTANT) })
 

@@ -161,6 +161,8 @@ class EditTxViewModel(
     var done by mutableStateOf(false)
         private set
     var tagIds by mutableStateOf<List<String>>(emptyList())
+    /** Receipts and bills on this transaction; written when it is saved. */
+    val files = mutableStateListOf<FileItem>()
 
     /** Split lines; [splitMode] replaces the single category with several. */
     var splitMode by mutableStateOf(false)
@@ -201,6 +203,7 @@ class EditTxViewModel(
                 status = t.status
                 excluded = t.excludedFromReports
                 tagIds = t.tagIds
+                if (!copy) files += loadFiles(c, t.id)
                 val splits = c.repo.splitsFor(t.id)
                 if (splits.isNotEmpty()) {
                     hadSplits = !copy
@@ -221,6 +224,12 @@ class EditTxViewModel(
                 accountId = payer?.id ?: presetAccount ?: last ?: active.firstOrNull()?.id
                 if (type == "transfer") toAccountId = presetTo?.takeIf { to -> active.any { it.id == to } } ?: active.firstOrNull { it.id != accountId }?.id
                 presetAmount?.let { expr = it }
+                // Something shared into the app (a bank SMS, a receipt photo): fill the form from it.
+                app.kosh.SharedInbox.take()?.let { sh ->
+                    sh.payee?.let { changePayee(it) }
+                    sh.note?.let { note = it }
+                    sh.file?.let { files += fileFromStore(it) }
+                }
                 if (presetTo != null && note.isBlank()) note = if (lookup.accountById[presetTo]?.type == "credit_card") "Credit card bill" else "Loan payment"
             }
             refreshSuggestions()
@@ -419,6 +428,7 @@ class EditTxViewModel(
             }
             warning = null
             if (lines == null) c.repo.saveTransaction(tx) else c.repo.saveTransactionWithSplits(tx, lines)
+            saveFiles(c, txId, files.toList())
             if (ruleId != null) {
                 val freq = repeat!!
                 c.repo.saveRule(
@@ -435,7 +445,7 @@ class EditTxViewModel(
             saving = false
             if (keepOpen) {
                 expr = ""; payee = ""; note = ""; repeat = null; categoryChosen = false
-                splitMode = false; splitLines.clear(); hadSplits = false; ruleOutcome = null
+                splitMode = false; splitLines.clear(); hadSplits = false; ruleOutcome = null; files.clear()
             } else {
                 done = true
             }
@@ -609,6 +619,11 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp).onFocusChanged { textFocused = it.isFocused },
                     maxLines = 3,
                 )
+
+                ReceiptsField(vm.files, onAdd = { vm.files += it }, onRemove = { f ->
+                    val i = vm.files.indexOfFirst { it.id == f.id }
+                    if (i >= 0) { if (f.existing) vm.files[i] = f.copy(removed = true) else vm.files.removeAt(i) }
+                })
 
                 // Tags
                 FlowRow(

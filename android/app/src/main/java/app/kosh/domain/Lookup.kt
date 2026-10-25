@@ -22,7 +22,11 @@ data class Lookup(
     val payable: Map<String, Long> = emptyMap(),
     /** Manual exchange rates for totalling several currencies in [baseCurrency]. */
     val rates: List<Fx.Rate> = emptyList(),
+    /** Market value of accounts that have a recorded valuation (Repository.accountValues). */
+    val values: Map<String, Long> = emptyMap(),
 ) {
+    /** What an account counts for in net worth: its recorded value when it has one, else its balance. */
+    fun worth(a: AccountEntity): Long = values[a.id] ?: balances[a.id] ?: a.openingBalance
     val tagById: Map<String, TagEntity> = tags.associateBy { it.id }
     val activeTags: List<TagEntity> = tags.filter { !it.archived }
 
@@ -83,7 +87,7 @@ data class Lookup(
     val position: Position by lazy {
         val live = accounts.filter { it.includeInNetWorth && !it.archived }
         fun sum(filter: (app.kosh.data.db.AccountEntity, Long) -> Long?): Map<String, Long> =
-            live.mapNotNull { a -> filter(a, balances[a.id] ?: a.openingBalance)?.let { a.currency to it } }
+            live.mapNotNull { a -> filter(a, worth(a))?.let { a.currency to it } }
                 .groupBy({ it.first }, { it.second }).mapValues { it.value.sum() }.filterValues { it != 0L }
         Position(
             available = sum { a, b -> b.takeIf { !isLiability(a.type) && !isInvestment(a.type) } },
@@ -101,7 +105,7 @@ data class Lookup(
     val netWorth: Map<String, Long> by lazy {
         val m = accounts.filter { it.includeInNetWorth && !it.archived }
             .groupBy { it.currency }
-            .mapValues { (_, list) -> list.sumOf { balances[it.id] ?: it.openingBalance } }.toMutableMap()
+            .mapValues { (_, list) -> list.sumOf { worth(it) } }.toMutableMap()
         for ((c, v) in receivable) m[c] = (m[c] ?: 0) + v
         for ((c, v) in payable) m[c] = (m[c] ?: 0) - v
         m

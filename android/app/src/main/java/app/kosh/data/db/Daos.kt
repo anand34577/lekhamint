@@ -54,6 +54,21 @@ interface AccountDao : SyncDao<AccountEntity> {
         """,
     )
     fun observeBalances(): Flow<List<AccountBalance>>
+
+    /** One account's balance at the end of [date] (YYYY-MM-DD). */
+    @Query(
+        """
+        SELECT a.opening_balance
+          + COALESCE((SELECT SUM(CASE t.type WHEN 'income' THEN t.amount ELSE -t.amount END)
+                      FROM transactions t
+                      WHERE t.account_id = a.id AND t.deleted = 0 AND t.status != 'planned' AND t.local_date <= :date), 0)
+          + COALESCE((SELECT SUM(t.to_amount) FROM transactions t
+                      WHERE t.to_account_id = a.id AND t.type = 'transfer' AND t.deleted = 0
+                        AND t.status != 'planned' AND t.local_date <= :date), 0)
+        FROM accounts a WHERE a.id = :id
+        """,
+    )
+    suspend fun balanceAt(id: String, date: String): Long?
 }
 
 @Dao

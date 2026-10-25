@@ -52,7 +52,7 @@ data class ServerMeta(val version: String = "", val schema_version: Int = 0, val
 
 @Serializable private data class LedgersResponse(val ledgers: List<ApiLedger> = emptyList())
 @Serializable private data class LedgerResponse(val ledger: ApiLedger)
-@Serializable private data class LoginBody(val email: String, val password: String, val device_name: String, val name: String? = null)
+@Serializable private data class LoginBody(val email: String, val password: String, val device_name: String, val name: String? = null, val otp: String? = null)
 @Serializable private data class PasswordBody(val password: String)
 @Serializable private data class CreateLedgerBody(val id: String, val name: String, val base_currency: String, val seed_default_categories: Boolean = false)
 
@@ -81,8 +81,9 @@ class KoshApi(baseUrl: String, private val token: () -> String?) {
 
     suspend fun meta(): ServerMeta = get("/api/v1/meta", ServerMeta.serializer(), auth = false)
 
-    suspend fun login(email: String, password: String, device: String): AuthResponse =
-        post("/api/v1/auth/login", LoginBody(email, password, device), LoginBody.serializer(), AuthResponse.serializer(), auth = false)
+    /** [otp] is the authenticator code (or a recovery code) when the account has two-step sign-in on. */
+    suspend fun login(email: String, password: String, device: String, otp: String? = null): AuthResponse =
+        post("/api/v1/auth/login", LoginBody(email, password, device, otp = otp?.takeIf { it.isNotBlank() }), LoginBody.serializer(), AuthResponse.serializer(), auth = false)
 
     suspend fun register(email: String, password: String, name: String, device: String): AuthResponse =
         post("/api/v1/auth/register", LoginBody(email, password, device, name), LoginBody.serializer(), AuthResponse.serializer(), auth = false)
@@ -104,6 +105,21 @@ class KoshApi(baseUrl: String, private val token: () -> String?) {
 
     suspend fun push(ledgerId: String, body: PushRequest): PushResponse =
         post("/api/v1/ledgers/$ledgerId/sync/push", body, PushRequest.serializer(), PushResponse.serializer())
+
+    /** Uploads an attachment file; the server checks its type by content and names it by SHA-256. */
+    suspend fun uploadBlob(ledgerId: String, bytes: ByteArray, mime: String) {
+        send(Request.Builder().url("$base/api/v1/ledgers/$ledgerId/blobs").post(bytes.toRequestBody(mime.toMediaType())), auth = true)
+    }
+
+    /** Downloads an attachment file. */
+    suspend fun downloadBlob(ledgerId: String, sha: String): ByteArray = withContext(Dispatchers.IO) {
+        val b = Request.Builder().url("$base/api/v1/ledgers/$ledgerId/blobs/$sha").get()
+        token()?.let { b.header("Authorization", "Bearer $it") }
+        http.newCall(b.build()).execute().use { resp ->
+            if (!resp.isSuccessful) throw ApiException(resp.code, "http_${resp.code}", if (resp.code == 404) "The file is not on the server yet" else "Download failed (${resp.code})")
+            resp.body?.bytes() ?: ByteArray(0)
+        }
+    }
 
     suspend fun pull(ledgerId: String, since: Long, limit: Int = 1000): PullResponse =
         get("/api/v1/ledgers/$ledgerId/sync/pull?since=$since&limit=$limit", PullResponse.serializer())
