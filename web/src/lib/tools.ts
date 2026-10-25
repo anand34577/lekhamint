@@ -150,7 +150,7 @@ export function goalMonths(target: number, current: number, monthly: number, ann
 }
 
 export interface PayoffDebt { name: string; balance: number; rate: string | null; minimum: number }
-export interface PayoffResult { months: number; totalInterest: number; order: string[]; never: boolean }
+export interface PayoffResult { months: number; totalInterest: number; order: string[]; never: boolean; /** Total still owed at the end of each month (index 0 = today). */ balances: number[] }
 
 /**
  * Simulates paying several debts with a fixed monthly budget: every debt gets
@@ -162,7 +162,8 @@ export function payoff(debts: PayoffDebt[], budget: number, strategy: 'avalanche
   const order: string[] = []
   let totalInterest = 0
   const minSum = ds.reduce((a, d) => a + d.minimum, 0)
-  if (budget < minSum) return { months: 0, totalInterest: 0, order: [], never: true }
+  const balances = [ds.reduce((a, d) => a + d.balance, 0)]
+  if (budget < minSum) return { months: 0, totalInterest: 0, order: [], never: true, balances }
   for (let m = 1; m <= 1200; m++) {
     for (const d of ds) if (d.balance > 0) { const i = monthlyInterest(d.balance, d.rate); d.balance += i; totalInterest += i }
     let left = budget
@@ -172,9 +173,10 @@ export function payoff(debts: PayoffDebt[], budget: number, strategy: 'avalanche
       : (a, b) => a.balance - b.balance || Number(b.rate ?? 0) - Number(a.rate ?? 0))
     for (const d of prio) { if (left <= 0) break; const pay = Math.min(left, d.balance); d.balance -= pay; left -= pay }
     for (const d of ds) if (d.balance === 0 && !order.includes(d.name)) order.push(d.name)
-    if (ds.every((d) => d.balance === 0)) return { months: m, totalInterest, order, never: false }
+    balances.push(ds.reduce((a, d) => a + d.balance, 0))
+    if (ds.every((d) => d.balance === 0)) return { months: m, totalInterest, order, never: false, balances }
   }
-  return { months: 1200, totalInterest, order, never: true }
+  return { months: 1200, totalInterest, order, never: true, balances }
 }
 
 export interface RecurringGuess { payee: string; currency: string; monthly: number; count: number; last: string; months: number }

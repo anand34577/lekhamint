@@ -1,7 +1,8 @@
 import { createContext, useContext, useMemo, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type Account, type BatchOp, type Budget, type Category, type Debt, type Deposit, type ExchangeRate, type Loan, type Ledger, type Rec, type RecurringRule, type Rule, type Split, type Tag, type Transaction } from './api'
+import { api, type Account, type Attachment, type BatchOp, type Budget, type Category, type Debt, type Deposit, type ExchangeRate, type Goal, type Loan, type Ledger, type Rec, type RecurringRule, type Rule, type Split, type Tag, type Transaction, type Valuation } from './api'
 import { isoDate, uuidv7 } from './util'
+import { isOffline, outbox } from './outbox'
 
 export const LedgerContext = createContext<Ledger | null>(null)
 
@@ -33,6 +34,9 @@ export const useDebts = () => useRecords<Debt>('debts')
 export const useExchangeRates = () => useRecords<ExchangeRate>('exchange_rates')
 export const useLoans = () => useRecords<Loan>('loans')
 export const useDeposits = () => useRecords<Deposit>('deposits')
+export const useGoals = () => useRecords<Goal>('goals')
+export const useValuations = () => useRecords<Valuation>('valuations')
+export const useAttachments = () => useRecords<Attachment>('attachments')
 
 /** Cash, investments, liabilities, debts and net worth per currency (server-calculated, docs/02). */
 export function usePosition() {
@@ -155,26 +159,50 @@ export function useCategoryIndex() {
 /** A write: update when [id] is set, otherwise create with a new UUIDv7. Unknown fields are ignored by the server. */
 export interface SaveInput { entity: string; id?: string; data: object; /** ID for a new record; pass useStableId() so a retry cannot create a second one. */ newId?: string }
 
+const LABELS: Record<string, string> = { transactions: 'transaction', accounts: 'account', budgets: 'budget', categories: 'category', goals: 'goal', recurring_rules: 'recurring item' }
+
+/**
+ * Runs a write; when the server cannot be reached, keeps it in the outbox to
+ * send later (lib/outbox.ts) instead of failing, so work done offline is not lost.
+ */
+async function orQueue<T>(ledgerId: string, ops: BatchOp[], label: string, run: () => Promise<T>, offline: T): Promise<T> {
+  try { return await run() } catch (e) {
+    if (!isOffline(e)) throw e
+    outbox.add(ledgerId, ops, label)
+    return offline
+  }
+}
+
 /** Create, update, delete and restore records; refreshes every view of the ledger afterwards. */
 export function useWrite() {
   const l = useLedger()
   const qc = useQueryClient()
   const invalidate = () => qc.invalidateQueries({ queryKey: [l.id] })
+  const what = (entity: string) => LABELS[entity] ?? entity.replace(/_/g, ' ')
   return {
     save: useMutation({
       mutationFn: async (v: SaveInput): Promise<{ id: string }> => {
-        if (v.id) return api.update(l.id, v.entity, v.id, v.data)
+        if (v.id) {
+          const id = v.id
+          return orQueue(l.id, [{ op: 'update', entity: v.entity, id, data: v.data }], `Edited ${what(v.entity)}`, async () => ({ id: (await api.update(l.id, v.entity, id, v.data)).id }), { id })
+        }
         // create_if_missing: a second press, or a retry after a lost response, is a no-op.
         const id = v.newId ?? uuidv7()
-        await api.batch(l.id, [{ op: 'create_if_missing', entity: v.entity, id, data: { created_at: Date.now(), ...v.data } }])
+        const ops: BatchOp[] = [{ op: 'create_if_missing', entity: v.entity, id, data: { created_at: Date.now(), ...v.data } }]
+        await orQueue(l.id, ops, `New ${what(v.entity)}`, () => api.batch(l.id, ops), [])
         return { id }
       },
       onSuccess: invalidate,
     }),
-    remove: useMutation({ mutationFn: (v: { entity: string; id: string }) => api.remove(l.id, v.entity, v.id), onSuccess: invalidate }),
-    restore: useMutation({ mutationFn: (v: { entity: string; id: string }) => api.restore(l.id, v.entity, v.id), onSuccess: invalidate }),
+    remove: useMutation({ mutationFn: (v: { entity: string; id: string }) => orQueue(l.id, [{ op: 'delete', entity: v.entity, id: v.id }], `Deleted ${what(v.entity)}`, () => api.remove(l.id, v.entity, v.id), null), onSuccess: invalidate }),
+    restore: useMutation({ mutationFn: (v: { entity: string; id: string }) => orQueue(l.id, [{ op: 'restore', entity: v.entity, id: v.id }], `Restored ${what(v.entity)}`, () => api.restore(l.id, v.entity, v.id), null), onSuccess: invalidate }),
     /** Many writes at once (bulk edits, imports); atomic per 500 ops. */
-    batch: useMutation({ mutationFn: (ops: BatchOp[]) => api.batch(l.id, ops), onSuccess: invalidate }),
+    batch: useMutation({
+      mutationFn: (ops: BatchOp[]) => orQueue(l.id, ops, ops.length === 1 || ops.every((o) => o.entity === ops[0].entity && o.op === ops[0].op)
+        ? `${ops[0].op === 'create_if_missing' || ops[0].op === 'create' ? 'New' : ops[0].op === 'delete' ? 'Deleted' : ops[0].op === 'restore' ? 'Restored' : 'Edited'} ${ops.length > 1 ? `${ops.length} ` : ''}${what(ops[0].entity)}${ops.length > 1 ? 's' : ''}`
+        : `${ops.length} changes`, () => api.batch(l.id, ops), []),
+      onSuccess: invalidate,
+    }),
   }
 }
 

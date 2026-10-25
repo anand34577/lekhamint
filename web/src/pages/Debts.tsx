@@ -5,7 +5,7 @@ import { useAccounts, useBalances, useCanWrite, useCategories, useDebts, useLedg
 import { allocate, debtStart, interestTotal, isInterest, isRepayment, outstanding, people, personKey, repaid, statement, type DebtRec, type Move, type PersonSummary } from '../lib/debts'
 import { createOp, interestExpenseCategory, interestIncomeCategory, linkedTxData } from '../lib/links'
 import { formatMoney, parseMoney, toPlain } from '../lib/money'
-import { dayLabel, isoDate, uuidv7 } from '../lib/util'
+import { dayLabel, isoDate, shortDate, uuidv7 } from '../lib/util'
 import { Avatar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
@@ -382,6 +382,7 @@ function PersonSheet({ p, moves, onClose, onAdd, onEditDebt, onPrint }: { p: Per
   const can = useCanWrite()
   const [repay, setRepay] = useState<Debt['direction'] | null>(null)
   const [notes, setNotes] = useState(false)
+  const [remind, setRemind] = useState<string | null>(null)
   const rows = statement(p.debts, moves)
   const owedToMe = p.debts.some((d) => !d.closed && d.direction === 'lent' && outstanding(d, moves.get(d.id) ?? []) > 0)
   const iOwe = p.debts.some((d) => !d.closed && d.direction === 'borrowed' && outstanding(d, moves.get(d.id) ?? []) > 0)
@@ -392,6 +393,19 @@ function PersonSheet({ p, moves, onClose, onAdd, onEditDebt, onPrint }: { p: Per
     try { await navigator.clipboard.writeText(lines.join('\n')); toast('Statement copied. Paste it into a message to share.') } catch { toast('Could not copy. Use Print / PDF instead.') }
   }
   if (repay) return <RepayForm debts={p.debts} moves={moves} name={p.name} currency={p.currency} direction={repay} onClose={() => setRepay(null)} />
+  // A friendly nudge to send by WhatsApp, SMS or email; nothing is sent by LekhaMint itself.
+  const reminderText = () => {
+    const open = p.debts.filter((d) => !d.closed && d.direction === 'lent' && outstanding(d, moves.get(d.id) ?? []) > 0)
+    const due = open.map((d) => d.due_date).filter((d): d is string => !!d).sort()[0]
+    const since = open.map((d) => debtStart(d, moves.get(d.id) ?? [])).filter(Boolean).sort()[0]
+    const first = p.name.split(/\s+/)[0]
+    return `Hi ${first}, a gentle reminder about the ${formatMoney(p.net, p.currency)} from ${since ? shortDate(since) : 'earlier'}` +
+      `${due ? (due < isoDate() ? `, which was due on ${shortDate(due)}` : `, due on ${shortDate(due)}`) : ''}. Could you send it when you get a chance? Thanks!`
+  }
+  const share = async (text: string) => {
+    if (navigator.share) { try { await navigator.share({ text }); return } catch { /* cancelled */ } }
+    try { await navigator.clipboard.writeText(text); toast('Reminder copied. Paste it into a message.') } catch { toast('Could not copy the reminder.') }
+  }
   return (
     <Modal wide title={p.name} onClose={onClose} footer={<>
       <button type="button" onClick={copy}><Icon name="copy" size={16} /> Copy statement</button>
@@ -403,8 +417,22 @@ function PersonSheet({ p, moves, onClose, onAdd, onEditDebt, onPrint }: { p: Per
       <div className="person-head">
         <div className={`stat-big ${p.net > 0 ? 'pos-text' : p.net < 0 ? 'neg-text' : 'muted'}`}><Money value={Math.abs(p.net)} currency={p.currency} /></div>
         <div className="muted">{p.net > 0 ? `${p.name} owes you` : p.net < 0 ? `You owe ${p.name}` : 'All settled'}</div>
-        {can && <div className="row" style={{ marginTop: 8 }}><button onClick={() => onAdd('lent')}><Icon name="plus" size={14} /> Lend more</button><button onClick={() => onAdd('borrowed')}><Icon name="plus" size={14} /> Borrow</button></div>}
+        {can && <div className="row" style={{ marginTop: 8 }}><button onClick={() => onAdd('lent')}><Icon name="plus" size={14} /> Lend more</button><button onClick={() => onAdd('borrowed')}><Icon name="plus" size={14} /> Borrow</button>
+          {p.net > 0 && remind === null && <button onClick={() => setRemind(reminderText())}><Icon name="send" size={14} /> Send a reminder</button>}</div>}
       </div>
+      {remind !== null && (
+        <div className="reminder">
+          <label className="field"><span className="field-label">Your message (edit it as you like)</span>
+            <textarea rows={3} value={remind} onChange={(e) => setRemind(e.target.value)} maxLength={1000} /></label>
+          <div className="row">
+            <a className="button primary" href={`https://wa.me/?text=${encodeURIComponent(remind)}`} target="_blank" rel="noreferrer"><Icon name="chat" size={15} /> WhatsApp</a>
+            <a className="button" href={`sms:?&body=${encodeURIComponent(remind)}`}><Icon name="device" size={15} /> SMS</a>
+            <button onClick={() => share(remind)}><Icon name="copy" size={15} /> {typeof navigator.share === 'function' ? 'Share…' : 'Copy'}</button>
+            <span className="spacer" /><button className="link" onClick={() => setRemind(null)}>Close</button>
+          </div>
+          <p className="muted small">LekhaMint does not send anything itself: the message opens in your app of choice.</p>
+        </div>
+      )}
       <h3 className="section-title">Statement</h3>
       <ul className="list">
         {rows.map((r, i) => (

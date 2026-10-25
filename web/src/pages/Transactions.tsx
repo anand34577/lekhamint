@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { api, type BatchOp, type Transaction, type TxRow } from '../lib/api'
-import { isLiability, useAccounts, useBalances, useCanWrite, useCategorizationRules, useCategoryIndex, useLedger, useSplitIndex, useSplits, useStableId, useTagIndex, useWrite } from '../lib/data'
+import { isLiability, useAccounts, useAttachments, useBalances, useCanWrite, useCategorizationRules, useCategoryIndex, useLedger, useSplitIndex, useSplits, useStableId, useTagIndex, useWrite } from '../lib/data'
 import { evaluate } from '../lib/finance'
 import { applyRules, type RuleOutcome } from '../lib/rules'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
@@ -12,6 +12,10 @@ import { SplitEditor, TagInput, splitMinor, type SplitDraft } from './parts'
 import { rememberAccount, type Resolved } from './QuickAdd'
 import type { PageProps } from '../App'
 import { Select, DateField, NumInput } from '../controls'
+import { AttachmentsField, HistoryPanel, attachmentOps, useTxAttachments, type FileDraft } from './TxExtras'
+import { TxCalendar } from './TxCalendar'
+
+const readView = () => { try { return localStorage.getItem('kosh.txview') === 'calendar' ? 'calendar' : 'list' } catch { return 'list' } }
 
 export function Transactions({ params, go }: PageProps) {
   const l = useLedger()
@@ -43,6 +47,10 @@ export function Transactions({ params, go }: PageProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkCat, setBulkCat] = useState('')
   const [bulkTag, setBulkTag] = useState('')
+  const [view, setViewRaw] = useState<'list' | 'calendar'>(readView)
+  const setView = (v: 'list' | 'calendar') => { setViewRaw(v); setDay(''); try { localStorage.setItem('kosh.txview', v) } catch { /* ignore */ } }
+  const [day, setDay] = useState('')
+  useEffect(() => setDay(''), [month])
 
   const [from, to] = monthRange(month)
   const ranged = !debouncedQ && !allTime
@@ -56,7 +64,11 @@ export function Transactions({ params, go }: PageProps) {
     initialPageParam: '',
     getNextPageParam: (last) => last.next_cursor || undefined,
   })
-  const rows: TxRow[] = useMemo(() => (list.data?.pages ?? []).flatMap((p) => p.transactions.map((r) => ({ ...r.data, id: r.id, hlc: r.hlc, deleted: r.deleted }))), [list.data])
+  const allRows: TxRow[] = useMemo(() => (list.data?.pages ?? []).flatMap((p) => p.transactions.map((r) => ({ ...r.data, id: r.id, hlc: r.hlc, deleted: r.deleted }))), [list.data])
+  const calendar = view === 'calendar' && ranged && !trash
+  // The calendar needs the whole month, not just the first page.
+  useEffect(() => { if (calendar && list.hasNextPage && !list.isFetchingNextPage) list.fetchNextPage() }, [calendar, list.hasNextPage, list.isFetchingNextPage]) // eslint-disable-line
+  const rows = useMemo(() => (calendar && day ? allRows.filter((t) => t.local_date === day) : allRows), [allRows, calendar, day])
   const accById = useMemo(() => new Map((accounts.data ?? []).map((a) => [a.id, a])), [accounts.data])
   const cur = (id: string | null) => (id && accById.get(id)?.currency) || l.base_currency
   const accName = (id: string | null) => (id && accById.get(id)?.name) || '?'
@@ -65,15 +77,15 @@ export function Transactions({ params, go }: PageProps) {
 
   // Same rules as the reports: refunds reduce spending, an expense in an income category reduces income,
   // and money lent, borrowed or repaid is neither.
+  const flow = (t: TxRow): { out: number; in: number } => {
+    if (t.type === 'transfer' || t.debt_id || t.is_adjustment || t.excluded_from_reports || t.status === 'planned' || cur(t.account_id) !== l.base_currency) return { out: 0, in: 0 }
+    const kind = t.category_id ? cats.byId.get(t.category_id)?.kind : undefined
+    if (t.type === 'expense') return kind === 'income' ? { out: 0, in: -t.amount } : { out: t.amount, in: 0 }
+    return kind === 'expense' ? { out: -t.amount, in: 0 } : { out: 0, in: t.amount }
+  }
   const totals = useMemo(() => {
     let inc = 0, exp = 0
-    for (const t of rows) {
-      if (t.type === 'transfer' || t.debt_id || t.is_adjustment || t.excluded_from_reports || t.status === 'planned' || cur(t.account_id) !== l.base_currency) continue
-      const kind = t.category_id ? cats.byId.get(t.category_id)?.kind : undefined
-      if (t.type === 'expense') { if (kind === 'income') inc -= t.amount; else exp += t.amount }
-      else if (kind === 'expense') exp -= t.amount
-      else inc += t.amount
-    }
+    for (const t of rows) { const f = flow(t); inc += f.in; exp += f.out }
     return { inc, exp }
   }, [rows, cats, accById, l.base_currency]) // eslint-disable-line
 
@@ -138,6 +150,7 @@ export function Transactions({ params, go }: PageProps) {
             </>}
           </div>
         )}
+        {!debouncedQ && !allTime && !trash && <Segmented label="View" value={view} onChange={setView} options={[['list', 'List'], ['calendar', 'Calendar']]} />}
         <Select value={type} onChange={(e) => setType(e.target.value)} aria-label="Type"><option value="">All types</option><option value="expense">Expenses</option><option value="income">Income</option><option value="transfer">Transfers</option></Select>
         <Select value={account} onChange={(e) => setAccount(e.target.value)} aria-label="Account"><option value="">All accounts</option>{(accounts.data ?? []).filter((a) => !a.deleted).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
         <CategorySelect value={category} onChange={setCategory} cats={cats} all="All categories" uncategorised />
@@ -146,6 +159,13 @@ export function Transactions({ params, go }: PageProps) {
         )}
         {(type || account || category || tag || q) && <button className="link" onClick={clearFilters}>Clear filters</button>}
       </div>
+      {calendar && (
+        <Card className="mb">
+          <TxCalendar month={month} rows={allRows} currency={l.base_currency} isMain={(t) => cur(t.account_id) === l.base_currency} spendOf={flow} picked={day} onPick={setDay} />
+          {list.hasNextPage && <p className="muted small">Loading the rest of the month…</p>}
+        </Card>
+      )}
+      {calendar && day && <p className="row"><strong>{dayLabel(day)}</strong><button className="link" onClick={() => setDay('')}>Show the whole month</button></p>}
       {!trash && ranged && (
         <div className="row totals">
           <span className="chip">Income <Money value={totals.inc} currency={l.base_currency} /></span>
@@ -248,9 +268,10 @@ export function TxForm(props: TxFormProps) {
   // The form starts from loaded data: an edit opened before splits arrive must not drop them on save.
   const accounts = useAccounts()
   const splits = useSplits()
+  const attachments = useAttachments()
   const [key, setKey] = useState(0)
   const [copy, setCopy] = useState<TxRow | undefined>()
-  if (accounts.isPending || splits.isPending) return <Modal title={props.tx ? 'Edit transaction' : 'New transaction'} onClose={props.onClose}><Skeleton rows={5} height={36} /></Modal>
+  if (accounts.isPending || splits.isPending || (props.tx && attachments.isPending)) return <Modal title={props.tx ? 'Edit transaction' : 'New transaction'} onClose={props.onClose}><Skeleton rows={5} height={36} /></Modal>
   if (!(accounts.data ?? []).some((a) => !a.deleted && !a.archived)) {
     return <Modal title="New transaction" onClose={props.onClose}><Empty icon="wallet" title="Add an account first" body="Transactions belong to an account: cash, a bank account, a card or a wallet." action={<a className="button primary" href="#/accounts" onClick={props.onClose}>Go to Accounts</a>} /></Modal>
   }
@@ -309,6 +330,8 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, payCard, cop
   const [err, setErr] = useState('')
   const [hint, setHint] = useState<RuleOutcome | null>(null)
   const readOnly = !canWrite
+  const savedFiles = useTxAttachments(tx?.id)
+  const [files, setFiles] = useState<FileDraft[]>(() => savedFiles.map((a) => ({ id: a.id, name: a.name, mime: a.mime, size: a.size, sha256: a.sha256, existing: true })))
 
   const value = evaluate(amount)
   const minor = value === null ? null : parseMoney(String(value), code)
@@ -408,6 +431,7 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, payCard, cop
       const batch: BatchOp[] = [tx ? { op: 'update', entity: 'transactions', id, data } : { op: 'create_if_missing', entity: 'transactions', id, data: { ...data, created_at: Date.now() } }]
       const keep = new Set((useSplit ? split : []).map((s) => s.id))
       for (const s of existingSplits) if (!keep.has(s.id)) batch.push({ op: 'delete', entity: 'transaction_splits', id: s.id })
+      batch.push(...attachmentOps(id, files))
       if (useSplit) split.forEach((s, i) => {
         const d = { transaction_id: id, category_id: s.category_id, amount: splitMinor(s, code)!, sort_order: i }
         batch.push(existingSplits.some((x) => x.id === s.id) ? { op: 'update', entity: 'transaction_splits', id: s.id, data: d } : { op: 'create_if_missing', entity: 'transaction_splits', id: s.id, data: d })
@@ -416,6 +440,20 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, payCard, cop
       rememberAccount(l.id, accountId)
       if (tx) toast('Saved')
       else toast(`Added ${formatMoney(minor, code)}`, { label: 'Undo', run: () => write.batch.mutate([{ op: 'delete', entity: 'transactions', id }]) })
+      // Picked a category by hand for a payee no rule knows? Offer to remember it.
+      const pickedCat = type !== 'transfer' && !useSplit && categoryId && finalPayee && catTouched && (!tx || tx.category_id !== categoryId)
+      if (pickedCat && canWrite) {
+        const known = applyRules(rules.data ?? [], { payee: finalPayee, note: '', type, accountId, amount: minor })
+        if (known.categoryId !== categoryId) {
+          const pattern = finalPayee.trim().slice(0, 200)
+          setTimeout(() => toast(`Always put “${pattern}” in ${cats.name(categoryId)}?`, {
+            label: 'Make a rule', run: () => write.save.mutate({ entity: 'rules', data: {
+              name: `${pattern} → ${cats.name(categoryId)}`, match_field: 'payee', match_type: 'contains', pattern, tx_type: type === 'income' ? 'income' : 'expense',
+              set_category_id: categoryId, add_tag_ids: [], sort_order: 0, enabled: true,
+            } }, { onSuccess: () => toast('Rule saved. New transactions from this payee get that category.') }),
+          }), 400)
+        }
+      }
       if (another) onAnother(); else onClose()
     } catch (x) { setErr(saveErrorText(x)) }
   }
@@ -499,6 +537,8 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, payCard, cop
           {tx?.loan_id && <p className="muted small"><Icon name="bank" size={14} /> Part of a loan repayment ({tx.part ?? 'payment'}). Edit or delete it from Loans to keep the schedule right.</p>}
           {tx?.deposit_id && <p className="muted small"><Icon name="piggy" size={14} /> Linked to a deposit ({tx.part ?? 'movement'}).</p>}
           {tx?.debt_id && <p className="muted small"><Icon name="hand" size={14} /> Linked to money lent or borrowed. It moves the balance but is not counted as spending or income{tx.part === 'interest' ? ', except this interest' : ''}.</p>}
+          <AttachmentsField files={files} onChange={setFiles} readOnly={readOnly} />
+          {tx && <HistoryPanel entity="transactions" id={tx.id} currency={code} />}
           {err && <p className="error" role="alert">{err}</p>}
         </fieldset>
       </form>

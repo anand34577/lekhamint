@@ -49,6 +49,14 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 		"ai":          s.AI.info(),
 		"oidc":        s.oidcInfo(),
 		"notify":      s.notifier().Info(),
+		"features": map[string]any{
+			"password_reset":      s.passwordResetReady() && !s.OIDCOnly,
+			"two_step":            true,
+			"attachments":         true,
+			"max_attachment_size": s.maxAttachment(),
+			"fx_fetch":            s.FXURL != "",
+			"history":             true,
+		},
 	})
 }
 
@@ -64,6 +72,7 @@ func deviceLabel(d string) string {
 type credentials struct {
 	Email      string `json:"email"`
 	Password   string `json:"password"`
+	OTP        string `json:"otp"` // two-step sign-in code or recovery code, when the account has it on
 	Name       string `json:"name"`
 	DeviceName string `json:"device_name"`
 }
@@ -97,7 +106,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	u, token, err := s.Auth.Login(r.Context(), in.Email, in.Password, in.DeviceName)
+	u, token, err := s.Auth.LoginOTP(r.Context(), in.Email, in.Password, in.OTP, in.DeviceName)
 	if err != nil {
 		s.fail(w, r, err)
 		return

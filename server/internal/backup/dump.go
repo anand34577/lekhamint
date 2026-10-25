@@ -17,13 +17,15 @@ import (
 
 // Dump format identifiers.
 const (
-	DumpFormat        = "kosh-dump"
-	DumpFormatVersion = 1
+	DumpFormat = "kosh-dump"
+	// DumpFormatVersion 2 adds "blob" lines (attachment files) and two-step
+	// sign-in secrets on users. Version 1 dumps still restore.
+	DumpFormatVersion = 2
 )
 
 // dumpLine is one NDJSON line. Exactly one payload field is set.
 type dumpLine struct {
-	Type string `json:"type"` // header | user | ledger | member | record | footer
+	Type string `json:"type"` // header | user | ledger | member | record | blob | footer
 
 	Format        string `json:"format,omitempty"`
 	FormatVersion int    `json:"format_version,omitempty"`
@@ -35,6 +37,7 @@ type dumpLine struct {
 	Member   *store.Member `json:"member,omitempty"`
 	LedgerID string        `json:"ledger_id,omitempty"`
 	Record   *store.Record `json:"record,omitempty"`
+	Blob     *store.Blob   `json:"blob,omitempty"`
 
 	Count int64 `json:"count,omitempty"` // footer: number of lines before it
 }
@@ -43,8 +46,10 @@ type dumpLine struct {
 // from JSON.
 type dumpUser struct {
 	store.User
-	PasswordHash string `json:"password_hash"`
-	SSOSub       string `json:"sso_sub"`
+	PasswordHash  string `json:"password_hash"`
+	SSOSub        string `json:"sso_sub"`
+	TOTPSecret    string `json:"totp_secret,omitempty"`
+	RecoveryCodes string `json:"recovery_codes,omitempty"`
 }
 
 // Dump writes the whole server (users, ledgers, members, records) as
@@ -66,7 +71,8 @@ func Dump(ctx context.Context, d *db.DB, w io.Writer) error {
 		return err
 	}
 	if err := store.EachUser(ctx, d, func(u store.User) error {
-		return emit(dumpLine{Type: "user", User: &dumpUser{User: u, PasswordHash: u.PasswordHash, SSOSub: u.SSOSub}})
+		return emit(dumpLine{Type: "user", User: &dumpUser{User: u, PasswordHash: u.PasswordHash, SSOSub: u.SSOSub,
+			TOTPSecret: u.TOTPSecret, RecoveryCodes: u.RecoveryCodes}})
 	}); err != nil {
 		return err
 	}
@@ -87,6 +93,11 @@ func Dump(ctx context.Context, d *db.DB, w io.Writer) error {
 		// that matches the ledger line's seq.
 		if err := store.EachRecord(ctx, d, l.ID, l.Seq, func(r store.Record) error {
 			return emit(dumpLine{Type: "record", LedgerID: l.ID, Record: &r})
+		}); err != nil {
+			return err
+		}
+		if err := store.EachBlob(ctx, d, l.ID, func(b store.Blob) error {
+			return emit(dumpLine{Type: "blob", LedgerID: l.ID, Blob: &b})
 		}); err != nil {
 			return err
 		}
@@ -152,6 +163,10 @@ func RestoreDump(ctx context.Context, d *db.DB, r io.Reader) (RestoreStats, erro
 				u := l.User.User
 				u.PasswordHash = l.User.PasswordHash
 				u.SSOSub = l.User.SSOSub
+				u.TOTPSecret, u.RecoveryCodes = l.User.TOTPSecret, l.User.RecoveryCodes
+				if u.TOTPSecret == "" {
+					u.TOTPEnabled = false
+				}
 				if err := store.CreateUser(ctx, tx, u); err != nil {
 					return fmt.Errorf("user %s: %w", u.Email, err)
 				}
@@ -171,6 +186,15 @@ func RestoreDump(ctx context.Context, d *db.DB, r io.Reader) (RestoreStats, erro
 					return err
 				}
 				st.Records++
+			case "blob":
+				if l.Blob == nil {
+					return errors.New("blob line without blob")
+				}
+				b := *l.Blob
+				b.LedgerID = l.LedgerID
+				if err := store.PutBlob(ctx, tx, b); err != nil {
+					return fmt.Errorf("file %s: %w", b.SHA256, err)
+				}
 			case "footer":
 				if l.Count != lines {
 					return fmt.Errorf("dump is incomplete: footer says %d lines, read %d", l.Count, lines)

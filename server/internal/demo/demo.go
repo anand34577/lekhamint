@@ -192,9 +192,75 @@ func (g *gen) build() {
 	g.loansAndDeposits()
 	g.budgets()
 	g.rates()
+	g.goalsValuesAndTax()
 	// Writes go in dependency order: everything a transaction points at first.
-	order := map[string]int{"accounts": 0, "tags": 1, "rules": 2, "recurring_rules": 3, "debts": 4, "loans": 4, "deposits": 4, "transactions": 5, "transaction_splits": 6, "budgets": 7, "exchange_rates": 8}
+	order := map[string]int{"categories": 0, "accounts": 0, "tags": 1, "rules": 2, "recurring_rules": 3, "debts": 4, "loans": 4, "deposits": 4, "transactions": 5, "transaction_splits": 6, "budgets": 7, "exchange_rates": 8, "goals": 9, "valuations": 9}
 	sort.SliceStable(g.ops, func(i, j int) bool { return order[g.ops[i].Entity] < order[g.ops[j].Entity] })
+}
+
+// balanceAt adds up what the generated transactions moved in and out of an
+// account up to date (opening balance included).
+func (g *gen) balanceAt(account string, date time.Time, opening int64) int64 {
+	id, until := g.acc[account], date.Format(time.DateOnly)
+	bal := opening
+	for _, op := range g.ops {
+		if op.Entity != "transactions" {
+			continue
+		}
+		d := op.Data
+		if day, _ := d["local_date"].(string); day > until {
+			continue
+		}
+		amount, _ := d["amount"].(int64)
+		switch {
+		case d["to_account_id"] == id:
+			to, _ := d["to_amount"].(int64)
+			bal += to
+		case d["account_id"] == id && d["type"] == "income":
+			bal += amount
+		case d["account_id"] == id:
+			bal -= amount
+		}
+	}
+	return bal
+}
+
+// goalsValuesAndTax adds savings goals, market values for the mutual funds
+// (so net worth shows a gain), insurance premiums and tax sections on their
+// categories (so the year's tax summary has something to show).
+func (g *gen) goalsValuesAndTax() {
+	month := func(n int) string { return addMonthsClamped(g.today, n).Format(time.DateOnly) }
+	g.add("goals", g.id(), map[string]any{"name": "Emergency fund (6 months)", "target_amount": rupees(450_000), "currency": "INR",
+		"target_date": month(8), "start_date": g.start.Format(time.DateOnly), "account_ids": []string{g.acc["SBI Emergency Fund"]}, "saved_amount": int64(0), "color": "#0f9488"})
+	g.add("goals", g.id(), map[string]any{"name": "Goa trip 2027", "target_amount": rupees(80_000), "currency": "INR",
+		"target_date": month(6), "start_date": month(-2), "account_ids": []string{}, "saved_amount": rupees(25_000), "color": "#2f7de1"})
+	g.add("goals", g.id(), map[string]any{"name": "New laptop", "target_amount": rupees(120_000), "currency": "INR",
+		"target_date": month(4), "start_date": month(-4), "account_ids": []string{}, "saved_amount": rupees(70_000), "color": "#9b51d6"})
+	for _, v := range []struct {
+		back int
+		gain float64
+		note string
+	}{{130, 1.072, "From the fund statement"}, {35, 1.118, "NAV × units from the app"}} {
+		on := g.today.AddDate(0, 0, -v.back)
+		worth := float64(g.balanceAt("Mutual Funds", on, rupees(420_000))) * v.gain
+		g.add("valuations", g.id(), map[string]any{"account_id": g.acc["Mutual Funds"], "date": on.Format(time.DateOnly), "value": int64(worth), "note": v.note})
+	}
+	for name, section := range map[string]string{"Health insurance": "80D", "Life insurance": "80C"} {
+		if id, ok := g.cats[name]; ok {
+			g.ops = append(g.ops, syncer.WriteOp{Entity: "categories", ID: id, Data: map[string]any{"tax_section": section}, MustExist: true})
+		}
+	}
+	g.tx(g.today.AddDate(0, -5, -3), "expense", "HDFC Savings", rupees(24_600), "Health insurance", "Star Health", map[string]any{"note": "Family floater renewal"})
+	g.tx(g.today.AddDate(0, -2, -9), "expense", "HDFC Savings", rupees(38_000), "Life insurance", "LIC", map[string]any{"note": "Yearly premium"})
+	// A subscription nobody set up as a recurring item, whose price went up:
+	// Insights finds it and flags the rise.
+	for d := time.Date(g.start.Year(), g.start.Month(), 22, 0, 0, 0, 0, time.UTC); !d.After(g.today); d = d.AddDate(0, 1, 0) {
+		price := rupees(129)
+		if !d.Before(g.today.AddDate(0, -2, 0)) {
+			price = rupees(149)
+		}
+		g.tx(d, "expense", "ICICI Credit Card", price, "Subscriptions", "YouTube Premium", nil)
+	}
 }
 
 func (g *gen) accounts() {

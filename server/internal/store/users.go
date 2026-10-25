@@ -18,11 +18,17 @@ type User struct {
 	// SSOSub is the identity provider's subject claim this account is bound to
 	// ("" for password accounts). Later single sign-ins must present the same
 	// subject, so a different identity bearing the same email cannot sign in.
-	SSOSub    string `json:"-"`
-	IsAdmin   bool   `json:"is_admin"`
-	Disabled  bool   `json:"disabled"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	SSOSub string `json:"-"`
+	// Two-step sign-in: the authenticator secret, whether it is on, the last
+	// code step used (so a code works once) and hashed recovery codes.
+	TOTPSecret    string `json:"-"`
+	TOTPEnabled   bool   `json:"totp_enabled"`
+	TOTPLastStep  int64  `json:"-"`
+	RecoveryCodes string `json:"-"`
+	IsAdmin       bool   `json:"is_admin"`
+	Disabled      bool   `json:"disabled"`
+	CreatedAt     int64  `json:"created_at"`
+	UpdatedAt     int64  `json:"updated_at"`
 }
 
 // ErrDuplicate is returned when a unique key already exists.
@@ -31,20 +37,22 @@ var ErrDuplicate = errors.New("already exists")
 // NormalizeEmail lowercases and trims an email address.
 func NormalizeEmail(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
-const userCols = "id, email, name, password_hash, sso_sub, is_admin, disabled, created_at, updated_at"
+const userCols = "id, email, name, password_hash, sso_sub, totp_secret, totp_enabled, totp_last_step, recovery_codes, is_admin, disabled, created_at, updated_at"
 
 func scanUser(sc interface{ Scan(...any) error }) (User, error) {
 	var u User
-	var admin, disabled int64
-	err := sc.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.SSOSub, &admin, &disabled, &u.CreatedAt, &u.UpdatedAt)
-	u.IsAdmin, u.Disabled = admin != 0, disabled != 0
+	var admin, disabled, totp int64
+	err := sc.Scan(&u.ID, &u.Email, &u.Name, &u.PasswordHash, &u.SSOSub, &u.TOTPSecret, &totp, &u.TOTPLastStep, &u.RecoveryCodes,
+		&admin, &disabled, &u.CreatedAt, &u.UpdatedAt)
+	u.IsAdmin, u.Disabled, u.TOTPEnabled = admin != 0, disabled != 0, totp != 0
 	return u, err
 }
 
 // CreateUser inserts a user. Returns ErrDuplicate if the email is taken.
 func CreateUser(ctx context.Context, q db.Querier, u User) error {
-	_, err := q.ExecContext(ctx, "INSERT INTO users ("+userCols+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		u.ID, u.Email, u.Name, u.PasswordHash, u.SSOSub, boolInt(u.IsAdmin), boolInt(u.Disabled), u.CreatedAt, u.UpdatedAt)
+	_, err := q.ExecContext(ctx, "INSERT INTO users ("+userCols+") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		u.ID, u.Email, u.Name, u.PasswordHash, u.SSOSub, u.TOTPSecret, boolInt(u.TOTPEnabled), u.TOTPLastStep, u.RecoveryCodes,
+		boolInt(u.IsAdmin), boolInt(u.Disabled), u.CreatedAt, u.UpdatedAt)
 	if db.IsUniqueViolation(err) {
 		return ErrDuplicate
 	}
@@ -56,6 +64,75 @@ func CreateUser(ctx context.Context, q db.Querier, u User) error {
 func BindUserSSO(ctx context.Context, q db.Querier, userID, sub string) error {
 	_, err := q.ExecContext(ctx, "UPDATE users SET sso_sub = ?, updated_at = ? WHERE id = ? AND sso_sub = ''",
 		sub, time.Now().UnixMilli(), userID)
+	return err
+}
+
+// SetTOTP stores the authenticator secret, whether two-step sign-in is on and
+// the hashed recovery codes. An empty secret turns it off.
+func SetTOTP(ctx context.Context, q db.Querier, userID, secret string, enabled bool, recovery string) error {
+	res, err := q.ExecContext(ctx, "UPDATE users SET totp_secret = ?, totp_enabled = ?, totp_last_step = 0, recovery_codes = ?, updated_at = ? WHERE id = ?",
+		secret, boolInt(enabled), recovery, time.Now().UnixMilli(), userID)
+	return expectOne(res, err)
+}
+
+// UseTOTPStep records the code step just used. The condition makes a second
+// sign-in with the same code lose, even when both arrive at once.
+func UseTOTPStep(ctx context.Context, q db.Querier, userID string, step int64) (bool, error) {
+	res, err := q.ExecContext(ctx, "UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ?", step, userID, step)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// SetRecoveryCodes replaces the stored recovery code hashes. It succeeds only
+// if the list is still old, so a code cannot be used twice in a race.
+func SetRecoveryCodes(ctx context.Context, q db.Querier, userID, old, next string) (bool, error) {
+	res, err := q.ExecContext(ctx, "UPDATE users SET recovery_codes = ? WHERE id = ? AND recovery_codes = ?", next, userID, old)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
+// CreatePasswordReset stores a reset link's token hash. Older links for the
+// person stop working, so only the newest email counts.
+func CreatePasswordReset(ctx context.Context, q db.Querier, userID, tokenHash string, now, expires int64) error {
+	if _, err := q.ExecContext(ctx, "DELETE FROM password_resets WHERE user_id = ?", userID); err != nil {
+		return err
+	}
+	_, err := q.ExecContext(ctx, "INSERT INTO password_resets (token_hash, user_id, created_at, expires_at) VALUES (?, ?, ?, ?)",
+		tokenHash, userID, now, expires)
+	return err
+}
+
+// TakePasswordReset consumes a reset token and returns its user. Expired and
+// unknown tokens return ErrNotFound; a token works once.
+func TakePasswordReset(ctx context.Context, q db.Querier, tokenHash string, now int64) (string, error) {
+	var userID string
+	var expires int64
+	err := q.QueryRowContext(ctx, "SELECT user_id, expires_at FROM password_resets WHERE token_hash = ?", tokenHash).Scan(&userID, &expires)
+	if db.IsNoRows(err) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	res, err := q.ExecContext(ctx, "DELETE FROM password_resets WHERE token_hash = ?", tokenHash)
+	if err := expectOne(res, err); err != nil {
+		return "", err
+	}
+	if expires < now {
+		return "", ErrNotFound
+	}
+	return userID, nil
+}
+
+// DeleteExpiredResets removes reset links that can no longer be used.
+func DeleteExpiredResets(ctx context.Context, q db.Querier, now int64) error {
+	_, err := q.ExecContext(ctx, "DELETE FROM password_resets WHERE expires_at < ?", now)
 	return err
 }
 

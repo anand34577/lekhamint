@@ -59,6 +59,16 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnauthorized, "unauthenticated", err.Error(), nil)
 	case errors.Is(err, auth.ErrInvalidCredentials):
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", err.Error(), nil)
+	case errors.Is(err, auth.ErrOTPRequired):
+		writeError(w, http.StatusUnauthorized, "otp_required", err.Error(), nil)
+	case errors.Is(err, auth.ErrInvalidOTP):
+		writeError(w, http.StatusUnauthorized, "invalid_otp", err.Error(), nil)
+	case errors.Is(err, auth.ErrResetInvalid):
+		writeError(w, http.StatusBadRequest, "reset_invalid", err.Error(), nil)
+	case errors.Is(err, auth.ErrTOTPNotSetUp), errors.Is(err, auth.ErrTOTPAlreadyOn):
+		writeError(w, http.StatusConflict, "conflict", err.Error(), nil)
+	case errors.Is(err, syncer.ErrResyncRequired):
+		writeError(w, http.StatusGone, "resync_required", err.Error(), nil)
 	case errors.Is(err, auth.ErrSignupClosed):
 		writeError(w, http.StatusForbidden, "signup_closed", err.Error(), nil)
 	case errors.Is(err, auth.ErrSSOClosed), errors.Is(err, auth.ErrAccountDisabled), errors.Is(err, auth.ErrSSOMismatch), errors.Is(err, errPasswordOff):

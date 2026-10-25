@@ -8,6 +8,7 @@ import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
 import { addMonths, dayLabel, download, isoDate, uuidv7 } from '../lib/util'
 import { workbook, XLSX_TYPE } from '../lib/xlsx'
 import { Bar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
+import { Columns, SERIES } from '../charts'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
 import { Select, DateField, NumInput } from '../controls'
@@ -92,6 +93,19 @@ export function Deposits({ params, go }: PageProps) {
             <div className="muted small">{soon[0] ? `Next: ${soon[0].dep.name}, ${dayLabel(soon[0].dep.maturity_date)}` : 'Nothing soon'}</div></Card>
         </div>
       )}
+      {active.length > 1 && (() => {
+        // When money comes back: maturity values of active deposits in the main currency, in date order.
+        const code = active[0].dep.currency
+        const rows = active.filter((x) => x.dep.currency === code).sort((a, b) => a.dep.maturity_date.localeCompare(b.dep.maturity_date))
+        return (
+          <Card title={<><Icon name="calendar" size={16} /> When your deposits pay back</>} className="mb">
+            <Columns currency={code} label="Value of each deposit at maturity, in date order" height={150} every={1}
+              labels={rows.map((x) => `${new Date(x.dep.maturity_date + 'T00:00:00').toLocaleDateString(undefined, { month: 'short', year: '2-digit' })}`)}
+              series={[{ name: 'You put in', color: SERIES[0], values: rows.map((x) => x.est.invested) }, { name: 'Interest', color: SERIES[2], values: rows.map((x) => x.est.interest) }]} />
+            <p className="muted small">One column per deposit, at the month it matures: what you put in and the interest it is expected to earn over its term (deposits that pay interest out return only what you put in at maturity). Hover a column for its figures.</p>
+          </Card>
+        )
+      })()}
       {due.length > 0 && (
         <div className="insights">
           {due.map((x) => (

@@ -13,7 +13,7 @@ import (
 func prefsView(p store.Prefs) map[string]any {
 	return map[string]any{
 		"notify_email": p.NotifyEmail, "notify_gotify": p.NotifyGotify, "gotify_token_set": p.GotifyToken != "",
-		"ev_security": p.EvSecurity, "ev_due": p.EvDue, "ev_budget": p.EvBudget,
+		"ev_security": p.EvSecurity, "ev_due": p.EvDue, "ev_budget": p.EvBudget, "ev_digest": p.EvDigest,
 	}
 }
 
@@ -43,6 +43,7 @@ func (s *Server) putPrefs(w http.ResponseWriter, r *http.Request) {
 		EvSecurity   *bool   `json:"ev_security"`
 		EvDue        *bool   `json:"ev_due"`
 		EvBudget     *bool   `json:"ev_budget"`
+		EvDigest     *bool   `json:"ev_digest"`
 	}
 	if err := decode(w, r, smallBody, &in); err != nil {
 		s.fail(w, r, err)
@@ -64,6 +65,7 @@ func (s *Server) putPrefs(w http.ResponseWriter, r *http.Request) {
 	set(&p.EvSecurity, in.EvSecurity)
 	set(&p.EvDue, in.EvDue)
 	set(&p.EvBudget, in.EvBudget)
+	set(&p.EvDigest, in.EvDigest)
 	if in.GotifyToken != nil {
 		tok := strings.TrimSpace(*in.GotifyToken)
 		if len(tok) > 200 || strings.ContainsAny(tok, " \r\n\t") {

@@ -169,6 +169,8 @@ export interface ParsedRow {
   description: string
   note: string
   category: string
+  /** A bank's own ID for the transaction (OFX FITID), when the file has one: the most reliable fingerprint. */
+  ref?: string
 }
 
 export interface RowError { line: number; message: string }
@@ -252,6 +254,7 @@ export function dateWindow(rows: ParsedRow[]): [string, string] | null {
 export function fingerprints(rows: ParsedRow[]): string[] {
   const seen = new Map<string, number>()
   return rows.map((r) => {
+    if (r.ref) return r.ref
     const key = `${r.date}|${r.type}|${r.amount}|${r.description.toLowerCase()}`
     const n = seen.get(key) ?? 0
     seen.set(key, n + 1)

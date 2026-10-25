@@ -81,6 +81,9 @@ var (
 			{Name: "nature", Kind: KEnum, Enum: CategoryNatures},
 			{Name: "color", Kind: KColor},
 			{Name: "icon", Kind: KString, MaxLen: 64},
+			// tax_section marks spending that counts for income tax (for example
+			// 80C, 80D or HRA in India), so the year's tax summary can add it up.
+			{Name: "tax_section", Kind: KString, MaxLen: 30},
 			flag("archived", false),
 			sortOrder(),
 			createdAt(),
@@ -344,10 +347,83 @@ var (
 			return nil
 		},
 	}
+
+	// Goals are savings targets ("Goa trip, 60,000 by March"). Progress is the
+	// balance of the linked accounts plus saved_amount (money set aside
+	// elsewhere), in the goal's currency; it is calculated, never stored.
+	Goals = &Spec{
+		Name: "goals",
+		Fields: []Field{
+			name(100),
+			{Name: "target_amount", Kind: KInt, Required: true, Min: one, Max: maxMoney},
+			{Name: "currency", Kind: KCurrency, Required: true},
+			{Name: "target_date", Kind: KDate},
+			{Name: "start_date", Kind: KDate},
+			{Name: "account_ids", Kind: KIDList, MaxLen: 50, Default: []string{}},
+			{Name: "saved_amount", Kind: KInt, Default: int64(0), Min: zero, Max: maxMoney},
+			{Name: "color", Kind: KColor},
+			{Name: "icon", Kind: KString, MaxLen: 64},
+			flag("archived", false),
+			{Name: "achieved_date", Kind: KDate},
+			note(),
+			createdAt(),
+		},
+		Check: func(r Data) error { return checkDateOrder(r, "start_date", "target_date") },
+	}
+
+	// Valuations record what an account is worth on a date (a mutual fund's
+	// NAV times units, a house's estimate). Balances still come from
+	// transactions (what was put in); the latest valuation plus money moved in
+	// or out after it is the market value used for net worth.
+	Valuations = &Spec{
+		Name: "valuations",
+		Fields: []Field{
+			{Name: "account_id", Kind: KRef, Required: true},
+			{Name: "date", Kind: KDate, Required: true},
+			{Name: "value", Kind: KInt, Required: true, Min: minMoney, Max: maxMoney},
+			note(),
+			createdAt(),
+		},
+	}
+
+	// Attachments are files (receipts, bills, warranty cards) on a
+	// transaction. The record syncs; the file itself is stored once per
+	// ledger by its SHA-256 and fetched on demand (docs/07, "Files").
+	Attachments = &Spec{
+		Name: "attachments",
+		Fields: []Field{
+			{Name: "transaction_id", Kind: KRef, Required: true},
+			{Name: "name", Kind: KString, Required: true, MaxLen: 200},
+			{Name: "mime", Kind: KString, Required: true, MaxLen: 100},
+			{Name: "size", Kind: KInt, Required: true, Min: zero, Max: maxMoney},
+			{Name: "sha256", Kind: KString, Required: true, MaxLen: 64},
+			createdAt(),
+		},
+		Check: func(r Data) error {
+			h, _ := r["sha256"].(string)
+			if !IsSHA256(h) {
+				return fieldErr("sha256", "must be 64 lowercase hex characters")
+			}
+			return nil
+		},
+	}
 )
 
+// IsSHA256 reports whether s is a lowercase hex SHA-256 digest.
+func IsSHA256(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func init() {
-	for _, s := range []*Spec{Accounts, Categories, Tags, Debts, Loans, Deposits, RecurringRules, Transactions, TransactionSplits, Budgets, ExchangeRates, Rules} {
+	for _, s := range []*Spec{Accounts, Categories, Tags, Debts, Loans, Deposits, RecurringRules, Transactions, TransactionSplits, Budgets, ExchangeRates, Rules, Goals, Valuations, Attachments} {
 		register(s)
 	}
 }

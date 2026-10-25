@@ -69,6 +69,15 @@ type Config struct {
 	GotifyURL      string
 	// ReminderHour is the local hour (0-23) the daily reminders go out; -1 turns reminders off.
 	ReminderHour int
+	// MaxAttachmentMB is the largest receipt or bill file accepted.
+	MaxAttachmentMB int
+	// HistoryDays is how long the change history ("who changed what") is kept; 0 keeps it forever.
+	HistoryDays int
+	// TrashDays is how long deleted items stay in the Trash before they are removed for good; 0 keeps them forever.
+	TrashDays int
+	// FXURL is a Frankfurter-compatible exchange rate service, used only when someone presses
+	// "Fetch today's rates"; "off" turns the button off.
+	FXURL string
 
 	oidcScopesRaw *string
 	aiOriginsRaw  *string
@@ -132,6 +141,10 @@ func Register(fs *flag.FlagSet) *Config {
 	fs.BoolVar(&c.SMTPSkipVerify, "smtp-skip-verify", envBool("LEKHAMINT_SMTP_SKIP_VERIFY", false), "accept a self-signed or mismatched mail server certificate (internal relays)")
 	fs.StringVar(&c.GotifyURL, "gotify-url", env("LEKHAMINT_GOTIFY_URL", ""), "Gotify server, e.g. https://gotify.example.com (empty disables Gotify)")
 	fs.IntVar(&c.ReminderHour, "reminder-hour", envInt("LEKHAMINT_REMINDER_HOUR", 8), "hour of day (server time, 0-23) for bill and budget reminders; -1 turns them off")
+	fs.IntVar(&c.MaxAttachmentMB, "max-attachment-mb", envInt("LEKHAMINT_MAX_ATTACHMENT_MB", 10), "largest receipt or bill file accepted, in MB")
+	fs.IntVar(&c.HistoryDays, "history-days", envInt("LEKHAMINT_HISTORY_DAYS", 365), "days to keep the change history of records (0 keeps it forever)")
+	fs.IntVar(&c.TrashDays, "trash-days", envInt("LEKHAMINT_TRASH_DAYS", 0), "days deleted items stay in the Trash before they are removed for good (0 keeps them forever)")
+	fs.StringVar(&c.FXURL, "fx-url", env("LEKHAMINT_FX_URL", "https://api.frankfurter.app"), "exchange rate service used by \"Fetch today's rates\" (off disables it)")
 	c.corsRaw = origins
 	return c
 }
@@ -252,6 +265,24 @@ func (c *Config) Finish() error {
 	}
 	if c.SessionTTL < time.Hour {
 		bad("LEKHAMINT_SESSION_TTL (--session-ttl) must be at least 1h")
+	}
+	if c.MaxAttachmentMB < 1 || c.MaxAttachmentMB > 100 {
+		bad("LEKHAMINT_MAX_ATTACHMENT_MB (--max-attachment-mb) must be between 1 and 100")
+	}
+	if c.HistoryDays < 0 {
+		bad("LEKHAMINT_HISTORY_DAYS (--history-days) must be 0 (keep forever) or more")
+	}
+	if c.TrashDays < 0 || (c.TrashDays > 0 && c.TrashDays < 30) {
+		bad("LEKHAMINT_TRASH_DAYS (--trash-days) must be 0 (keep forever) or at least 30, so devices that are offline for a while still learn about deletes")
+	}
+	if strings.EqualFold(c.FXURL, "off") {
+		c.FXURL = ""
+	}
+	c.FXURL = strings.TrimRight(c.FXURL, "/")
+	if c.FXURL != "" {
+		if u, err := url.Parse(c.FXURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			bad("LEKHAMINT_FX_URL (--fx-url) must be an http(s) URL such as https://api.frankfurter.app, or off")
+		}
 	}
 	if c.MaxImportSize < 1 {
 		bad("LEKHAMINT_MAX_IMPORT_MB (--max-import-mb) must be at least 1")
