@@ -14,7 +14,12 @@ The server includes the web app: open the server's address in any modern browser
 | **Accounts** | Balances calculated from transactions, credit-card limits, reconcile against your bank |
 | **Reports** | Category breakdown, 12-month trend, needs/wants/savings, income by source, top payees and tags |
 | **Bills & recurring** | Rent, salary, subscriptions: remind or record automatically |
-| **Lent & borrowed** | Money you lent or borrowed, with repayments; never counted as spending |
+| **Loans & EMIs** | Bank loans with an EMI schedule, prepayments and interest paid |
+| **Deposits** | Fixed and recurring deposits with maturity value and reminders |
+| **Lent & borrowed** | Money you lent or borrowed, with repayments; never counted as spending. Older loans can be entered with their real date. See [Loans, Debts and Cards](Loans-Debts-and-Cards) |
+| **Calculators & tools** | EMI, SIP, FD and other calculators |
+| **Assistant** | Ask questions about your money in plain words; see the assistant guide in the repository (`docs/11-assistant.md`) |
+| **Statements & export** | Printable statements, spreadsheet and CSV export of everything |
 | **Import statement** | Bring in a bank CSV; importing the same file twice adds nothing |
 | **Categories, Tags, Auto-categorise** | Organise, and let rules fill in category, payee and tags |
 | **Settings** | Book name and currency, exchange rates, sharing, signed-in devices, password, theme, export and import |

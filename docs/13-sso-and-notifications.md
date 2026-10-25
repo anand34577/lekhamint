@@ -10,7 +10,7 @@ person's email and name from the provider's userinfo endpoint.
 
 | Variable | Meaning |
 | --- | --- |
-| `LEKHAMINT_PUBLIC_URL` | Address people use to reach LekhaMint, e.g. `https://kosh.example.com`. Required. |
+| `LEKHAMINT_PUBLIC_URL` | Address people use to reach LekhaMint, e.g. `https://money.example.com`. Required. |
 | `LEKHAMINT_OIDC_ISSUER` | Issuer URL, e.g. `https://auth.example.com/realms/home` (Keycloak) |
 | `LEKHAMINT_OIDC_CLIENT_ID` | Client ID registered at the provider |
 | `LEKHAMINT_OIDC_CLIENT_SECRET` | Client secret; leave empty for a public client |
@@ -39,6 +39,7 @@ proxy, set `LEKHAMINT_TRUST_PROXY=true` so rate limits see real client addresses
 | `LEKHAMINT_SMTP_USER` / `LEKHAMINT_SMTP_PASSWORD` | Login, if the server needs one |
 | `LEKHAMINT_SMTP_FROM` | Sender, e.g. `LekhaMint <no-reply@example.com>` |
 | `LEKHAMINT_SMTP_SECURITY` | `starttls` (default), `tls` (implicit TLS) or `none` (trusted local relay only) |
+| `LEKHAMINT_SMTP_SKIP_VERIFY` | `true` accepts a self-signed or mismatched relay certificate (still encrypted). With `none`, a relay that offers no login is used without one even if a user is set; LOGIN is used when PLAIN is not offered |
 
 ## Gotify
 

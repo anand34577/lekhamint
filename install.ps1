@@ -80,13 +80,21 @@ if ($Docker) {
   }
   docker info *> $null
   if ($LASTEXITCODE -ne 0) { Fail "Docker is installed but not running. Start Docker Desktop and run this again." }
+  # Files come from a release tag, not the moving main branch.
+  $Ref = if ($Version) { "v$Version" } else {
+    try { (Invoke-RestMethod -TimeoutSec 10 "https://api.github.com/repos/$Repo/releases/latest").tag_name } catch { "" }
+  }
+  if ($Ref -notmatch "^v\d") { $Ref = "main"; Say "could not resolve the latest release; using the main branch" }
+  $RawTag = "https://raw.githubusercontent.com/$Repo/$Ref"
+  Say "Using files from release $Ref"
   New-Item -ItemType Directory -Force $Dir | Out-Null
-  Invoke-WebRequest -UseBasicParsing "$Raw/docker-compose.yml" -OutFile (Join-Path $Dir "docker-compose.yml")
+  Invoke-WebRequest -UseBasicParsing "$RawTag/docker-compose.yml" -OutFile (Join-Path $Dir "docker-compose.yml")
   $envFile = Join-Path $Dir ".env"
   if (-not (Test-Path $envFile)) {
-    $text = (Invoke-WebRequest -UseBasicParsing "$Raw/.env.example").Content
-    $tag = if ($Version) { $Version } else { "latest" }
-    $text = $text -replace "(?m)^LEKHAMINT_PORT=.*", "LEKHAMINT_PORT=$Port" -replace "(?m)^LEKHAMINT_VERSION=.*", "LEKHAMINT_VERSION=$tag" -replace "(?m)^TZ=.*", "TZ=UTC"
+    $text = (Invoke-WebRequest -UseBasicParsing "$RawTag/.env.example").Content
+    $tag = if ($Version) { $Version } else { $Ref.TrimStart("v") }
+    $pg = -join ((1..48) | ForEach-Object { '{0:x}' -f (Get-Random -Maximum 16) })
+    $text = $text -replace "(?m)^LEKHAMINT_PORT=.*", "LEKHAMINT_PORT=$Port" -replace "(?m)^LEKHAMINT_VERSION=.*", "LEKHAMINT_VERSION=$tag" -replace "(?m)^TZ=.*", "TZ=UTC" -replace "(?m)^POSTGRES_PASSWORD=.*", "POSTGRES_PASSWORD=$pg"
     [IO.File]::WriteAllText($envFile, $text)
   } else {
     $m = Select-String -Path $envFile -Pattern "^LEKHAMINT_PORT=(\d+)" | Select-Object -First 1
@@ -125,7 +133,10 @@ if ($Uninstall) {
 $Arch = if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "amd64" }
 $Name = "lekhamint-windows-$Arch.exe"
 $Base = if ($Version) { "https://github.com/$Repo/releases/download/v$Version" } else { "https://github.com/$Repo/releases/latest/download" }
-if ($env:LEKHAMINT_DOWNLOAD_BASE) { $Base = $env:LEKHAMINT_DOWNLOAD_BASE.TrimEnd("/") }   # a mirror, or a folder of release files
+if ($env:LEKHAMINT_DOWNLOAD_BASE) {
+  $Base = $env:LEKHAMINT_DOWNLOAD_BASE.TrimEnd("/")   # a mirror, or a folder of release files
+  if ($Base -notmatch "^https://") { Fail "LEKHAMINT_DOWNLOAD_BASE must start with https:// (plain http can be tampered with)" }
+}
 
 Say "Installing the LekhaMint server (windows/$Arch$(if ($IsAdmin) { ', all users' } else { ', this user only' }))"
 New-Item -ItemType Directory -Force $Root, $Data, $Logs | Out-Null
@@ -157,6 +168,12 @@ if (-not (Test-Path $Settings)) {
   $m = Select-String -Path $Settings -Pattern "^LEKHAMINT_ADDR=.*:(\d+)\s*$" | Select-Object -First 1
   if ($m) { $Port = [int]$m.Matches[0].Groups[1].Value }
   Say "Keeping your settings in $Settings"
+}
+
+# Secrets (SMTP password, OIDC client secret...) can end up in settings.env;
+# under ProgramData the default ACL would let every local user read them.
+if ($IsAdmin) {
+  icacls $Settings /inheritance:r /grant:r "SYSTEM:F" /grant:r "Administrators:F" | Out-Null
 }
 
 # The scheduled task runs a tiny launcher that loads settings.env into the environment.

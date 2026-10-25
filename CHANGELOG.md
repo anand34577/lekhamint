@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.4.0
+
+**Audit round 3 (the gaps left over)**
+- Two devices editing the same record at once no longer lose one edit: the app tells the server which version an edit started from, and the server keeps each device's changed fields (the same field changed on both still goes to the newer write). Android DB v6.
+- Swipe a transaction left in Activity to move it to Trash, with Undo. Debts, loans and deposits entries are not swipeable.
+- Forms with several fields (lent or borrowed, repayments, loans, deposits, balance check, backup password) open as bottom sheets that scroll with the keyboard instead of cramped dialogs.
+- Reports can show every currency together ("All in INR") using your exchange rates; currencies without a rate are named and left out.
+
+**Audit round 2 (all platforms)**
+- Credit cards: optional statement day and payment due day (schema v7); a reminder goes out three days before the due date while the card owes money; due countdown on the card and account list; a "Pay card bill" button opens a transfer with the amount and paying account filled in (web and Android).
+- Lent and borrowed on Android now groups by person with a running statement, "lent more", and repayments spread over the oldest debts first; editing a debt's amount or date keeps its account entry in step (web and Android).
+- Amounts typed with a decimal comma ("12,50") are read correctly instead of as 1,250 (web and Android).
+- Android: exchange rates screen and "all currencies together" totals on Home and Accounts; this-month totals include other currencies when rates exist; a scrubbable spending-pace chart against last month; tap a bar in the monthly chart for exact amounts; long-press to select transactions for bulk delete or re-categorise, with Undo.
+- Android: Home and budgets roll over at midnight or a month end instead of staying on the old day; account history and search load in pages; transactions that belong to a debt, loan or deposit keep their type; deleting an account that recurring rules, loans or deposits use now offers archiving instead.
+- Indexes for large ledgers: schema v6 on the server, database version 5 on Android.
+
+**Real-life gaps**
+- Lent and borrowed: enter older loans with their real date (web and Android); Android also gets due date, currency and a date for repayments; repayments can be edited from the debt's history on both.
+- Transactions have a time of day field on the web and Android (empty means now).
+- Credit cards: a card paid beyond what is owed shows as in credit, adds to the available limit, can be entered as an opening credit (negative amount), and an overpaying transfer gets a heads-up.
+- New transactions default to a spending account instead of a deposit or loan account; fixed a clipped amount on the dashboard and the narrow date field.
+- Email: SMTP relays work with security `none`, with or without a login; EHLO uses the sender's domain; LOGIN authentication when PLAIN is not offered; `LEKHAMINT_SMTP_SKIP_VERIFY` for self-signed relays.
+- `.env.example`, all compose files and the wiki now cover every setting (single sign-on, mail, Gotify, assistant, reminders); new wiki pages on debts and cards, sign-in and notifications.
+- Exported backup files are named `lekhamint-backup-…kosh`; older `kosh-backup-…` files are still found.
+
+**Security hardening (full audit)**
+- Single sign-on accounts are now bound to the identity provider's subject: the first SSO sign-in links the account, and a different identity bearing the same email can no longer sign into it. Providers that never send `email_verified` are refused unless the admin sets `LEKHAMINT_OIDC_ALLOW_UNVERIFIED_EMAIL=true`. Schema v5 adds `users.sso_sub` (kept in dumps).
+- The web app signs in with an HttpOnly `SameSite=Strict` cookie instead of a token in localStorage, so a script on the page can no longer steal the session; cookie-authenticated writes additionally require the `X-Kosh-Client` header (CSRF defence). The Android app keeps using the bearer token.
+- The assistant's browser-mode API key is stored on your own server (per person) instead of the browser's localStorage; the owner's session can read it back. Schema v5 adds `user_prefs.ai_api_key`.
+- Sessions have an absolute one-year cap on top of the sliding expiry; expired-absolute sessions are refused even if refreshed.
+- `lekhamint demo` now listens on 127.0.0.1 only unless `--addr` says otherwise (the demo password is public).
+- The assistant proxy is rate-limited per signed-in person (30/minute); login/register/SSO stay at 10/minute per IP, and `X-Forwarded-For` now trusts only the entry added by your own proxy (rightmost), so the limiter cannot be spoofed.
+- Currency conversion saturates instead of wrapping when a user-entered rate overflows int64; the first-user "becomes admin" decision is race-free; the in-memory rate limiter cannot grow without bound under spoofed floods.
+
+**Android**
+- Plain `http://` sync servers are refused unless the address is local (loopback, RFC1918, `.local`, `.lan`); everything else must use https.
+- A push conflict can no longer overwrite a local edit made while the push was in flight; the newer local row stays dirty and retries.
+- Backup restore bounds the Argon2 cost a crafted `.kosh` manifest can demand; derived keys and passphrases are zeroed after use; the decrypted restore temp file is delete-on-exit; automatic and safety backups are encrypted with your saved passphrase when one is set.
+- Release builds fail fast when no release keystore is configured (pass `-PallowDebugSigning=true` for a local test build) instead of silently producing a debug-signed "release".
+- Budget alert thresholds compare in integers, so the exact-95% day is not missed to float rounding.
+
+**Web**
+- Reports use the local date for "today" (overdue loans, deposit valuation, debt flags) instead of UTC, matching the rest of the app.
+- Assistant rebuilt as a proper chat: your question appears immediately, lookups stream as live chips while the model works, answers can be copied, failed questions can be retried, the conversation survives navigation (per book, per tab), the composer grows with input, and the whole pane scrolls on its own with the input pinned — on phones too.
+- Design refresh across the app: elevated cards with hover states, animated navigation and tab bar, springier buttons, modals and toasts, richer empty states, markdown tables in assistant answers, and consistent focus rings.
+- Toolchain updates: vite 6.4.5, vitest 5 (all known dev-dependency advisories cleared; runtime dependencies unchanged).
+
+**Deployment**
+- Docker Compose binds to 127.0.0.1 by default (`LEKHAMINT_BIND=0.0.0.0` restores LAN access); sign-ins no longer cross the network in plain HTTP unless you opt in. The installers generate a random `POSTGRES_PASSWORD` instead of shipping a placeholder, pin downloads to a release tag, refuse plain-`http://` mirrors, and pin the installed image version.
+- The systemd unit gains `CapabilityBoundingSet=`, `RestrictSUIDSGID`, `RestrictNamespaces`, `ProtectProc`, `ProtectClock`, `ProtectKernelLogs`, `ProtectHostname` and a `@system-service` syscall filter. The Windows installer restricts `settings.env` to Administrators and SYSTEM.
+- Every GitHub Actions step is pinned to a commit SHA, so a moved tag can no longer run different code in CI or the release pipeline.
+
 ## 1.3.0
 
 **Web app redesign**

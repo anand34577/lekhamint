@@ -104,13 +104,37 @@ finish() {
   echo
   say "LekhaMint is running."
   echo "    On this computer:   http://localhost:$PORT"
-  [ "$ip" != localhost ] && echo "    On your network:    http://$ip:$PORT"
+  if [ "$ip" != localhost ] && [ "${LEKHAMINT_BIND:-127.0.0.1}" = "0.0.0.0" ]; then echo "    On your network:    http://$ip:$PORT"; fi
   echo
   echo "    Open it and create your account (the first account becomes the admin)."
   echo "    In the Android app: More -> Sync, then enter the address above."
   echo "    For access from outside your home, put it behind HTTPS:"
   echo "    https://github.com/$REPO/wiki/Reverse-Proxy"
   echo
+}
+
+# Files the installer downloads (compose file, .env example, systemd unit) come
+# from a release tag, not the moving main branch, so a push to main cannot
+# change what future installs run. Binary downloads are checksum-verified too.
+STABLE_REF=""
+resolve_ref() {
+  [ -n "$STABLE_REF" ] && { echo "$STABLE_REF"; return; }
+  if [ -n "$VERSION" ]; then STABLE_REF="v$VERSION"
+  else
+    tag=""
+    if have curl; then tag=$(curl -fsSL --max-time 10 "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
+    elif have wget; then tag=$(wget -q -T 10 -O - "https://api.github.com/repos/$REPO/releases/latest" 2>/dev/null | sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -1)
+    fi
+    case "$tag" in v[0-9]*) STABLE_REF="$tag" ;;
+      *) warn "could not resolve the latest release; using the main branch" ; STABLE_REF="main" ;;
+    esac
+  fi
+  echo "$STABLE_REF"
+}
+
+random_hex() { # n bytes as hex
+  if have openssl; then openssl rand -hex "$1" 2>/dev/null && return; fi
+  head -c "$1" /dev/urandom 2>/dev/null | od -An -tx1 | tr -d ' \n'
 }
 
 # ---------------------------------------------------------------- Docker mode
@@ -128,17 +152,23 @@ install_docker_mode() {
   docker info >/dev/null 2>&1 || DOCKER="$SUDO docker"
   $DOCKER compose version >/dev/null 2>&1 || die "Docker Compose v2 is required (docker compose)"
 
+  ref=$(resolve_ref)
+  say "Using files from release $ref"
+  RAW_TAG="https://raw.githubusercontent.com/$REPO/$ref"
   if [ "$(id -u)" -eq 0 ] || [ "$OS" = linux ]; then DIR=/opt/lekhamint; else DIR="$HOME/lekhamint"; fi
   say "Setting up $DIR"
   $SUDO mkdir -p "$DIR"
   tmp=$(mktemp -d)
-  download "$RAW/docker-compose.yml" "$tmp/docker-compose.yml"
+  download "$RAW_TAG/docker-compose.yml" "$tmp/docker-compose.yml"
   $SUDO cp "$tmp/docker-compose.yml" "$DIR/docker-compose.yml"
   if [ ! -f "$DIR/.env" ]; then
-    download "$RAW/.env.example" "$tmp/.env"
-    sed -e "s/^LEKHAMINT_PORT=.*/LEKHAMINT_PORT=$PORT/" -e "s/^LEKHAMINT_VERSION=.*/LEKHAMINT_VERSION=${VERSION:-latest}/" \
+    download "$RAW_TAG/.env.example" "$tmp/.env"
+    pg=$(random_hex 24)
+    sed -e "s/^LEKHAMINT_PORT=.*/LEKHAMINT_PORT=$PORT/" -e "s/^LEKHAMINT_VERSION=.*/LEKHAMINT_VERSION=${ref#v}/" \
+        -e "s|^POSTGRES_PASSWORD=.*|POSTGRES_PASSWORD=$pg|" \
         -e "s|^TZ=.*|TZ=$(cat /etc/timezone 2>/dev/null || echo UTC)|" "$tmp/.env" > "$tmp/.env.new"
     $SUDO cp "$tmp/.env.new" "$DIR/.env"
+    $SUDO chmod 0640 "$DIR/.env"
   else
     PORT=$($SUDO sed -n 's/^LEKHAMINT_PORT=//p' "$DIR/.env" | head -1); PORT=${PORT:-8080}
     [ -n "$VERSION" ] && $SUDO sed -i.bak "s/^LEKHAMINT_VERSION=.*/LEKHAMINT_VERSION=$VERSION/" "$DIR/.env"
@@ -170,7 +200,14 @@ fetch_binary() {
   name="lekhamint-$OS-$ARCH"
   if [ -n "$VERSION" ]; then base="https://github.com/$REPO/releases/download/v$VERSION"
   else base="https://github.com/$REPO/releases/latest/download"; fi
-  [ -n "${LEKHAMINT_DOWNLOAD_BASE:-}" ] && base="${LEKHAMINT_DOWNLOAD_BASE%/}" # a mirror
+  if [ -n "${LEKHAMINT_DOWNLOAD_BASE:-}" ]; then
+    base="${LEKHAMINT_DOWNLOAD_BASE%/}" # a mirror
+    case "$base" in
+      http://*) die "LEKHAMINT_DOWNLOAD_BASE must start with https:// (plain http can be tampered with)" ;;
+      https://*) ;;
+      *) die "LEKHAMINT_DOWNLOAD_BASE must be an https:// URL" ;;
+    esac
+  fi
   tmp=$(mktemp -d)
   say "Downloading $name ${VERSION:+v$VERSION}"
   download "$base/$name" "$tmp/lekhamint" || die "download failed: $base/$name"
@@ -204,7 +241,7 @@ install_linux() {
     say "Keeping your settings in /etc/lekhamint/lekhamint.env"
   fi
   tmp=$(mktemp)
-  download "$RAW/deploy/lekhamint.service" "$tmp"
+  download "$(resolve_ref | sed "s|^|https://raw.githubusercontent.com/$REPO/|")/deploy/lekhamint.service" "$tmp"
   $SUDO install -m 0644 "$tmp" /etc/systemd/system/lekhamint.service
   rm -f "$tmp"
   $SUDO systemctl daemon-reload

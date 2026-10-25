@@ -9,7 +9,9 @@
 **Using LekhaMint**
 - [Web App](Web-App)
 - [Android App](Android-App)
+- [Loans, Debts and Cards](Loans-Debts-and-Cards)
 - [Sync and Sharing](Sync-and-Sharing)
+- [Sign-in and Notifications](Sign-in-and-Notifications)
 - [Backup and Restore](Backup-and-Restore)
 
 **Running it**
