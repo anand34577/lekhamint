@@ -35,6 +35,8 @@ type Server struct {
 	MaxImportSize int64
 	// Web serves the browser app for non-API paths; nil disables it.
 	Web http.Handler
+	// AI forwards assistant requests to a configured model; nil disables it.
+	AI *AIProxy
 
 	authLimiter *rateLimiter
 }
@@ -58,11 +60,13 @@ func (s *Server) Handler() http.Handler {
 	public("GET /healthz", s.healthz)
 	public("GET /readyz", s.readyz)
 	public("GET /api/v1/meta", s.meta)
+	private("POST /api/v1/ai/chat/completions", s.aiChat)
 
 	public("POST /api/v1/auth/register", s.limited(s.register))
 	public("POST /api/v1/auth/login", s.limited(s.login))
 	private("POST /api/v1/auth/logout", s.logout)
 	private("GET /api/v1/auth/me", s.me)
+	private("DELETE /api/v1/auth/me", s.limited(s.deleteMe))
 	private("GET /api/v1/auth/sessions", s.listSessions)
 	private("DELETE /api/v1/auth/sessions/{id}", s.deleteSession)
 	private("POST /api/v1/auth/password", s.changePassword)
@@ -93,6 +97,9 @@ func (s *Server) Handler() http.Handler {
 	private("GET /api/v1/ledgers/{lid}/reports/budgets", s.budgetProgress)
 	private("GET /api/v1/ledgers/{lid}/reports/tags", s.tagTotals)
 	private("GET /api/v1/ledgers/{lid}/reports/payees", s.payeeTotals)
+	private("GET /api/v1/ledgers/{lid}/reports/position", s.position)
+	private("GET /api/v1/ledgers/{lid}/reports/networth", s.netWorth)
+	private("GET /api/v1/ledgers/{lid}/reports/debts", s.debtTotals)
 	private("POST /api/v1/ledgers/{lid}/batch", s.batch)
 
 	private("GET /api/v1/ledgers/{lid}/export", s.exportLedger)

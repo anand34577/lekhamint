@@ -12,10 +12,11 @@ import (
 
 // reportable is the shared filter for spending/income reports: live,
 // non-planned income and expense rows that are not adjustments, user
-// exclusions or debt movements.
+// exclusions or debt movements. Interest and fees on a debt are real income
+// or cost, so they count even though they are linked to the debt.
 const reportable = `t.ledger_id = ? AND t.deleted = 0 AND t.type IN ('expense', 'income')
 	AND COALESCE(t.status, 'cleared') <> 'planned' AND COALESCE(t.is_adjustment, 0) = 0
-	AND COALESCE(t.excluded_from_reports, 0) = 0 AND t.debt_id IS NULL
+	AND COALESCE(t.excluded_from_reports, 0) = 0 AND (t.debt_id IS NULL OR t.part IN ('interest', 'fee'))
 	AND t.local_date >= ? AND t.local_date <= ?`
 
 // Service runs report queries.

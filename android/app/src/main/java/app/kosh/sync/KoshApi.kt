@@ -53,6 +53,7 @@ data class ServerMeta(val version: String = "", val schema_version: Int = 0, val
 @Serializable private data class LedgersResponse(val ledgers: List<ApiLedger> = emptyList())
 @Serializable private data class LedgerResponse(val ledger: ApiLedger)
 @Serializable private data class LoginBody(val email: String, val password: String, val device_name: String, val name: String? = null)
+@Serializable private data class PasswordBody(val password: String)
 @Serializable private data class CreateLedgerBody(val id: String, val name: String, val base_currency: String, val seed_default_categories: Boolean = false)
 
 /** An error response from the server: `{error: {code, message}}`. */
@@ -78,6 +79,12 @@ class KoshApi(baseUrl: String, private val token: () -> String?) {
 
     suspend fun logout() {
         runCatching { send(Request.Builder().url("$base/api/v1/auth/logout").post(EMPTY), auth = true) }
+    }
+
+    /** Permanently deletes the signed-in account and the books only it owns (server side). */
+    suspend fun deleteAccount(password: String) {
+        val json = KoshJson.encodeToString(PasswordBody.serializer(), PasswordBody(password))
+        send(Request.Builder().url("$base/api/v1/auth/me").delete(json.toRequestBody(JSON)), auth = true)
     }
 
     suspend fun ledgers(): List<ApiLedger> = get("/api/v1/ledgers", LedgersResponse.serializer()).ledgers

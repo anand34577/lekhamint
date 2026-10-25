@@ -37,13 +37,13 @@ jobs:
           echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "ANDROID_KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
-      - name: Build release APK
+      - name: Build release APK and Play Store bundle
         working-directory: android
         env:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew testDebugUnitTest assembleRelease -PversionName="${GITHUB_REF_NAME#v}" --console=plain
+        run: ./gradlew testDebugUnitTest assembleRelease bundleRelease -PversionName="${GITHUB_REF_NAME#v}" --console=plain
 
       - name: Check the APK signature
         run: |
@@ -53,6 +53,11 @@ jobs:
           echo "$certs"
           if echo "$certs" | grep -q "CN=Android Debug"; then echo "::error::APK is debug-signed"; exit 1; fi
           mkdir -p out && cp "$apk" out/LekhaMint.apk
+          # The .aab is what Google Play takes (upload it in the Play Console with Play App Signing on).
+          aab=android/app/build/outputs/bundle/release/app-release.aab
+          jarsigner -verify -verbose -certs "$aab" > aab-certs.txt || { cat aab-certs.txt; echo "::error::AAB signature check failed"; exit 1; }
+          if grep -q "CN=Android Debug" aab-certs.txt; then echo "::error::AAB is debug-signed"; exit 1; fi
+          cp "$aab" out/LekhaMint-play.aab
 
       - name: Build server binaries (web app embedded)
         working-directory: server
@@ -73,7 +78,7 @@ jobs:
           - **Server, Linux or macOS:** \`curl -fsSL https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.sh | sh\`
           - **Server, Windows (PowerShell):** \`irm https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/install.ps1 | iex\`
           - **Docker:** \`docker run -d -p 8080:8080 -v lekhamint-data:/data ghcr.io/${GITHUB_REPOSITORY}:${version}\`
-          - **Android:** download \`LekhaMint.apk\` below.
+          - **Android:** download \`LekhaMint.apk\` below (\`LekhaMint-play.aab\` is the Google Play upload bundle).
 
           Step-by-step guides are in the [wiki](https://github.com/${GITHUB_REPOSITORY}/wiki). Check downloads against \`SHA256SUMS.txt\`.
           EOF

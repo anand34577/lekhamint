@@ -191,3 +191,30 @@ func expectOne(res interface{ RowsAffected() (int64, error) }, err error) error 
 	}
 	return nil
 }
+
+// SoleOwnedLedgers returns the IDs of ledgers where userID is the only owner.
+// Deleting that user deletes these ledgers too.
+func SoleOwnedLedgers(ctx context.Context, q db.Querier, userID string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, "SELECT m.ledger_id FROM ledger_members m WHERE m.user_id = ? AND m.role = ? "+
+		"AND (SELECT COUNT(*) FROM ledger_members o WHERE o.ledger_id = m.ledger_id AND o.role = ?) = 1 ORDER BY m.ledger_id",
+		userID, RoleOwner, RoleOwner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		out = append(out, id)
+	}
+	return out, rows.Err()
+}
+
+// DeleteUser removes a user. Sessions and memberships go with it (ON DELETE CASCADE).
+func DeleteUser(ctx context.Context, q db.Querier, id string) error {
+	res, err := q.ExecContext(ctx, "DELETE FROM users WHERE id = ?", id)
+	return expectOne(res, err)
+}

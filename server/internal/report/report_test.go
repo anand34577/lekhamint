@@ -262,3 +262,118 @@ func TestPayeeTotals(t *testing.T) {
 		t.Fatalf("limit ignored: %d", len(top))
 	}
 }
+
+// Loans, deposits and debts: principal moves balances but never counts as
+// spending or income; interest and fees do (docs/02, "Loans and deposits").
+func TestLinkedPartsInReports(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	loanAcct := f.put("accounts", map[string]any{"name": "Home loan", "type": "loan", "currency": "INR", "opening_balance": int64(-5000000)})
+	fdAcct := f.put("accounts", map[string]any{"name": "FD", "type": "deposit", "currency": "INR"})
+	interest := f.put("categories", map[string]any{"name": "Loan interest", "kind": "expense"})
+	loan := f.put("loans", map[string]any{"name": "Home loan", "account_id": loanAcct, "currency": "INR", "principal": int64(5000000),
+		"annual_rate": "8.5", "start_date": "2026-09-01", "first_due_date": "2026-10-05", "tenure_months": int64(240)})
+	dep := f.put("deposits", map[string]any{"name": "FD", "account_id": fdAcct, "currency": "INR", "amount": int64(1000000),
+		"annual_rate": "7.1", "start_date": "2026-10-01", "maturity_date": "2027-10-01"})
+	debt := f.put("debts", map[string]any{"person": "Rohan", "direction": "lent", "amount": int64(100000), "currency": "INR"})
+
+	// EMI of ₹43,391: ₹35,417 interest (counts), ₹7,974 principal (transfer, does not).
+	f.tx("transfer", f.bank, 797400, "", "2026-10-05", map[string]any{"to_account_id": loanAcct, "to_amount": int64(797400), "loan_id": loan, "part": "principal"})
+	f.tx("expense", f.bank, 3541700, interest, "2026-10-05", map[string]any{"loan_id": loan, "part": "interest"})
+	// FD funded from the bank (transfer) and interest credited (income).
+	f.tx("transfer", f.bank, 1000000, "", "2026-10-01", map[string]any{"to_account_id": fdAcct, "to_amount": int64(1000000), "deposit_id": dep, "part": "principal"})
+	f.tx("income", fdAcct, 17750, "", "2026-10-20", map[string]any{"deposit_id": dep, "part": "interest"})
+	// Lent ₹1,000 (ignored), repaid ₹1,000 (ignored) plus ₹50 interest (counts).
+	f.tx("expense", f.bank, 100000, "", "2026-10-02", map[string]any{"debt_id": debt, "part": "principal"})
+	f.tx("income", f.bank, 100000, "", "2026-10-12", map[string]any{"debt_id": debt, "part": "principal"})
+	f.tx("income", f.bank, 5000, "", "2026-10-12", map[string]any{"debt_id": debt, "part": "interest"})
+
+	sum, err := f.svc.Summary(ctx, f.lid, "2026-10-01", "2026-10-31")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sum) != 1 || sum[0].Expense != 3541700 || sum[0].Income != 17750+5000 {
+		t.Fatalf("summary = %+v", sum)
+	}
+	bal, err := f.svc.Balances(ctx, f.lid, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int64{
+		f.bank:   -797400 - 3541700 - 1000000 - 100000 + 100000 + 5000,
+		loanAcct: -5000000 + 797400,
+		fdAcct:   1000000 + 17750,
+	}
+	for _, b := range bal {
+		if w, ok := want[b.AccountID]; ok && b.Balance != w {
+			t.Errorf("%s balance %d, want %d", b.Name, b.Balance, w)
+		}
+	}
+	// A bad part is rejected.
+	if _, err := f.sync.Write(ctx, f.lid, []syncer.WriteOp{{Entity: "transactions", Data: map[string]any{
+		"type": "expense", "account_id": f.bank, "amount": int64(1), "local_date": "2026-10-01", "occurred_at": int64(1), "part": "bogus"}}}); err == nil {
+		t.Fatal("part=bogus accepted")
+	}
+	// A loan cannot have more instalments paid than its tenure.
+	if _, err := f.sync.Write(ctx, f.lid, []syncer.WriteOp{{Entity: "loans", Data: map[string]any{"name": "x", "account_id": loanAcct,
+		"currency": "INR", "principal": int64(1), "start_date": "2026-01-01", "first_due_date": "2026-02-01", "tenure_months": int64(12), "paid_before": int64(13)}}}); err == nil {
+		t.Fatal("paid_before > tenure accepted")
+	}
+	// Maturity must come after the start.
+	if _, err := f.sync.Write(ctx, f.lid, []syncer.WriteOp{{Entity: "deposits", Data: map[string]any{"name": "x", "account_id": fdAcct,
+		"currency": "INR", "amount": int64(1), "annual_rate": "7", "start_date": "2026-01-01", "maturity_date": "2026-01-01"}}}); err == nil {
+		t.Fatal("maturity on start date accepted")
+	}
+}
+
+// Net worth counts what others owe you and what you owe them, so lending
+// money to a friend does not make you poorer on paper.
+func TestPositionCountsDebts(t *testing.T) {
+	f := newFixture(t)
+	ctx := context.Background()
+	f.put("accounts", map[string]any{"name": "Old", "type": "bank", "currency": "INR", "opening_balance": int64(7000), "archived": true})
+	fd := f.put("accounts", map[string]any{"name": "FD", "type": "deposit", "currency": "INR"})
+	f.tx("income", f.bank, 10000000, f.wages, "2026-09-01") // ₹1,00,000 salary
+	f.tx("expense", f.card, 500000, f.dining, "2026-09-02") // ₹5,000 owed on the card
+	f.tx("transfer", f.bank, 2000000, "", "2026-09-03", map[string]any{"to_account_id": fd, "to_amount": int64(2000000)})
+	lent := f.put("debts", map[string]any{"person": "Rohan", "direction": "lent", "amount": int64(1500000), "currency": "INR"})
+	f.tx("expense", f.bank, 1500000, "", "2026-09-10", map[string]any{"debt_id": lent})                  // lent ₹15,000
+	f.tx("income", f.bank, 500000, "", "2026-10-10", map[string]any{"debt_id": lent})                    // ₹5,000 back
+	f.tx("income", f.bank, 10000, "", "2026-10-10", map[string]any{"debt_id": lent, "part": "interest"}) // not a repayment
+	borrowed := f.put("debts", map[string]any{"person": "Dad", "direction": "borrowed", "amount": int64(300000), "currency": "INR"})
+	f.tx("income", f.bank, 300000, "", "2026-09-15", map[string]any{"debt_id": borrowed})
+	f.tx("expense", f.bank, 400000, "", "2026-10-01", map[string]any{"debt_id": borrowed}) // paid back ₹1,000 too much
+	f.put("debts", map[string]any{"person": "Neha", "direction": "lent", "amount": int64(99900), "currency": "INR", "closed": true})
+
+	pos, err := f.svc.Position(ctx, f.lid, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var inr Position
+	for _, p := range pos {
+		if p.Currency == "INR" {
+			inr = p
+		}
+	}
+	cash := int64(10000000 - 2000000 - 1500000 + 500000 + 10000 + 300000 - 400000)
+	want := Position{Currency: "INR", Cash: cash, Investments: 2000000, Liabilities: 500000,
+		Receivable: 1000000 + 100000, // ₹10,000 from Rohan + ₹1,000 Dad owes back
+		Payable:    0, ExcludedAccounts: 1, ExcludedBalance: 7000}
+	want.NetWorth = cash + 2000000 + 1100000 - 500000
+	if inr != want {
+		t.Fatalf("position\n got %+v\nwant %+v", inr, want)
+	}
+	// Before Rohan's loan, his debt did not exist; on 2026-09-20 nothing was repaid yet.
+	early, _ := f.svc.Position(ctx, f.lid, "2026-09-05")
+	if early[0].Receivable != 0 {
+		t.Fatalf("receivable before the loan started: %+v", early[0])
+	}
+	mid, _ := f.svc.Position(ctx, f.lid, "2026-09-20")
+	if mid[0].Receivable != 1500000 || mid[0].Payable != 300000 {
+		t.Fatalf("mid-September: %+v", mid[0])
+	}
+	hist, err := f.svc.NetWorthHistory(ctx, f.lid, date("2026-10-24"), 3)
+	if err != nil || len(hist) != 3 || hist[0].Date != "2026-08-31" || hist[1].Date != "2026-09-30" || hist[2].Date != "2026-10-24" {
+		t.Fatalf("history = %+v, %v", hist, err)
+	}
+}

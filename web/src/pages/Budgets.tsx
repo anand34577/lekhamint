@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Budget, BudgetProgress } from '../lib/api'
-import { useAccounts, useBudgetProgress, useBudgets, useCanWrite, useCategoryIndex, useLedger, useWrite, type WithId } from '../lib/data'
+import { useAccounts, useBudgetProgress, useBudgets, useCanWrite, useCategoryIndex, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
 import { parseMoney, toPlain } from '../lib/money'
 import { isoDate, monthRange, shortDate } from '../lib/util'
 import { Bar, Card, Check, CurrencySelect, Empty, Field, Modal, Money, Skeleton, errorText, toast } from '../components'
@@ -85,6 +85,7 @@ function BudgetForm({ budget, onClose }: { budget?: WithId<Budget>; onClose: () 
   const cats = useCategoryIndex()
   const accounts = useAccounts()
   const write = useWrite()
+  const newId = useStableId()
   const can = useCanWrite()
   const [name, setName] = useState(budget?.name ?? 'Monthly spending')
   const [cur, setCur] = useState(budget?.currency ?? l.base_currency)
@@ -108,7 +109,7 @@ function BudgetForm({ budget, onClose }: { budget?: WithId<Budget>; onClose: () 
     if (!minor || minor <= 0) return setErr('Enter the budget amount')
     if (period === 'custom' && (!end || end < start)) return setErr('Pick an end date after the start')
     try {
-      await write.save.mutateAsync({ entity: 'budgets', id: budget?.id, data: {
+      await write.save.mutateAsync({ entity: 'budgets', id: budget?.id, newId, data: {
         name: name.trim(), amount: minor, currency: cur, period, start_date: start, end_date: period === 'custom' ? end : null,
         category_ids: [...selected], account_ids: [...accts].filter((id) => liveAccounts.some((a) => a.id === id)),
         rollover: rollover && period !== 'custom', alert_percent: alert, archived,
@@ -120,7 +121,7 @@ function BudgetForm({ budget, onClose }: { budget?: WithId<Budget>; onClose: () 
   return (
     <Modal wide title={budget ? 'Edit budget' : 'New budget'} onClose={onClose} footer={can ? <>
       {budget && <button type="button" className="danger" onClick={async () => { await write.remove.mutateAsync({ entity: 'budgets', id: budget.id }); toast('Budget deleted', { label: 'Undo', run: () => write.restore.mutate({ entity: 'budgets', id: budget.id }) }); onClose() }}><Icon name="trash" size={16} /> Delete</button>}
-      <span className="spacer" /><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="budgetform">Save</button></> : <button onClick={onClose}>Close</button>}>
+      <span className="spacer" /><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="budgetform" disabled={write.save.isPending}>{write.save.isPending ? 'Saving…' : 'Save'}</button></> : <button onClick={onClose}>Close</button>}>
       <form id="budgetform" onSubmit={submit}>
         <fieldset disabled={!can} className="plain">
           <div className="two">

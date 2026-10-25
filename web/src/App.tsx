@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, session, setUnauthorizedHandler, type Ledger } from './lib/api'
 import { LedgerContext } from './lib/data'
@@ -18,32 +18,46 @@ import { Tags } from './pages/Tags'
 import { Rules } from './pages/Rules'
 import { Import } from './pages/Import'
 import { Debts } from './pages/Debts'
+import { Loans } from './pages/Loans'
+import { Deposits } from './pages/Deposits'
+// Bigger, less used pages load on first visit.
+const Tools = lazy(() => import('./pages/Tools').then((m) => ({ default: m.Tools })))
+const Statements = lazy(() => import('./pages/Statements').then((m) => ({ default: m.Statements })))
+const Assistant = lazy(() => import('./pages/Assistant').then((m) => ({ default: m.Assistant })))
+const Print = lazy(() => import('./pages/Print').then((m) => ({ default: m.Print })))
 import { CommandPalette, type Command, type Resolved } from './pages/QuickAdd'
 
 // [route, label, icon, nav section]
 const ROUTES = [
   ['dashboard', 'Home', 'home', 'main'],
   ['transactions', 'Transactions', 'list', 'main'],
-  ['budgets', 'Budgets', 'target', 'main'],
   ['accounts', 'Accounts', 'wallet', 'main'],
+  ['budgets', 'Budgets', 'target', 'main'],
   ['reports', 'Reports', 'chart', 'main'],
   ['recurring', 'Bills & recurring', 'repeat', 'plan'],
+  ['loans', 'Loans & EMIs', 'bank', 'plan'],
+  ['deposits', 'Deposits', 'piggy', 'plan'],
   ['debts', 'Lent & borrowed', 'hand', 'plan'],
-  ['import', 'Import statement', 'upload', 'plan'],
+  ['tools', 'Calculators & tools', 'calc', 'tools'],
+  ['assistant', 'Assistant', 'chat', 'tools'],
+  ['statements', 'Statements & export', 'file', 'tools'],
+  ['import', 'Import statement', 'upload', 'tools'],
   ['categories', 'Categories', 'grid', 'organise'],
   ['tags', 'Tags', 'tag', 'organise'],
   ['rules', 'Auto-categorise', 'wand', 'organise'],
   ['settings', 'Settings', 'settings', 'organise'],
 ] as const
-export type Route = (typeof ROUTES)[number][0]
-const SECTIONS: [string, string][] = [['main', ''], ['plan', 'Plan'], ['organise', 'Organise']]
+export type Route = (typeof ROUTES)[number][0] | (typeof HIDDEN_ROUTES)[number]
+const SECTIONS: [string, string][] = [['main', ''], ['plan', 'Commitments'], ['tools', 'Tools'], ['organise', 'Organise']]
+/** Pages reachable by link but not listed in the navigation. */
+const HIDDEN_ROUTES = ['print'] as const
 const MOBILE_TABS: Route[] = ['dashboard', 'transactions', 'budgets', 'reports']
 
 export type Params = Record<string, string>
 
 function readHash(): [Route, Params] {
   const [path, query = ''] = location.hash.slice(2).split('?')
-  const route = (ROUTES.find(([r]) => r === path)?.[0] ?? 'dashboard') as Route
+  const route = (ROUTES.find(([r]) => r === path)?.[0] ?? HIDDEN_ROUTES.find((r) => r === path) ?? 'dashboard') as Route
   return [route, Object.fromEntries(new URLSearchParams(query))]
 }
 
@@ -169,10 +183,12 @@ function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden,
 
   const props: PageProps = { go, params, theme, setTheme, onSignOut, openAdd: (draft) => setAdding({ draft: draft ?? null }) }
   const Page = { dashboard: Dashboard, transactions: Transactions, budgets: Budgets, accounts: Accounts, reports: Reports, recurring: Recurring,
-    categories: Categories, settings: Settings, tags: Tags, rules: Rules, import: Import, debts: Debts }[route]
-  const label = ROUTES.find(([r]) => r === route)?.[1]
+    categories: Categories, settings: Settings, tags: Tags, rules: Rules, import: Import, debts: Debts, loans: Loans, deposits: Deposits,
+    tools: Tools, statements: Statements, assistant: Assistant, print: Print }[route]
+  const label = ROUTES.find(([r]) => r === route)?.[1] ?? (route === 'print' ? 'Report' : '')
   useEffect(() => { document.title = `${label} · LekhaMint` }, [label])
 
+  if (route === 'print') return <ErrorBoundary resetKey={route}><Suspense fallback={<div className="splash"><span className="muted">Preparing the report…</span></div>}><Print {...props} /></Suspense></ErrorBoundary>
   return (
     <div className="shell">
       <aside className={`side ${menu ? 'open' : ''}`} aria-label="Main">
@@ -208,7 +224,7 @@ function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden,
         </div>
         {!online && <div className="banner warn"><Icon name="alert" size={16} /> You are offline. LekhaMint will reconnect by itself; changes need a connection to save.</div>}
         {ledger.role === 'viewer' && <div className="banner"><Icon name="eye" size={16} /> You can view this shared book but not change it.</div>}
-        <ErrorBoundary resetKey={route}><Page {...props} /></ErrorBoundary>
+        <ErrorBoundary resetKey={route}><Suspense fallback={<div className="card pad"><span className="muted">Loading…</span></div>}><Page {...props} /></Suspense></ErrorBoundary>
       </main>
       <nav className="tabbar" aria-label="Quick navigation">
         {MOBILE_TABS.slice(0, 2).map((r) => <TabLink key={r} r={r} route={route} />)}

@@ -52,6 +52,7 @@ class MainActivity : FragmentActivity() {
 
 /** Quick Settings tile: one tap to log an expense from anywhere. */
 class QuickAddTileService : TileService() {
+    @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
     override fun onClick() {
         super.onClick()
         val intent = Intent(this, MainActivity::class.java)
@@ -64,6 +65,7 @@ class QuickAddTileService : TileService() {
             )
             startActivityAndCollapse(pi)
         } else {
+            // The PendingIntent overload only exists from API 34.
             @Suppress("DEPRECATION")
             startActivityAndCollapse(intent)
         }

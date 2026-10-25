@@ -14,9 +14,21 @@ import (
 //go:embed all:dist
 var embedded embed.FS
 
+// DefaultConnect lists the origins the web app may call besides its own
+// server: AI providers and models on this computer, for the assistant's
+// "connect from this browser" mode. LEKHAMINT_AI_CONNECT_ORIGINS adds more.
+var DefaultConnect = []string{"https://api.openai.com", "https://openrouter.ai", "http://localhost:*", "http://127.0.0.1:*"}
+
 // Handler serves static files from dir (or the embedded build when dir is
 // empty). Unknown paths get index.html so client-side routes work on reload.
-func Handler(dir string) (http.Handler, error) {
+// connect lists extra origins the page may fetch from (CSP connect-src).
+func Handler(dir string, connect ...string) (http.Handler, error) {
+	connectSrc := "'self'"
+	for _, o := range connect {
+		if o = strings.TrimSpace(o); o != "" && !strings.ContainsAny(o, " ;'\"") {
+			connectSrc += " " + o
+		}
+	}
 	var root fs.FS
 	if dir != "" {
 		if _, err := os.Stat(path.Join(dir, "index.html")); err != nil {
@@ -53,7 +65,7 @@ func Handler(dir string) (http.Handler, error) {
 			r.URL.Path = "/"
 		}
 		h.Set("Content-Security-Policy",
-			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src 'self'; "+
+			"default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; connect-src "+connectSrc+"; "+
 				"frame-ancestors 'none'; base-uri 'self'; form-action 'self'")
 		files.ServeHTTP(w, r)
 	}), nil

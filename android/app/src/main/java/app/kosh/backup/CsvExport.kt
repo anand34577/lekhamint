@@ -16,7 +16,7 @@ object CsvExport {
 
     suspend fun write(rows: List<TransactionEntity>, lookup: Lookup, out: OutputStream): Int = withContext(Dispatchers.IO) {
         val w = out.bufferedWriter(Charsets.UTF_8)
-        w.write("﻿")
+        w.write("\uFEFF") // byte-order mark so Excel reads UTF-8
         w.write(header.joinToString(",")); w.write("\r\n")
         var n = 0
         for (t in rows.sortedWith(compareBy({ it.localDate }, { it.occurredAt }))) {

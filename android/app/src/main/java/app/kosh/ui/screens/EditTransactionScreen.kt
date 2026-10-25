@@ -139,6 +139,12 @@ class EditTxViewModel(
     var repeat by mutableStateOf<String?>(null)
     var repeatMode by mutableStateOf("remind")
     var error by mutableStateOf<String?>(null)
+    /** Things worth a second look (overdraft, card limit, likely duplicate); saving again confirms. */
+    var warning by mutableStateOf<String?>(null)
+    private var warnedFor: String? = null
+    private var saving = false
+    /** The ID a new entry will get, fixed until it is saved, so a double tap cannot record it twice. */
+    private var newId = Ids.newV7()
     var suggested by mutableStateOf<List<String>>(emptyList())
         private set
     var payeeSuggestions by mutableStateOf<List<String>>(emptyList())
@@ -313,6 +319,7 @@ class EditTxViewModel(
     }
 
     fun save(keepOpen: Boolean) {
+        if (saving) return
         val amount = amountMinor()
         val acc = accountId
         when {
@@ -351,7 +358,7 @@ class EditTxViewModel(
         val txId = when {
             original != null -> original!!.id
             ruleId != null -> Ids.recurringOccurrence(ruleId, date)
-            else -> Ids.newV7(now)
+            else -> newId
         }
         val base = original ?: TransactionEntity(id = txId, type = type, accountId = acc!!, amount = amount!!, occurredAt = occurredAt, localDate = date.toString(), createdAt = now)
         val tx = base.copy(
@@ -370,7 +377,25 @@ class EditTxViewModel(
             hadSplits -> emptyList() // the split was turned off: remove its lines
             else -> null
         }
+        saving = true
         viewModelScope.launch {
+            // Warn once about overdrawing, passing a card limit or a likely duplicate; the same entry saved again goes through.
+            val key = listOf(tx.type, tx.accountId, tx.toAccountId, tx.amount, tx.localDate, tx.status).joinToString("|")
+            if (warnedFor != key) {
+                val lines2 = ArrayList<String>()
+                val account = lookup.accountById[tx.accountId]
+                if (account != null && tx.type != "income" && tx.status != "planned") {
+                    val bal = lookup.balances[account.id] ?: account.openingBalance
+                    val back = original?.takeIf { it.accountId == account.id && it.status != "planned" && it.type != "income" }?.amount ?: 0
+                    val after = bal + back - tx.amount
+                    if (Lookup.isLiability(account.type)) {
+                        account.creditLimit?.let { lim -> if (-after > lim) lines2 += "This takes ${account.name} past its ${Money.format(lim, account.currency)} limit." }
+                    } else if (after < 0 && bal + back >= 0) lines2 += "${account.name} has ${Money.format(bal + back, account.currency)}; this takes it below zero."
+                }
+                if (original == null && tx.type != "transfer") c.repo.likelyDuplicate(tx)?.let { lines2 += "The same amount is already recorded on this account for that day${it.payee?.let { p -> " ($p)" } ?: ""}. Tap Save again if this is a second payment." }
+                if (lines2.isNotEmpty()) { warning = lines2.joinToString("\n"); warnedFor = key; saving = false; return@launch }
+            }
+            warning = null
             if (lines == null) c.repo.saveTransaction(tx) else c.repo.saveTransactionWithSplits(tx, lines)
             if (ruleId != null) {
                 val freq = repeat!!
@@ -383,6 +408,9 @@ class EditTxViewModel(
                     ),
                 )
             }
+            newId = Ids.newV7()
+            warnedFor = null
+            saving = false
             if (keepOpen) {
                 expr = ""; payee = ""; note = ""; repeat = null; categoryChosen = false
                 splitMode = false; splitLines.clear(); hadSplits = false; ruleOutcome = null
@@ -457,6 +485,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
 
                 AmountDisplay(vm, onTap = { focus.clearFocus() })
                 vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
+                vm.warning?.let { Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
 
                 // Accounts
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
@@ -614,7 +643,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                 AmountPad(onKey = { focus.clearFocus(); vm.press(it) }, onClear = vm::clearAmount, modifier = Modifier.padding(top = 4.dp))
             }
             SaveButton(
-                label = if (vm.isEdit) "Save changes" else "Save",
+                label = if (vm.warning != null) "Save anyway" else if (vm.isEdit) "Save changes" else "Save",
                 onClick = { vm.save(keepOpen = false) },
                 onLongClick = if (vm.isEdit) null else ({
                     vm.save(keepOpen = true)
@@ -783,6 +812,7 @@ fun accountTypeLabel(type: String) = when (type) {
     "credit_card" -> "Credit card"
     "savings" -> "Savings"
     "investment" -> "Investment"
+    "deposit" -> "Fixed / recurring deposit"
     "loan" -> "Loan"
     else -> "Other"
 }

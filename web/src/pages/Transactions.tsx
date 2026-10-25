@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import { api, type BatchOp, type Transaction, type TxRow } from '../lib/api'
-import { useAccounts, useCanWrite, useCategorizationRules, useCategoryIndex, useLedger, useSplitIndex, useSplits, useTagIndex, useWrite } from '../lib/data'
+import { isLiability, useAccounts, useBalances, useCanWrite, useCategorizationRules, useCategoryIndex, useLedger, useSplitIndex, useSplits, useStableId, useTagIndex, useWrite } from '../lib/data'
 import { evaluate } from '../lib/finance'
 import { applyRules, type RuleOutcome } from '../lib/rules'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
 import { addDays, csvEscape, dayLabel, download, isoDate, monthLabel, monthRange, uuidv7 } from '../lib/util'
-import { Card, Check, Dot, Empty, Field, Modal, Money, Segmented, Skeleton, errorText, toast } from '../components'
+import { Card, Check, Dot, Empty, Field, Modal, Money, Segmented, Skeleton, errorText, saveErrorText, toast } from '../components'
 import { Icon } from '../icons'
 import { SplitEditor, TagInput, splitMinor, type SplitDraft } from './parts'
 import { rememberAccount, type Resolved } from './QuickAdd'
@@ -267,6 +267,10 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
   const rules = useCategorizationRules()
   const write = useWrite()
   const canWrite = useCanWrite()
+  const balances = useBalances()
+  const newId = useStableId()
+  // Warnings the user has seen for exactly this entry; saving again confirms them.
+  const [warn, setWarn] = useState<{ key: string; lines: string[] } | null>(null)
   const src = tx ?? copyOf
   const live = useMemo(() => (accounts.data ?? []).filter((a) => !a.deleted && !a.archived), [accounts.data])
   const lastUsed = (() => { try { return localStorage.getItem(`kosh.lastAccount.${l.id}`) } catch { return null } })()
@@ -313,13 +317,46 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
     return () => clearTimeout(h)
   }, [payee, note, type, accountId, minor, rules.data]) // eslint-disable-line
 
+  /** Things worth a second look before saving: overdrawing an account, passing a card limit, a likely duplicate. */
+  const checks = async (): Promise<string[]> => {
+    const out: string[] = []
+    if (!minor || status === 'planned' || !acc) return out
+    if (type !== 'income') {
+      const bal = balances.data?.find((b) => b.account_id === accountId)?.balance
+      if (bal !== undefined) {
+        // Editing: the old amount is already in the balance.
+        const back = tx && tx.account_id === accountId && tx.status !== 'planned' && tx.type !== 'income' ? tx.amount : 0
+        const after = bal + back - minor
+        if (isLiability(acc.type)) {
+          if (acc.credit_limit && -after > acc.credit_limit) out.push(`This takes ${acc.name} past its credit limit of ${formatMoney(acc.credit_limit, code)}: ${formatMoney(-after, code)} would be owed.`)
+        } else if (after < 0 && bal + back >= 0) {
+          out.push(`${acc.name} has ${formatMoney(bal + back, code)}, so this would take it below zero, to ${formatMoney(after, code)}. Check the amount or the account.`)
+        }
+      }
+    }
+    if (!tx && type !== 'transfer') {
+      try {
+        const same = await api.transactions(l.id, { from: date, to: date, account_id: accountId, type, min_amount: String(minor), max_amount: String(minor), limit: '5' })
+        const hit = same.transactions.find((r) => r.data.amount === minor && !r.deleted)
+        if (hit) {
+          const t = new Date(hit.data.occurred_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+          out.push(`${formatMoney(minor, code)}${hit.data.payee ? ` to ${hit.data.payee}` : ''} is already recorded on ${acc.name} for ${dayLabel(date).toLowerCase()} (added ${t}). If this is a second payment, save anyway.`)
+        }
+      } catch { /* offline: skip the check, the save itself will report the problem */ }
+    }
+    return out
+  }
+
   const save = async (another: boolean) => {
     setErr('')
-    if (!minor || minor <= 0) return setErr('Enter an amount')
+    if (write.batch.isPending) return
+    if (!minor || minor <= 0) return setErr(amount.trim() && value === null ? 'That amount is not a number or sum we understand. Use digits like 450 or 450+80.' : 'Enter an amount more than zero')
     if (!accountId) return setErr('Choose an account')
     if (type === 'transfer' && (!toAccountId || toAccountId === accountId)) return setErr('Choose a different destination account')
     const toMinor = type === 'transfer' ? (cross ? parseMoney(toAmount, toAcc!.currency) : minor) : null
     if (type === 'transfer' && !toMinor) return setErr(`Enter the amount received in ${toAcc?.currency}`)
+    if (type === 'transfer' && cross && toMinor && toMinor <= 0) return setErr('The amount received must be more than zero')
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return setErr('Pick a date')
     const useSplit = split && type !== 'transfer'
     if (useSplit) {
       if (split.length < 2) return setErr('A split needs at least two lines')
@@ -327,6 +364,12 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
       if (split.some((s) => !splitMinor(s, code) || splitMinor(s, code)! <= 0)) return setErr('Enter an amount for every line')
       const left = minor - split.reduce((a, s) => a + (splitMinor(s, code) ?? 0), 0)
       if (left !== 0) return setErr(left > 0 ? `${formatMoney(left, code)} still to assign` : `Lines add up to ${formatMoney(-left, code)} more than the total`)
+    }
+    // Warn once; the same entry saved again goes through.
+    const warnKey = [type, accountId, toAccountId, minor, date, status].join('|')
+    if (warn?.key !== warnKey) {
+      const lines = await checks()
+      if (lines.length) { setWarn({ key: warnKey, lines }); return }
     }
     const keepTime = tx && tx.local_date === date
     const occurred = keepTime ? tx.occurred_at : (() => { const d = new Date(date + 'T12:00:00'); const n = new Date(); d.setHours(n.getHours(), n.getMinutes()); return d.getTime() })()
@@ -338,20 +381,21 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
       tag_ids: tagIds.filter((t) => tagIndex.byId.has(t)),
     }
     try {
-      const id = tx?.id ?? uuidv7()
-      const batch: BatchOp[] = [tx ? { op: 'update', entity: 'transactions', id, data } : { op: 'create', entity: 'transactions', id, data: { ...data, created_at: Date.now() } }]
+      const id = tx?.id ?? newId
+      // create_if_missing with an ID kept for the life of the form: pressing Save twice or retrying records it once.
+      const batch: BatchOp[] = [tx ? { op: 'update', entity: 'transactions', id, data } : { op: 'create_if_missing', entity: 'transactions', id, data: { ...data, created_at: Date.now() } }]
       const keep = new Set((useSplit ? split : []).map((s) => s.id))
       for (const s of existingSplits) if (!keep.has(s.id)) batch.push({ op: 'delete', entity: 'transaction_splits', id: s.id })
       if (useSplit) split.forEach((s, i) => {
         const d = { transaction_id: id, category_id: s.category_id, amount: splitMinor(s, code)!, sort_order: i }
-        batch.push(existingSplits.some((x) => x.id === s.id) ? { op: 'update', entity: 'transaction_splits', id: s.id, data: d } : { op: 'create', entity: 'transaction_splits', id: s.id, data: d })
+        batch.push(existingSplits.some((x) => x.id === s.id) ? { op: 'update', entity: 'transaction_splits', id: s.id, data: d } : { op: 'create_if_missing', entity: 'transaction_splits', id: s.id, data: d })
       })
       await write.batch.mutateAsync(batch)
       rememberAccount(l.id, accountId)
       if (tx) toast('Saved')
       else toast(`Added ${formatMoney(minor, code)}`, { label: 'Undo', run: () => write.batch.mutate([{ op: 'delete', entity: 'transactions', id }]) })
       if (another) onAnother(); else onClose()
-    } catch (x) { setErr(errorText(x)) }
+    } catch (x) { setErr(saveErrorText(x)) }
   }
 
   const startSplit = () => setSplit([
@@ -365,7 +409,7 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
       {tx && <button type="button" onClick={() => onDuplicate(tx)} title="Start a new transaction from this one"><Icon name="copy" size={16} /> Duplicate</button>}
       <span className="spacer" />
       {!tx && <button type="button" onClick={() => save(true)} disabled={write.batch.isPending} title="Save and start another">Save + new</button>}
-      <button className="primary" form="txform" disabled={write.batch.isPending}>{write.batch.isPending ? 'Saving…' : 'Save'}</button>
+      <button className="primary" form="txform" disabled={write.batch.isPending}>{write.batch.isPending ? 'Saving…' : warn ? 'Save anyway' : 'Save'}</button>
     </>}>
       <form id="txform" onSubmit={(e) => { e.preventDefault(); save(false) }}>
         <fieldset disabled={readOnly} className="plain">
@@ -423,6 +467,15 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, copyOf, onAn
             {type !== 'transfer' && <div className="field-pad"><Check checked={excluded} onChange={setExcluded}>Exclude from reports</Check></div>}
           </div>
           {tx?.recurring_rule_id && <p className="muted small"><Icon name="repeat" size={14} /> Recorded from a recurring rule.</p>}
+          {warn && warn.key === [type, accountId, toAccountId, minor, date, status].join('|') && (
+            <div className="callout warn" role="alert">
+              <Icon name="alert" size={16} />
+              <div>{warn.lines.map((t) => <p key={t}>{t}</p>)}<p className="small muted">Press Save again to keep it as it is.</p></div>
+            </div>
+          )}
+          {tx?.loan_id && <p className="muted small"><Icon name="bank" size={14} /> Part of a loan repayment ({tx.part ?? 'payment'}). Edit or delete it from Loans to keep the schedule right.</p>}
+          {tx?.deposit_id && <p className="muted small"><Icon name="piggy" size={14} /> Linked to a deposit ({tx.part ?? 'movement'}).</p>}
+          {tx?.debt_id && <p className="muted small"><Icon name="hand" size={14} /> Linked to money lent or borrowed. It moves the balance but is not counted as spending or income{tx.part === 'interest' ? ', except this interest' : ''}.</p>}
           {err && <p className="error" role="alert">{err}</p>}
         </fieldset>
       </form>

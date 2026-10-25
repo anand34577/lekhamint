@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ExchangeRate } from '../lib/api'
-import { useCanWrite, useExchangeRates, useLedger, useWrite, type WithId } from '../lib/data'
+import { useCanWrite, useExchangeRates, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
 import { download, isoDate, shortDate } from '../lib/util'
 import { Card, Confirm, CurrencySelect, Field, Modal, Segmented, errorText, toast } from '../components'
 import { Icon } from '../icons'
@@ -16,6 +16,7 @@ export function Settings({ theme, setTheme, onSignOut, params }: PageProps) {
   const [pw, setPw] = useState({ current: '', next: '' })
   const [busy, setBusy] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
   const file = useRef<HTMLInputElement>(null)
   const ratesRef = useRef<HTMLDivElement>(null)
   useEffect(() => { if (params.section === 'rates') ratesRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [params.section])
@@ -72,10 +73,14 @@ export function Settings({ theme, setTheme, onSignOut, params }: PageProps) {
             <Field label="New password" hint="At least 8 characters"><input type="password" autoComplete="new-password" minLength={8} value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} required /></Field>
             <button disabled={!!busy}>Change password</button>
           </form>
-          <p><button onClick={async () => { await api.logout().catch(() => {}); onSignOut() }}><Icon name="logout" size={16} /> Sign out</button></p>
+          <div className="row">
+            <button onClick={async () => { await api.logout().catch(() => {}); onSignOut() }}><Icon name="logout" size={16} /> Sign out</button>
+            <button className="danger" onClick={() => setDeletingAccount(true)}>Delete account…</button>
+          </div>
         </Card>
       </div>
       {deleting && <DeleteBook onClose={() => setDeleting(false)} />}
+      {deletingAccount && <DeleteAccount email={me.data?.user.email ?? ''} onClose={() => setDeletingAccount(false)} onDeleted={onSignOut} />}
     </>
   )
 }
@@ -95,6 +100,23 @@ function DeleteBook({ onClose }: { onClose: () => void }) {
       body={<>
         <p>This permanently removes every account, transaction and budget in this book from the server, for every member. Phones keep their own copy until they sync. Export first if you might need it.</p>
         <Field label={`Type ${l.name} to confirm`}><input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus /></Field>
+      </>} />
+  )
+}
+
+function DeleteAccount({ email, onClose, onDeleted }: { email: string; onClose: () => void; onDeleted: () => void }) {
+  const [password, setPassword] = useState('')
+  return (
+    <Confirm title="Delete your account?" danger confirm="Delete account forever" onClose={onClose} disabled={!password}
+      onConfirm={async () => {
+        await api.deleteAccount(password)
+        try { localStorage.removeItem('kosh.ledger') } catch { /* ignore */ }
+        toast('Your account was deleted')
+        onDeleted()
+      }}
+      body={<>
+        <p>This permanently deletes <strong>{email}</strong>, every book that only you own and all of their data. You are removed from books that have another owner. Phones keep their own copy. Export first if you might need it.</p>
+        <Field label="Password"><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus /></Field>
       </>} />
   )
 }
@@ -126,20 +148,21 @@ function Rates() {
 function RateForm({ rate, onClose }: { rate?: WithId<ExchangeRate>; onClose: () => void }) {
   const l = useLedger()
   const write = useWrite()
+  const newId = useStableId()
   const [base, setBase] = useState(rate?.base ?? (l.base_currency === 'USD' ? 'EUR' : 'USD'))
   const [quote, setQuote] = useState(rate?.quote ?? l.base_currency)
   const [value, setValue] = useState(rate?.rate ?? '')
   const [date, setDate] = useState(rate?.effective_date ?? isoDate())
   const [err, setErr] = useState('')
   return (
-    <Modal title={rate ? 'Edit rate' : 'New exchange rate'} onClose={onClose} footer={<><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="rateform">Save</button></>}>
+    <Modal title={rate ? 'Edit rate' : 'New exchange rate'} onClose={onClose} footer={<><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="rateform" disabled={write.save.isPending}>Save</button></>}>
       <form id="rateform" onSubmit={async (e) => {
         e.preventDefault()
         const v = value.trim().replace(/,/g, '')
         if (base === quote) return setErr('Pick two different currencies')
         if (!/^\d+(\.\d+)?$/.test(v) || Number(v) <= 0) return setErr('Enter a positive number, e.g. 83.25')
         try {
-          await write.save.mutateAsync({ entity: 'exchange_rates', id: rate?.id, data: { base, quote, rate: v, effective_date: date, source: 'manual' } })
+          await write.save.mutateAsync({ entity: 'exchange_rates', id: rate?.id, newId, data: { base, quote, rate: v, effective_date: date, source: 'manual' } })
           toast('Rate saved'); onClose()
         } catch (x) { setErr(errorText(x)) }
       }}>

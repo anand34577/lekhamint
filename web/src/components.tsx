@@ -175,6 +175,56 @@ export function PaceChart({ now, prev, days, today, label }: { now: number[]; pr
   )
 }
 
+/**
+ * Line chart with labelled axis ends, a point marker per value and a data
+ * table for screen readers (and anyone who prefers numbers). [onPick] makes
+ * points clickable, e.g. to open the records behind them.
+ */
+export function LineChart({ series, labels, currency: code, label, onPick, height = 160 }: {
+  series: { name: string; color: string; values: number[]; dashed?: boolean }[]; labels: string[]; currency: string; label: string; onPick?: (i: number) => void; height?: number
+}) {
+  const hidden = useContext(HideAmounts)
+  const [hover, setHover] = useState<number | null>(null)
+  const all = series.flatMap((s) => s.values)
+  if (!labels.length || !all.length) return null
+  const lo = Math.min(0, ...all), hi = Math.max(1, ...all)
+  const W = 600, H = height, P = 6
+  const x = (i: number) => (labels.length === 1 ? W / 2 : (i / (labels.length - 1)) * (W - 2 * P) + P)
+  const y = (v: number) => H - P - ((v - lo) / (hi - lo || 1)) * (H - 2 * P)
+  return (
+    <figure className="line-chart" aria-label={label}>
+      <div className="line-plot">
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label} onMouseLeave={() => setHover(null)}>
+          {lo < 0 && <line x1="0" x2={W} y1={y(0)} y2={y(0)} stroke="var(--line)" vectorEffect="non-scaling-stroke" />}
+          {series.map((s) => (
+            <polyline key={s.name} points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(' ')} fill="none" stroke={s.color} strokeWidth="2.2"
+              strokeDasharray={s.dashed ? '5 5' : undefined} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+          ))}
+          {labels.map((_, i) => (
+            <rect key={i} x={x(i) - W / labels.length / 2} y="0" width={W / labels.length} height={H} fill="transparent"
+              onMouseEnter={() => setHover(i)} onClick={() => onPick?.(i)} style={{ cursor: onPick ? 'pointer' : 'default' }} />
+          ))}
+          {hover !== null && <line x1={x(hover)} x2={x(hover)} y1="0" y2={H} stroke="var(--muted)" strokeOpacity="0.4" vectorEffect="non-scaling-stroke" />}
+        </svg>
+        {hover !== null && !hidden && (
+          <div className="chart-tip" style={{ left: `${(x(hover) / W) * 100}%` }}>
+            <strong>{labels[hover]}</strong>
+            {series.map((s) => <span key={s.name}><i className="sw" style={{ background: s.color }} />{s.name}: {formatMoney(s.values[hover] ?? 0, code)}</span>)}
+          </div>
+        )}
+      </div>
+      <figcaption className="legend">
+        {series.map((s) => <span key={s.name}><i className="sw" style={{ background: s.color }} />{s.name}</span>)}
+        <span className="muted">{labels[0]} – {labels[labels.length - 1]}{hidden ? '' : ` · range ${compactMoney(lo, code)} to ${compactMoney(hi, code)}`}</span>
+      </figcaption>
+      <details className="chart-data"><summary className="muted small">Show as a table</summary>
+        <table className="table compact"><thead><tr><th>Period</th>{series.map((s) => <th key={s.name} className="num">{s.name}</th>)}</tr></thead>
+          <tbody>{labels.map((l, i) => <tr key={l + i}><td>{l}</td>{series.map((s) => <td key={s.name} className="num"><Money value={s.values[i] ?? 0} currency={code} /></td>)}</tr>)}</tbody></table>
+      </details>
+    </figure>
+  )
+}
+
 /** Small undo toast for reversible actions (docs/01: Undo instead of "Are you sure?"). */
 type ToastT = { text: string; action?: { label: string; run: () => void }; tone?: 'error' }
 let pushToast: (t: ToastT) => void = () => {}
@@ -206,6 +256,17 @@ export function errorText(e: unknown): string {
     }
   }
   return e instanceof Error && e.message ? e.message : 'Something went wrong'
+}
+
+/**
+ * For a failed save. A dropped connection leaves the outcome unknown; since
+ * every form keeps its record ID (useStableId + create_if_missing), saving
+ * again is safe and cannot record the same thing twice, and we say so.
+ */
+export function saveErrorText(e: unknown): string {
+  if (e instanceof ApiError && e.status === 0) return "The connection dropped, so we can't tell whether this was saved. Press Save again when you're back online; it is safe and will not record it twice."
+  if (e instanceof ApiError && e.code === 'validation') return `Not saved: ${e.message}`
+  return errorText(e)
 }
 
 /** Keeps a crash in one page from blanking the whole app; offers a retry and shows what broke. */

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { BatchOp, RecurringRule } from '../lib/api'
-import { useAccounts, useCanWrite, useCategoryIndex, useLedger, useRules, useWrite, type WithId } from '../lib/data'
+import { useAccounts, useCanWrite, useCategoryIndex, useLedger, useRules, useStableId, useWrite, type WithId } from '../lib/data'
 import { dueDates, initialNextDate, nextAfter, nextDate, occurrenceData, occurrenceId, type RuleWithId } from '../lib/recurrence'
 import { parseMoney, toPlain } from '../lib/money'
 import { addDays, dayLabel, isoDate } from '../lib/util'
@@ -142,6 +142,7 @@ function RuleForm({ rule, onClose, onConfirm }: { rule?: WithId<RuleWithId>; onC
   const accounts = useAccounts()
   const cats = useCategoryIndex()
   const write = useWrite()
+  const newId = useStableId()
   const can = useCanWrite()
   const live = (accounts.data ?? []).filter((a) => !a.deleted && !a.archived)
   const [type, setType] = useState(rule?.type ?? 'expense')
@@ -183,7 +184,7 @@ function RuleForm({ rule, onClose, onConfirm }: { rule?: WithId<RuleWithId>; onC
     if (endMode === 'date' && (!endDate || endDate < start)) return setErr('The end date must be after the start')
     const scheduleChanged = !rule || rule.start_date !== start || rule.frequency !== frequency || rule.every !== every
     try {
-      await write.save.mutateAsync({ entity: 'recurring_rules', id: rule?.id, data: {
+      await write.save.mutateAsync({ entity: 'recurring_rules', id: rule?.id, newId, data: {
         type, name: name.trim() || null, payee: name.trim() || null, account_id: accountId, amount: minor,
         to_account_id: type === 'transfer' ? toAccountId : null, to_amount: toMinor,
         category_id: type === 'transfer' ? null : categoryId || null, frequency, every, start_date: start, mode, paused,
@@ -204,7 +205,7 @@ function RuleForm({ rule, onClose, onConfirm }: { rule?: WithId<RuleWithId>; onC
         toast('Recurring item deleted', { label: 'Undo', run: () => write.restore.mutate({ entity: 'recurring_rules', id: rule.id }) }); onClose()
       }}><Icon name="trash" size={16} /> Delete</button>}
       {rule && nextDue && nextDue <= addDays(isoDate(), 31) && <button type="button" onClick={async () => { await onConfirm(rule, nextDue); onClose() }} title="Record the next occurrence now">Record {dayLabel(nextDue)} now</button>}
-      <span className="spacer" /><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="ruleform">Save</button></> : <button onClick={onClose}>Close</button>}>
+      <span className="spacer" /><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="ruleform" disabled={write.save.isPending}>{write.save.isPending ? 'Saving…' : 'Save'}</button></> : <button onClick={onClose}>Close</button>}>
       <form id="ruleform" onSubmit={submit}>
         <fieldset disabled={!can} className="plain">
           <Segmented label="Type" value={type} onChange={(t) => { setType(t); setCategoryId('') }} options={[['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer']]} />

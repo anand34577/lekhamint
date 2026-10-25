@@ -92,7 +92,7 @@ data class TagEntity(
     tableName = "transactions",
     indices = [
         Index("local_date"), Index("account_id"), Index("to_account_id"), Index("category_id"),
-        Index("payee"), Index("recurring_rule_id"),
+        Index("payee"), Index("recurring_rule_id"), Index("loan_id"), Index("deposit_id"),
     ],
 )
 data class TransactionEntity(
@@ -114,6 +114,11 @@ data class TransactionEntity(
     @ColumnInfo(name = "original_currency") val originalCurrency: String? = null,
     @ColumnInfo(name = "recurring_rule_id") val recurringRuleId: String? = null,
     @ColumnInfo(name = "debt_id") val debtId: String? = null,
+    /** Loan, deposit and what the movement does for it (docs/02, "Loans and deposits"). */
+    @ColumnInfo(name = "loan_id") val loanId: String? = null,
+    @ColumnInfo(name = "deposit_id") val depositId: String? = null,
+    /** principal, interest, fee or prepayment; null for ordinary transactions. */
+    val part: String? = null,
     @ColumnInfo(name = "is_adjustment") val isAdjustment: Boolean = false,
     @ColumnInfo(name = "excluded_from_reports") val excludedFromReports: Boolean = false,
     @ColumnInfo(name = "created_at") val createdAt: Long = 0,
@@ -197,6 +202,81 @@ data class DebtEntity(
     override fun withMeta(hlc: String, deleted: Boolean, dirty: Int) = copy(hlc = hlc, deleted = deleted, dirty = dirty)
 }
 
+
+/**
+ * A bank or institution loan with an EMI schedule. What is owed lives in a
+ * liability account ([accountId]); EMIs are a principal transfer into it plus
+ * an interest expense, both carrying loan_id. Mirrors server entity "loans".
+ */
+@Entity(tableName = "loans")
+data class LoanEntity(
+    @PrimaryKey override val id: String,
+    val name: String,
+    val lender: String? = null,
+    val kind: String = "personal",
+    @ColumnInfo(name = "account_id") val accountId: String,
+    val currency: String,
+    val principal: Long,
+    /** Decimal string, e.g. "8.5"; null = interest-free. */
+    @ColumnInfo(name = "annual_rate") val annualRate: String? = null,
+    @ColumnInfo(name = "rate_type") val rateType: String = "fixed",
+    @ColumnInfo(name = "start_date") val startDate: String,
+    @ColumnInfo(name = "first_due_date") val firstDueDate: String,
+    @ColumnInfo(name = "tenure_months") val tenureMonths: Int,
+    @ColumnInfo(name = "emi_amount") val emiAmount: Long? = null,
+    @ColumnInfo(name = "paid_before") val paidBefore: Int = 0,
+    @ColumnInfo(name = "pay_from_account_id") val payFromAccountId: String? = null,
+    @ColumnInfo(name = "interest_category_id") val interestCategoryId: String? = null,
+    @ColumnInfo(name = "processing_fee") val processingFee: Long? = null,
+    @ColumnInfo(name = "remind_days") val remindDays: Int = 3,
+    val closed: Boolean = false,
+    @ColumnInfo(name = "closed_date") val closedDate: String? = null,
+    val note: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = 0,
+    override val hlc: String = "",
+    override val deleted: Boolean = false,
+    override val dirty: Int = Dirty.CLEAN,
+    override val extras: String = "{}",
+) : Synced<LoanEntity> {
+    override fun withMeta(hlc: String, deleted: Boolean, dirty: Int) = copy(hlc = hlc, deleted = deleted, dirty = dirty)
+}
+
+/**
+ * A fixed or recurring deposit. The money sits in a deposit account
+ * ([accountId]); funding is a transfer in, interest is income, maturity is a
+ * transfer out. Mirrors server entity "deposits".
+ */
+@Entity(tableName = "deposits")
+data class DepositEntity(
+    @PrimaryKey override val id: String,
+    val name: String,
+    val institution: String? = null,
+    val kind: String = "fd",
+    @ColumnInfo(name = "account_id") val accountId: String,
+    val currency: String,
+    /** Principal, or the monthly instalment of an RD. */
+    val amount: Long,
+    @ColumnInfo(name = "annual_rate") val annualRate: String,
+    @ColumnInfo(name = "start_date") val startDate: String,
+    @ColumnInfo(name = "maturity_date") val maturityDate: String,
+    val compounding: String = "quarterly",
+    val payout: String = "cumulative",
+    @ColumnInfo(name = "payout_account_id") val payoutAccountId: String? = null,
+    @ColumnInfo(name = "maturity_amount") val maturityAmount: Long? = null,
+    @ColumnInfo(name = "tax_percent") val taxPercent: String? = null,
+    val status: String = "active",
+    @ColumnInfo(name = "closed_date") val closedDate: String? = null,
+    @ColumnInfo(name = "auto_renew") val autoRenew: Boolean = false,
+    @ColumnInfo(name = "remind_days") val remindDays: Int = 7,
+    val note: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: Long = 0,
+    override val hlc: String = "",
+    override val deleted: Boolean = false,
+    override val dirty: Int = Dirty.CLEAN,
+    override val extras: String = "{}",
+) : Synced<DepositEntity> {
+    override fun withMeta(hlc: String, deleted: Boolean, dirty: Int) = copy(hlc = hlc, deleted = deleted, dirty = dirty)
+}
 
 /** One line of a split transaction (docs/04). Splits replace the transaction's category in reports when they add up to its amount. */
 @Entity(tableName = "transaction_splits", indices = [Index("transaction_id")])

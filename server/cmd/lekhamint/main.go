@@ -206,13 +206,17 @@ func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.C
 		Log: log, Version: version, CORSOrigins: cfg.CORSOrigins, TrustProxy: cfg.TrustProxy,
 		MaxImportSize: cfg.MaxImportSize,
 	}
+	if cfg.AIBaseURL != "" {
+		api.AI = &httpapi.AIProxy{BaseURL: cfg.AIBaseURL, APIKey: cfg.AIAPIKey, Model: cfg.AIModel, Timeout: cfg.AITimeout}
+		log.Info("assistant proxy enabled", "endpoint", httpapi.RedactURL(cfg.AIBaseURL), "model", cfg.AIModel)
+	}
 	if before != nil {
 		if err := before(ctx, demo.Deps{Auth: authSvc, Ledgers: ledgers, Sync: sync}); err != nil {
 			return err
 		}
 	}
 	if !cfg.NoWeb {
-		web, err := webui.Handler(cfg.WebDir)
+		web, err := webui.Handler(cfg.WebDir, append(webui.DefaultConnect, cfg.AIConnectOrigins...)...)
 		if err != nil {
 			return fmt.Errorf("web app: %w", err)
 		}

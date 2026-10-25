@@ -1,5 +1,6 @@
 package app.kosh.ui
 
+import androidx.activity.compose.LocalActivity
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -42,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -68,6 +68,13 @@ import app.kosh.ui.screens.AccountsScreen
 import app.kosh.ui.screens.BackupScreen
 import app.kosh.ui.screens.BudgetsScreen
 import app.kosh.ui.screens.CategoriesScreen
+import app.kosh.ui.screens.AssistantScreen
+import app.kosh.ui.screens.DepositDetailScreen
+import app.kosh.ui.screens.DepositsScreen
+import app.kosh.ui.screens.LoanDetailScreen
+import app.kosh.ui.screens.LoansScreen
+import app.kosh.ui.screens.StatementsScreen
+import app.kosh.ui.screens.ToolsScreen
 import app.kosh.ui.screens.DebtsScreen
 import app.kosh.ui.screens.EditAccountScreen
 import app.kosh.ui.screens.EditBudgetScreen
@@ -103,6 +110,13 @@ object Routes {
     const val EDIT_RULE = "rule_edit?id={id}"
     const val EDIT_BUDGET = "budget_edit?id={id}"
     const val DEBTS = "debts"
+    const val LOANS = "loans"
+    const val LOAN = "loan/{id}"
+    const val DEPOSITS = "deposits"
+    const val DEPOSIT = "deposit/{id}"
+    const val TOOLS = "tools"
+    const val STATEMENTS = "statements"
+    const val ASSISTANT = "assistant"
     const val TRASH = "trash"
     const val SYNC = "sync"
     const val BACKUP = "backup"
@@ -204,6 +218,13 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
                     EditBudgetScreen(e.arguments?.getString("id").orEmpty().ifEmpty { null })
                 }
                 composable(Routes.DEBTS) { DebtsScreen() }
+                composable(Routes.LOANS) { LoansScreen() }
+                composable(Routes.LOAN) { e -> LoanDetailScreen(e.arguments?.getString("id").orEmpty()) }
+                composable(Routes.DEPOSITS) { DepositsScreen() }
+                composable(Routes.DEPOSIT) { e -> DepositDetailScreen(e.arguments?.getString("id").orEmpty()) }
+                composable(Routes.TOOLS) { ToolsScreen() }
+                composable(Routes.STATEMENTS) { StatementsScreen() }
+                composable(Routes.ASSISTANT) { AssistantScreen() }
                 composable(Routes.TRASH) { TrashScreen() }
                 composable(Routes.SYNC) { SyncScreen(onJoined = { nav.navigate(Routes.HOME) { popUpTo(0) } }) }
                 composable(Routes.BACKUP) { BackupScreen(onRestored = { nav.navigate(Routes.HOME) { popUpTo(0) } }) }
@@ -269,7 +290,7 @@ private fun AppLockGate(enabled: Boolean, content: @Composable () -> Unit) {
         content()
         return
     }
-    val activity = LocalContext.current as? FragmentActivity
+    val activity = LocalActivity.current as? FragmentActivity
     val prompt = {
         if (activity != null) {
             val p = BiometricPrompt(
