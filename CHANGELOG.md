@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.2.0 (unreleased)
+## 1.2.0
 
 **Fixes**
 - Net worth now counts money others owe you and money you owe people (web, Android and a new server `reports/position`). Lending to a friend no longer lowers net worth.
