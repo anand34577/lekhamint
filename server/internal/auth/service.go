@@ -22,7 +22,14 @@ var (
 	ErrInvalidEmail       = errors.New("email address is not valid")
 	ErrInvalidName        = errors.New("name must be 1 to 100 characters")
 	ErrUnauthenticated    = errors.New("not signed in or session expired")
+	ErrSSOClosed          = errors.New("this server has no account for that identity; ask the administrator to invite you")
+	ErrSSOAccount         = errors.New("this account signs in through your identity provider and has no password here")
+	ErrAccountDisabled    = errors.New("this account is disabled")
 )
+
+// NoPassword is stored as the password hash of accounts created through single
+// sign-on. It is not a valid hash, so no password ever matches it.
+const NoPassword = "!sso"
 
 // Service implements registration, login and session validation.
 type Service struct {
@@ -127,6 +134,59 @@ func (s *Service) Login(ctx context.Context, email, password, device string) (st
 	return u, token, err
 }
 
+// SSOLogin signs in the person an identity provider vouched for. An existing
+// account with the same email is used; otherwise one is created when
+// autoCreate allows it. The first user of a fresh server becomes admin.
+func (s *Service) SSOLogin(ctx context.Context, email, name, device string, autoCreate bool) (store.User, string, error) {
+	email = store.NormalizeEmail(email)
+	u, err := store.UserByEmail(ctx, s.DB, email)
+	switch {
+	case err == nil:
+	case errors.Is(err, store.ErrNotFound):
+		n, cerr := store.CountUsers(ctx, s.DB)
+		if cerr != nil {
+			return store.User{}, "", cerr
+		}
+		if !autoCreate && n > 0 {
+			return store.User{}, "", ErrSSOClosed
+		}
+		addr, perr := mail.ParseAddress(email)
+		if perr != nil || addr.Address != email || len(email) > 254 {
+			return store.User{}, "", ErrInvalidEmail
+		}
+		name = strings.TrimSpace(name)
+		if name == "" {
+			name, _, _ = strings.Cut(email, "@")
+		}
+		if utf8.RuneCountInString(name) > 100 {
+			name = string([]rune(name)[:100])
+		}
+		now := s.Now().UnixMilli()
+		u = store.User{ID: ids.NewV7(), Email: email, Name: name, PasswordHash: NoPassword, CreatedAt: now, UpdatedAt: now}
+		err = s.DB.InTx(ctx, func(tx *db.Tx) error {
+			count, err := store.CountUsers(ctx, tx)
+			if err != nil {
+				return err
+			}
+			u.IsAdmin = count == 0
+			return store.CreateUser(ctx, tx, u)
+		})
+		if errors.Is(err, store.ErrDuplicate) { // created by a parallel sign-in
+			u, err = store.UserByEmail(ctx, s.DB, email)
+		}
+		if err != nil {
+			return store.User{}, "", err
+		}
+	default:
+		return store.User{}, "", err
+	}
+	if u.Disabled {
+		return store.User{}, "", ErrAccountDisabled
+	}
+	token, err := s.newSession(ctx, u.ID, device)
+	return u, token, err
+}
+
 func (s *Service) dummy() string {
 	s.dummyOnce.Do(func() { s.dummyHash, _ = HashPassword("timing-equaliser-not-a-password") })
 	return s.dummyHash
@@ -183,6 +243,9 @@ func (s *Service) Authenticate(ctx context.Context, token string) (store.User, s
 // ChangePassword verifies the current password, sets a new one and signs out
 // every other session.
 func (s *Service) ChangePassword(ctx context.Context, u store.User, sessionID, current, next string) error {
+	if u.PasswordHash == NoPassword {
+		return ErrSSOAccount
+	}
 	ok, err := VerifyPassword(u.PasswordHash, current)
 	if err != nil || !ok {
 		return ErrInvalidCredentials
@@ -212,10 +275,15 @@ func (s *Service) SetPassword(ctx context.Context, userID, keepSessionID, passwo
 // Ledgers they alone own are deleted with all their data; they are removed
 // from ledgers that have another owner. Returns the IDs of deleted ledgers.
 func (s *Service) DeleteAccount(ctx context.Context, u store.User, password string) ([]string, error) {
-	ok, err := VerifyPassword(u.PasswordHash, password)
-	if err != nil || !ok {
+	if u.PasswordHash == NoPassword {
+		// Single sign-on accounts have no password; typing their email confirms the deletion.
+		if store.NormalizeEmail(password) != u.Email {
+			return nil, ErrInvalidCredentials
+		}
+	} else if ok, err := VerifyPassword(u.PasswordHash, password); err != nil || !ok {
 		return nil, ErrInvalidCredentials
 	}
+	var err error
 	var deleted []string
 	err = s.DB.InTx(ctx, func(tx *db.Tx) error {
 		ids, err := store.SoleOwnedLedgers(ctx, tx, u.ID)

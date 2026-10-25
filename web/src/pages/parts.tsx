@@ -7,6 +7,7 @@ import { formatMoney, parseMoney, toPlain } from '../lib/money'
 import { tagColor, uuidv7 } from '../lib/util'
 import { errorText, toast } from '../components'
 import { CategorySelect } from './Transactions'
+import { NumInput } from '../controls'
 
 /** Tags as removable chips plus a search box; Enter on a new name creates the tag. */
 export function TagInput({ value, onChange }: { value: string[]; onChange: (ids: string[]) => void }) {
@@ -63,7 +64,7 @@ export function SplitEditor({ lines, onChange, total, code, kind }: { lines: Spl
       {lines.map((l, i) => (
         <div key={l.id} className="split-line">
           <CategorySelect value={l.category_id} onChange={(v) => set(i, { category_id: v })} cats={cats} kind={kind} all="Choose category" />
-          <input inputMode="decimal" value={l.expr} onChange={(e) => set(i, { expr: e.target.value })} placeholder="0" aria-label={`Amount for line ${i + 1}`} />
+          <NumInput kind="expr" value={l.expr} onChange={(e) => set(i, { expr: e.target.value })} placeholder="0" aria-label={`Amount for line ${i + 1}`} />
           <button type="button" className="icon-btn" aria-label="Remove line" disabled={lines.length <= 2} onClick={() => onChange(lines.filter((_, k) => k !== i))}>✕</button>
         </div>
       ))}

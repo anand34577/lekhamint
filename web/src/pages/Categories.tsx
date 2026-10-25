@@ -3,6 +3,7 @@ import type { Category } from '../lib/api'
 import { useCategoryIndex, useStableId, useWrite, type WithId } from '../lib/data'
 import { Card, Dot, Field, Modal, errorText, toast } from '../components'
 import type { PageProps } from '../App'
+import { Select } from '../controls'
 
 const PALETTE = ['#EF6C00', '#E53935', '#D81B60', '#8E24AA', '#5E35B1', '#3949AB', '#1E88E5', '#039BE5', '#00ACC1', '#00897B', '#2E7D32', '#7CB342', '#C0CA33', '#FFB300', '#8D6E63', '#546E7A']
 const NATURES: [string, string][] = [['need', 'Need'], ['want', 'Want'], ['savings', 'Savings & debt']]
@@ -66,10 +67,10 @@ function CategoryForm({ cat, kind, parent, onClose }: Edit & { onClose: () => vo
         } catch (x) { setErr(errorText(x)) }
       }}>
         <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
-        {!hasKids && <Field label="Group"><select value={parentId} onChange={(e) => setParentId(e.target.value)}><option value="">None (top level)</option>
-          {cats.roots(kind).filter((r) => r.id !== cat?.id).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</select></Field>}
+        {!hasKids && <Field label="Group"><Select value={parentId} onChange={(e) => setParentId(e.target.value)}><option value="">None (top level)</option>
+          {cats.roots(kind).filter((r) => r.id !== cat?.id).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</Select></Field>}
         {kind === 'expense' && <Field label="Kind of spending" hint="Used for the needs / wants / savings (50/30/20) view">
-          <select value={nature} onChange={(e) => setNature(e.target.value)}><option value="">Not set</option>{NATURES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>}
+          <Select value={nature} onChange={(e) => setNature(e.target.value)}><option value="">Not set</option>{NATURES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>}
         <Field label="Colour"><div className="row">{PALETTE.map((c) => <button type="button" key={c} className={`swatch ${c === color ? 'on' : ''}`} aria-label={`Colour ${c}`} aria-pressed={c === color} onClick={() => setColor(c)} style={{ background: c }} />)}</div></Field>
         {err && <p className="error">{err}</p>}
       </form>

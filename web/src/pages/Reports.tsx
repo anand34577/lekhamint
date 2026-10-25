@@ -4,8 +4,9 @@ import { api } from '../lib/api'
 import { useCategoryIndex, useLedger, useSummary, useTagIndex } from '../lib/data'
 import { dayLabel, isoDate, monthLabel, monthRange, parseDate } from '../lib/util'
 import { Bar, Bars, Card, Donut, Dot, Empty, Money, Segmented, Skeleton } from '../components'
-import { Icon } from '../icons'
+import { CatIcon, Icon } from '../icons'
 import type { PageProps } from '../App'
+import { Select } from '../controls'
 
 export function Reports({ go }: PageProps) {
   const l = useLedger()
@@ -70,7 +71,7 @@ export function Reports({ go }: PageProps) {
         <h1>Reports</h1>
         <Segmented label="Period" value={span} onChange={setSpan} options={[['month', 'Month'], ['year', 'Year']]} />
         <div className="row month-nav"><button className="icon-btn" onClick={() => shift(-1)} aria-label="Previous"><Icon name="left" /></button><strong className="month-label">{span === 'month' ? monthLabel(anchor) : year}</strong><button className="icon-btn" onClick={() => shift(1)} aria-label="Next" disabled={isCurrent}><Icon name="right" /></button></div>
-        {currencies.length > 1 && <select style={{ width: 'auto' }} value={cur} onChange={(e) => setCurSel(e.target.value)}>{currencies.map((c) => <option key={c}>{c}</option>)}</select>}
+        {currencies.length > 1 && <Select style={{ width: 'auto' }} value={cur} onChange={(e) => setCurSel(e.target.value)}>{currencies.map((c) => <option key={c}>{c}</option>)}</Select>}
       </div>
       {summary.isPending ? <div className="grid"><Card><Skeleton /></Card><Card><Skeleton /></Card><Card><Skeleton /></Card></div> : !s || (s.income === 0 && s.expense === 0) ? <Card><Empty icon="chart" title="Nothing to report" body="No income or spending in this period." /></Card> : (
         <>
@@ -88,7 +89,7 @@ export function Reports({ go }: PageProps) {
               <ul className="list">
                 {byRoot.map(([id, v]) => (
                   <li key={id ?? 'none'} className="clickable" style={{ flexDirection: 'column', alignItems: 'stretch' }} onClick={() => setOpen(open === id ? null : id)}>
-                    <div className="row" style={{ flexWrap: 'nowrap' }}><Dot color={cats.color(id)} /><span className="grow">{cats.name(id)}</span>
+                    <div className="row" style={{ flexWrap: 'nowrap' }}><CatIcon name={cats.icon(id)} color={cats.color(id)} size={26} /><span className="grow">{cats.name(id)}</span>
                       <span className="muted small">{Math.round((v.total / s.expense) * 100)}%</span><Money value={v.total} currency={cur} /></div>
                     <Bar fraction={v.total / byRoot[0][1].total} color={cats.color(id)} />
                     {open === id && <>
@@ -121,7 +122,7 @@ export function Reports({ go }: PageProps) {
               {s.income_by_category.length > 0 && (
                 <Card title="Income by source">
                   <ul className="list">{[...s.income_by_category].sort((a, b) => b.amount - a.amount).map((c) => (
-                    <li key={c.category_id ?? 'none'}><Dot color={cats.color(c.category_id)} /><span className="grow">{c.name || 'Uncategorised'}</span><Money value={c.amount} currency={cur} /></li>
+                    <li key={c.category_id ?? 'none'}><CatIcon name={cats.icon(c.category_id)} color={cats.color(c.category_id)} size={26} /><span className="grow">{c.name || 'Uncategorised'}</span><Money value={c.amount} currency={cur} /></li>
                   ))}</ul>
                 </Card>
               )}

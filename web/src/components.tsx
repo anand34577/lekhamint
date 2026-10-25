@@ -2,6 +2,7 @@ import { Component, createContext, useContext, useEffect, useRef, useState, type
 import { ApiError } from './lib/api'
 import { compactMoney, currencies, formatMoney } from './lib/money'
 import { Icon } from './icons'
+import { Select } from './controls'
 
 export const HideAmounts = createContext(false)
 
@@ -87,9 +88,9 @@ export function Segmented<T extends string>({ value, onChange, options, label }:
 
 export function CurrencySelect({ value, onChange, disabled }: { value: string; onChange: (c: string) => void; disabled?: boolean }) {
   return (
-    <select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
+    <Select value={value} onChange={(e) => onChange(e.target.value)} disabled={disabled}>
       {currencies.map((c) => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
-    </select>
+    </Select>
   )
 }
 

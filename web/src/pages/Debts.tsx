@@ -9,6 +9,7 @@ import { dayLabel, isoDate, uuidv7 } from '../lib/util'
 import { Avatar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
+import { Select, DateField, NumInput } from '../controls'
 
 /**
  * Lent & borrowed (docs/02 §9). Money that leaves or enters an account is a
@@ -209,11 +210,11 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
               <input value={person} onChange={(e) => setPerson(e.target.value)} autoFocus={!debt && !preset?.person} placeholder="Name" list="debt-people" maxLength={100} />
               <datalist id="debt-people">{knownPeople.map((n) => <option key={n} value={n} />)}</datalist>
             </Field>
-            <Field label="Amount"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus={!!preset?.person} /></Field>
+            <Field label="Amount"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" autoFocus={!!preset?.person} /></Field>
           </div>
           <div className="two">
             <Field label="Currency" hint={debt ? 'Fixed once recorded' : undefined}><CurrencySelect value={cur} onChange={setCur} disabled={!!debt} /></Field>
-            <Field label="Due back by (optional)"><input type="date" value={due} onChange={(e) => setDue(e.target.value)} /></Field>
+            <Field label="Due back by (optional)"><DateField value={due} onChange={(e) => setDue(e.target.value)} /></Field>
           </div>
           <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What it was for, any agreement" maxLength={2000} /></Field>
           {!debt && (choices.list.length > 0 ? (
@@ -221,9 +222,9 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
               <Check checked={link} onChange={setLink}>{direction === 'lent' ? 'The money left one of my accounts' : 'The money came into one of my accounts'}</Check>
               {link && <div className="two" style={{ marginTop: 8 }}>
                 <Field label="Account" hint={balance !== undefined ? <>Balance <Money value={balance} currency={cur} /></> : undefined}>
-                  <select value={acct?.id ?? ''} onChange={(e) => setAccountId(e.target.value)}>{choices.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+                  <Select value={acct?.id ?? ''} onChange={(e) => setAccountId(e.target.value)}>{choices.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
                 </Field>
-                <Field label="On"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
+                <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
               </div>}
               {!link && <p className="muted small">Only the debt is recorded; no account balance changes. Use this for money that moved before you started using LekhaMint.</p>}
               {lowBalance && <p className="warn-text small"><Icon name="alert" size={14} /> This takes {acct!.name} below zero, to {formatMoney(balance! - minor!, cur)}. Check the account, or save anyway if it is right.</p>}
@@ -332,14 +333,14 @@ function RepayForm({ debts, moves, name, currency, direction, onClose }: { debts
       <form id="repayform" onSubmit={submit}>
         <p className="muted">Outstanding: <strong><Money value={owed} currency={currency} /></strong>{open.length > 1 ? ` across ${open.length} debts` : ''}</p>
         <div className="two">
-          <Field label="Amount repaid"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
-          <Field label="On"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
+          <Field label="Amount repaid"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
         </div>
         <div className="two">
           <Field label={lent ? 'Into account' : 'From account'} hint={balance !== undefined ? <>Balance <Money value={balance} currency={currency} /></> : undefined}>
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{choices.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+            <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{choices.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
           </Field>
-          <Field label="Interest or extra (optional)" hint="Counts as income or cost, not as repayment"><input inputMode="decimal" value={interest} onChange={(e) => setInterest(e.target.value)} placeholder="0" /></Field>
+          <Field label="Interest or extra (optional)" hint="Counts as income or cost, not as repayment"><NumInput kind="decimal" value={interest} onChange={(e) => setInterest(e.target.value)} placeholder="0" /></Field>
         </div>
         {plan && open.length > 1 && plan.parts.length > 0 && (
           <div className="subtle-box small">

@@ -9,6 +9,7 @@ import { workbook, XLSX_TYPE } from '../lib/xlsx'
 import { Bar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
+import { Select, DateField, NumInput } from '../controls'
 
 /**
  * Loans & EMIs (docs/02, "Loans and deposits"). The amount owed lives in a
@@ -342,18 +343,18 @@ function PayEmi({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose: (
       <form id="emiform" onSubmit={submit}>
         {next && <p className="muted small">Instalment {next.n}{next.date < today ? `, due ${dayLabel(next.date)} (overdue)` : `, due ${dayLabel(next.date)}`}. Owed now: <Money value={s.outstanding} currency={cur} /></p>}
         <div className="two">
-          <Field label="Amount paid"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
-          <Field label="Paid on"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={today} /></Field>
+          <Field label="Amount paid"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+          <Field label="Paid on"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={today} /></Field>
         </div>
         <div className="two">
           <Field label="From account" hint={bal !== undefined ? <>Balance <Money value={bal} currency={cur} /></> : undefined}>
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select>
+            <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
           </Field>
           <Field label="Interest part" hint={`Calculated ${formatMoney(auto.interest, cur)}; type the figure from your statement if it differs`}>
-            <input inputMode="decimal" value={interestText} onChange={(e) => setInterestText(e.target.value)} placeholder={toPlain(auto.interest, cur)} />
+            <NumInput kind="decimal" value={interestText} onChange={(e) => setInterestText(e.target.value)} placeholder={toPlain(auto.interest, cur)} />
           </Field>
         </div>
-        <Field label="Late fee or other charges (optional)"><input inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="0" /></Field>
+        <Field label="Late fee or other charges (optional)"><NumInput kind="decimal" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="0" /></Field>
         {minor && minor > 0 && interest !== null && interest <= minor && (
           <div className="subtle-box small">
             <strong>Split</strong>: <Money value={principal} currency={cur} /> principal (reduces what you owe) + <Money value={interest} currency={cur} /> interest (a cost){feeMinor ? <> + <Money value={feeMinor} currency={cur} /> charges</> : ''}.
@@ -406,12 +407,12 @@ function Prepay({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose: (
       <form id="prepayform" onSubmit={submit}>
         <p className="muted small">Extra principal paid outside the EMI. Owed now: <Money value={s.outstanding} currency={cur} /></p>
         <div className="two">
-          <Field label="Prepayment"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
-          <Field label="On"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
+          <Field label="Prepayment"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
         </div>
         <div className="two">
-          <Field label="From account"><select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-          <Field label="Prepayment charge (optional)"><input inputMode="decimal" value={charge} onChange={(e) => setCharge(e.target.value)} placeholder="0" /></Field>
+          <Field label="From account"><Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+          <Field label="Prepayment charge (optional)"><NumInput kind="decimal" value={charge} onChange={(e) => setCharge(e.target.value)} placeholder="0" /></Field>
         </div>
         {opts && (
           <div className="choice-cards">
@@ -466,12 +467,12 @@ function CloseLoan({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose
       {owed > 0 ? <>
         <p>Pays the remaining principal of <strong><Money value={owed} currency={cur} /></strong> and closes the loan. Use the figures from your lender's foreclosure letter.</p>
         <div className="two">
-          <Field label="Interest to the closing date" hint="Calculated for one month; edit to match the letter"><input inputMode="decimal" value={interest} onChange={(e) => setInterest(e.target.value)} /></Field>
-          <Field label="Foreclosure charge"><input inputMode="decimal" value={charge} onChange={(e) => setCharge(e.target.value)} placeholder="0" /></Field>
+          <Field label="Interest to the closing date" hint="Calculated for one month; edit to match the letter"><NumInput kind="decimal" value={interest} onChange={(e) => setInterest(e.target.value)} /></Field>
+          <Field label="Foreclosure charge"><NumInput kind="decimal" value={charge} onChange={(e) => setCharge(e.target.value)} placeholder="0" /></Field>
         </div>
         <div className="two">
-          <Field label="From account"><select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-          <Field label="On"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
+          <Field label="From account"><Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
         </div>
       </> : <p>Nothing is owed on this loan, so closing it just moves it to the closed list. Its history stays.</p>}
       {err && <p className="error" role="alert">{err}</p>}
@@ -613,15 +614,15 @@ function LoanForm({ loan, onClose }: { loan?: LoanRec; onClose: () => void }) {
           <Field label="Lender"><input value={lender} onChange={(e) => setLender(e.target.value)} placeholder="Bank or company" maxLength={100} /></Field>
         </div>
         <div className="two">
-          <Field label="Type"><select value={kind} onChange={(e) => setKind(e.target.value)}>{LOAN_KINDS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></Field>
+          <Field label="Type"><Select value={kind} onChange={(e) => setKind(e.target.value)}>{LOAN_KINDS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
           <Field label="Currency" hint={loan ? 'Fixed once created' : undefined}><CurrencySelect value={cur} onChange={setCur} disabled={!!loan} /></Field>
         </div>
         <div className="two">
-          <Field label="Amount borrowed"><input inputMode="decimal" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="0" /></Field>
+          <Field label="Amount borrowed"><NumInput kind="decimal" value={principal} onChange={(e) => setPrincipal(e.target.value)} placeholder="0" /></Field>
           <Field label="Interest">
             <div className="row nowrap">
-              <select value={rateKind} onChange={(e) => setRateKind(e.target.value as typeof rateKind)} aria-label="Rate type"><option value="fixed">Fixed rate</option><option value="floating">Floating rate</option><option value="free">Interest-free</option></select>
-              {rateKind !== 'free' && <input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="8.5" aria-label="Annual rate in percent" style={{ maxWidth: 110 }} />}
+              <Select value={rateKind} onChange={(e) => setRateKind(e.target.value as typeof rateKind)} aria-label="Rate type"><option value="fixed">Fixed rate</option><option value="floating">Floating rate</option><option value="free">Interest-free</option></Select>
+              {rateKind !== 'free' && <NumInput kind="decimal" value={rate} onChange={(e) => setRate(e.target.value)} placeholder="8.5" aria-label="Annual rate in percent" style={{ maxWidth: 110 }} />}
               {rateKind !== 'free' && <span className="muted">% a year</span>}
             </div>
           </Field>
@@ -629,17 +630,17 @@ function LoanForm({ loan, onClose }: { loan?: LoanRec; onClose: () => void }) {
         {rateKind !== 'free' && rate.trim() && rateError(rate) && <p className="field-error">{rateError(rate)}</p>}
         <div className="two">
           <Field label="Tenure">
-            <div className="row nowrap"><input inputMode="numeric" value={years} onChange={(e) => setYears(e.target.value)} placeholder="20" aria-label="Years" style={{ maxWidth: 80 }} /><span className="muted">years</span>
-              <input inputMode="numeric" value={months} onChange={(e) => setMonths(e.target.value)} aria-label="Months" style={{ maxWidth: 70 }} /><span className="muted">months</span></div>
+            <div className="row nowrap"><NumInput kind="int" value={years} onChange={(e) => setYears(e.target.value)} placeholder="20" aria-label="Years" style={{ maxWidth: 80 }} /><span className="muted">years</span>
+              <NumInput kind="int" value={months} onChange={(e) => setMonths(e.target.value)} aria-label="Months" style={{ maxWidth: 70 }} /><span className="muted">months</span></div>
           </Field>
           <Field label="EMI" hint={calc ? `Calculated: ${formatMoney(calc, cur)} a month` : 'Fill in the amount, rate and tenure'}>
             <Check checked={useCustom} onChange={setUseCustom}>My lender's EMI is different</Check>
-            {useCustom && <input inputMode="decimal" value={customEmi} onChange={(e) => setCustomEmi(e.target.value)} placeholder={calc ? toPlain(calc, cur) : ''} />}
+            {useCustom && <NumInput kind="decimal" value={customEmi} onChange={(e) => setCustomEmi(e.target.value)} placeholder={calc ? toPlain(calc, cur) : ''} />}
           </Field>
         </div>
         <div className="two">
-          <Field label="Loan started (disbursed) on"><input type="date" value={start} onChange={(e) => { setStart(e.target.value); if (!firstTouched && e.target.value) setFirstDue(addMonths(e.target.value, 1)) }} /></Field>
-          <Field label="First EMI date" hint="Later EMIs fall on the same day each month (the last day in shorter months)"><input type="date" value={firstDue} onChange={(e) => { setFirstDue(e.target.value); setFirstTouched(true) }} /></Field>
+          <Field label="Loan started (disbursed) on"><DateField value={start} onChange={(e) => { setStart(e.target.value); if (!firstTouched && e.target.value) setFirstDue(addMonths(e.target.value, 1)) }} /></Field>
+          <Field label="First EMI date" hint="Later EMIs fall on the same day each month (the last day in shorter months)"><DateField value={firstDue} onChange={(e) => { setFirstDue(e.target.value); setFirstTouched(true) }} /></Field>
         </div>
         {loan && rateChanged && (
           <div className="subtle-box">
@@ -653,26 +654,26 @@ function LoanForm({ loan, onClose }: { loan?: LoanRec; onClose: () => void }) {
             <Check checked={running} onChange={setRunning}>This loan is already running; I've paid some EMIs before</Check>
             {running ? (
               <div className="two" style={{ marginTop: 8 }}>
-                <Field label="EMIs already paid" hint={`${dueSoFar} were due by today`}><input inputMode="numeric" value={paidBefore} onChange={(e) => setPaidBefore(e.target.value)} placeholder={String(dueSoFar)} /></Field>
+                <Field label="EMIs already paid" hint={`${dueSoFar} were due by today`}><NumInput kind="int" value={paidBefore} onChange={(e) => setPaidBefore(e.target.value)} placeholder={String(dueSoFar)} /></Field>
                 <Field label="Still owed today" hint={projected ? `About ${formatMoney(projectedLeft, cur)} by our schedule; use your statement's figure` : undefined}>
-                  <input inputMode="decimal" value={outstandingText} onChange={(e) => setOutstandingText(e.target.value)} placeholder={projectedLeft ? toPlain(projectedLeft, cur) : ''} />
+                  <NumInput kind="decimal" value={outstandingText} onChange={(e) => setOutstandingText(e.target.value)} placeholder={projectedLeft ? toPlain(projectedLeft, cur) : ''} />
                 </Field>
               </div>
             ) : (
               <div style={{ marginTop: 8 }}>
                 <Segmented label="Where the money went" value={received} onChange={setReceived} options={[['account', 'Into my account'], ['direct', 'Paid directly (builder, dealer, college)']]} />
-                {received === 'account' && <Field label="Received in"><select value={intoAccount} onChange={(e) => setIntoAccount(e.target.value)}>{payList.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>}
+                {received === 'account' && <Field label="Received in"><Select value={intoAccount} onChange={(e) => setIntoAccount(e.target.value)}>{payList.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
                 {received === 'direct' && <p className="muted small">No account balance goes up; the loan account starts owing the full amount.</p>}
               </div>
             )}
           </div>
         )}
         <div className="two">
-          <Field label="EMIs are paid from"><select value={payFrom} onChange={(e) => setPayFrom(e.target.value)}><option value="">Choose each time</option>{payList.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
-          <Field label="Remind me before each EMI"><div className="row nowrap"><input inputMode="numeric" value={remind} onChange={(e) => setRemind(e.target.value)} style={{ maxWidth: 70 }} /><span className="muted">days (0 = off)</span></div></Field>
+          <Field label="EMIs are paid from"><Select value={payFrom} onChange={(e) => setPayFrom(e.target.value)}><option value="">Choose each time</option>{payList.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+          <Field label="Remind me before each EMI"><div className="row nowrap"><NumInput kind="int" value={remind} onChange={(e) => setRemind(e.target.value)} style={{ maxWidth: 70 }} /><span className="muted">days (0 = off)</span></div></Field>
         </div>
         <div className="two">
-          {!running && <Field label="Processing fee (optional)" hint={loan ? undefined : 'Recorded as a bank charge from the account above'}><input inputMode="decimal" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="0" /></Field>}
+          {!running && <Field label="Processing fee (optional)" hint={loan ? undefined : 'Recorded as a bank charge from the account above'}><NumInput kind="decimal" value={fee} onChange={(e) => setFee(e.target.value)} placeholder="0" /></Field>}
           <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Loan number, branch…" maxLength={2000} /></Field>
         </div>
         {projected && !loan && theEmi > 0 && (

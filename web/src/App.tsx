@@ -3,8 +3,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, session, setUnauthorizedHandler, type Ledger } from './lib/api'
 import { LedgerContext } from './lib/data'
 import { defaultCurrency } from './lib/money'
-import { CurrencySelect, ErrorBoundary, Field, HideAmounts, Kbd, Toaster, errorText } from './components'
+import { CurrencySelect, ErrorBoundary, Field, HideAmounts, Kbd, Skeleton, Toaster, errorText } from './components'
 import { Icon } from './icons'
+import { Select } from './controls'
 import { Login } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { Transactions, TxForm } from './pages/Transactions'
@@ -93,17 +94,23 @@ export function App() {
   const qc = useQueryClient()
   useEffect(() => setUnauthorizedHandler(() => { qc.clear(); setAuthed(false) }), [qc])
   const [theme, setTheme] = useState(() => pref('kosh.theme', 'system'))
+  const [accent, setAccent] = useState(() => pref('kosh.accent', 'teal'))
   useEffect(() => {
     if (theme === 'system') document.documentElement.removeAttribute('data-theme')
     else document.documentElement.setAttribute('data-theme', theme)
     setPref('kosh.theme', theme)
   }, [theme])
+  useEffect(() => {
+    if (accent === 'teal') document.documentElement.removeAttribute('data-accent')
+    else document.documentElement.setAttribute('data-accent', accent)
+    setPref('kosh.accent', accent)
+  }, [accent])
 
   if (!authed) return <><Login onDone={() => setAuthed(true)} /><Toaster /></>
-  return <Signed theme={theme} setTheme={setTheme} onSignOut={() => { session.token = null; qc.clear(); setAuthed(false) }} />
+  return <Signed theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} onSignOut={() => { session.token = null; qc.clear(); setAuthed(false) }} />
 }
 
-function Signed({ theme, setTheme, onSignOut }: { theme: string; setTheme: (t: string) => void; onSignOut: () => void }) {
+function Signed({ theme, setTheme, accent, setAccent, onSignOut }: { theme: string; setTheme: (t: string) => void; accent: string; setAccent: (a: string) => void; onSignOut: () => void }) {
   const ledgers = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers })
   const [ledgerId, setLedgerId] = useState(() => pref('kosh.ledger', ''))
   const [hidden, setHidden] = useState(() => pref('kosh.hide', '0') === '1')
@@ -123,7 +130,7 @@ function Signed({ theme, setTheme, onSignOut }: { theme: string; setTheme: (t: s
     <LedgerContext.Provider value={ledger}>
       <HideAmounts.Provider value={hidden}>
         <Shell key={ledger.id} ledger={ledger} ledgers={list} pick={pick} route={route} params={params} go={go} hidden={hidden} toggleHidden={toggleHidden}
-          theme={theme} setTheme={setTheme} onSignOut={onSignOut} />
+          theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} onSignOut={onSignOut} />
         <Toaster />
       </HideAmounts.Provider>
     </LedgerContext.Provider>
@@ -132,11 +139,16 @@ function Signed({ theme, setTheme, onSignOut }: { theme: string; setTheme: (t: s
 
 interface ShellProps {
   ledger: Ledger; ledgers: Ledger[]; pick: (id: string) => void; route: Route; params: Params; go: (r: Route, p?: Params) => void
-  hidden: boolean; toggleHidden: () => void; theme: string; setTheme: (t: string) => void; onSignOut: () => void
+  hidden: boolean; toggleHidden: () => void; theme: string; setTheme: (t: string) => void; accent: string; setAccent: (a: string) => void; onSignOut: () => void
 }
 
-function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden, theme, setTheme, onSignOut }: ShellProps) {
+function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden, theme, setTheme, accent, setAccent, onSignOut }: ShellProps) {
   const [menu, setMenu] = useState(false)
+  const [rail, setRail] = useState(() => pref('kosh.rail', '0') === '1')
+  const toggleRail = () => { const v = !rail; setRail(v); setPref('kosh.rail', v ? '1' : '0') }
+  const me = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 5 * 60_000 })
+  // The toggle shows the mode you would switch to; "system" follows the device until a choice is made.
+  const dark = theme === 'dark' || theme === 'black' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
   const [palette, setPalette] = useState(false)
   const [adding, setAdding] = useState<{ draft: Resolved | null } | null>(null)
   const [help, setHelp] = useState(false)
@@ -175,57 +187,70 @@ function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden,
     ...ROUTES.map(([r, label, icon]) => ({ id: 'go-' + r, label: `Go to ${label}`, icon, run: () => { setPalette(false); go(r) } })),
     { id: 'uncat', label: 'Review uncategorised transactions', icon: 'inbox', keywords: 'triage categorise', run: () => { setPalette(false); go('transactions', { category: 'none', all: '1' }) } },
     { id: 'hide', label: hidden ? 'Show amounts' : 'Hide amounts', hint: 'Shift+H', icon: hidden ? 'eye' : 'eyeOff', keywords: 'privacy', run: () => { setPalette(false); toggleHidden() } },
-    { id: 'theme', label: `Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`, icon: 'settings', keywords: 'dark light appearance', run: () => { setPalette(false); setTheme(theme === 'dark' ? 'light' : 'dark') } },
+    { id: 'theme', label: `Switch to ${dark ? 'light' : 'dark'} theme`, icon: dark ? 'sun' : 'moon', keywords: 'dark light appearance', run: () => { setPalette(false); setTheme(dark ? 'light' : 'dark') } },
     ...ledgers.filter((l) => l.id !== ledger.id).map((l) => ({ id: 'book-' + l.id, label: `Switch to book “${l.name}”`, icon: 'wallet', run: () => { setPalette(false); pick(l.id) } })),
     { id: 'keys', label: 'Keyboard shortcuts', hint: '?', icon: 'keyboard', run: () => { setPalette(false); setHelp(true) } },
     { id: 'out', label: 'Sign out', icon: 'logout', run: () => { api.logout().catch(() => {}); onSignOut() } },
-  ], [canWrite, go, hidden, theme, ledgers, ledger.id]) // eslint-disable-line
+  ], [canWrite, go, hidden, theme, dark, ledgers, ledger.id]) // eslint-disable-line
 
-  const props: PageProps = { go, params, theme, setTheme, onSignOut, openAdd: (draft) => setAdding({ draft: draft ?? null }) }
+  const props: PageProps = { go, params, theme, setTheme, accent, setAccent, onSignOut, openAdd: (draft) => setAdding({ draft: draft ?? null }) }
   const Page = { dashboard: Dashboard, transactions: Transactions, budgets: Budgets, accounts: Accounts, reports: Reports, recurring: Recurring,
     categories: Categories, settings: Settings, tags: Tags, rules: Rules, import: Import, debts: Debts, loans: Loans, deposits: Deposits,
     tools: Tools, statements: Statements, assistant: Assistant, print: Print }[route]
   const label = ROUTES.find(([r]) => r === route)?.[1] ?? (route === 'print' ? 'Report' : '')
+  const initial = (me.data?.user.name || me.data?.user.email || '?').trim()[0]?.toUpperCase()
   useEffect(() => { document.title = `${label} · LekhaMint` }, [label])
 
   if (route === 'print') return <ErrorBoundary resetKey={route}><Suspense fallback={<div className="splash"><span className="muted">Preparing the report…</span></div>}><Print {...props} /></Suspense></ErrorBoundary>
   return (
-    <div className="shell">
+    <div className={`shell ${rail ? 'collapsed' : ''}`}>
       <aside className={`side ${menu ? 'open' : ''}`} aria-label="Main">
         <div className="brand"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" /> <span>LekhaMint</span></div>
-        <select className="ledger-pick" value={ledger.id} onChange={(e) => pick(e.target.value)} aria-label="Book">
-          {ledgers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.role && l.role !== 'owner' ? ` (${l.role})` : ''}</option>)}
-          <option value="__new">+ New book…</option>
-        </select>
-        <button className="search-btn" onClick={() => setPalette(true)}><Icon name="search" size={16} /><span>Search or add…</span><Kbd>Ctrl K</Kbd></button>
+        <div className="ledger-pick-wrap">
+          <Select className="ledger-pick" value={ledger.id} onChange={(e) => { setMenu(false); pick(e.target.value) }} aria-label="Book">
+            {ledgers.map((l) => <option key={l.id} value={l.id}>{l.name}{l.role && l.role !== 'owner' ? ` (${l.role})` : ''}</option>)}
+            <option value="__new">+ New book…</option>
+          </Select>
+        </div>
+        <button className="search-btn" onClick={() => { setMenu(false); setPalette(true) }} title="Search or add"><Icon name="search" size={16} /><span>Search or add…</span><Kbd>Ctrl K</Kbd></button>
         <nav>
           {SECTIONS.map(([sec, title]) => (
             <div key={sec} className="nav-sec">
               {title && <div className="nav-title">{title}</div>}
               {ROUTES.filter((x) => x[3] === sec).map(([r, text, icon]) => (
-                <a key={r} href={`#/${r}`} className={route === r ? 'active' : ''} onClick={() => setMenu(false)} aria-current={route === r ? 'page' : undefined}>
-                  <Icon name={icon} />{text}
+                <a key={r} href={`#/${r}`} className={route === r ? 'active' : ''} onClick={() => setMenu(false)} aria-current={route === r ? 'page' : undefined} title={rail ? text : undefined}>
+                  <Icon name={icon} size={19} /><span>{text}</span>
                 </a>
               ))}
             </div>
           ))}
         </nav>
         <div className="side-foot">
-          <button className="ghost" onClick={toggleHidden} title="Shift+H"><Icon name={hidden ? 'eye' : 'eyeOff'} size={16} />{hidden ? 'Show amounts' : 'Hide amounts'}</button>
+          <button className="user-chip" onClick={() => { setMenu(false); go('settings') }} title="Account and settings">
+            <span className="me-avatar" aria-hidden>{initial}</span>
+            <span className="who"><strong>{me.data?.user.name || 'Your account'}</strong><span>{me.data?.user.email}</span></span>
+          </button>
         </div>
       </aside>
       {menu && <div className="scrim" onClick={() => setMenu(false)} />}
-      <main className="main" id="main">
-        <div className="topbar">
-          <button className="icon-btn" onClick={() => setMenu(!menu)} aria-label="Menu"><Icon name="menu" /></button>
+      <div className="content">
+        <header className="topbar">
+          <button className="icon-btn tb-menu" onClick={() => setMenu(!menu)} aria-label="Menu"><Icon name="menu" /></button>
+          <button className="icon-btn tb-collapse" onClick={toggleRail} aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar'} title={rail ? 'Expand sidebar' : 'Collapse sidebar'}><Icon name="panel" /></button>
           <span className="topbar-title">{label}</span>
-          <button className="icon-btn" onClick={() => setPalette(true)} aria-label="Search"><Icon name="search" /></button>
-          <button className="icon-btn" onClick={toggleHidden} aria-label={hidden ? 'Show amounts' : 'Hide amounts'}><Icon name={hidden ? 'eye' : 'eyeOff'} /></button>
-        </div>
-        {!online && <div className="banner warn"><Icon name="alert" size={16} /> You are offline. LekhaMint will reconnect by itself; changes need a connection to save.</div>}
-        {ledger.role === 'viewer' && <div className="banner"><Icon name="eye" size={16} /> You can view this shared book but not change it.</div>}
-        <ErrorBoundary resetKey={route}><Suspense fallback={<div className="card pad"><span className="muted">Loading…</span></div>}><Page {...props} /></Suspense></ErrorBoundary>
-      </main>
+          <button className="tb-search" onClick={() => setPalette(true)}><Icon name="search" size={16} /><span>Search, or type “250 lunch” to add…</span><Kbd>Ctrl K</Kbd></button>
+          <span className="spacer" />
+          <button className="icon-btn tb-mobile" onClick={() => setPalette(true)} aria-label="Search"><Icon name="search" /></button>
+          <button className="icon-btn" onClick={() => setTheme(dark ? 'light' : 'dark')} aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'} title={dark ? 'Light theme' : 'Dark theme'}><Icon name={dark ? 'sun' : 'moon'} /></button>
+          <button className="icon-btn" onClick={toggleHidden} aria-label={hidden ? 'Show amounts' : 'Hide amounts'} title={`${hidden ? 'Show' : 'Hide'} amounts (Shift+H)`}><Icon name={hidden ? 'eye' : 'eyeOff'} /></button>
+          {canWrite && <button className="primary tb-wide" onClick={() => setAdding({ draft: null })}><Icon name="plus" size={17} /> New</button>}
+        </header>
+        <main className="main" id="main">
+          {!online && <div className="banner warn"><Icon name="alert" size={16} /> You are offline. LekhaMint will reconnect by itself; changes need a connection to save.</div>}
+          {ledger.role === 'viewer' && <div className="banner"><Icon name="eye" size={16} /> You can view this shared book but not change it.</div>}
+          <ErrorBoundary resetKey={route}><Suspense fallback={<div className="card pad"><Skeleton rows={4} /></div>}><Page {...props} /></Suspense></ErrorBoundary>
+        </main>
+      </div>
       <nav className="tabbar" aria-label="Quick navigation">
         {MOBILE_TABS.slice(0, 2).map((r) => <TabLink key={r} r={r} route={route} />)}
         {canWrite ? <button className="fab" onClick={() => setAdding({ draft: null })} aria-label="New transaction"><Icon name="plus" size={24} /></button> : <span />}
@@ -261,6 +286,8 @@ export interface PageProps {
   params: Params
   theme: string
   setTheme: (t: string) => void
+  accent: string
+  setAccent: (a: string) => void
   onSignOut: () => void
   /** Opens the transaction form, optionally prefilled from quick add. */
   openAdd: (draft?: Resolved | null) => void

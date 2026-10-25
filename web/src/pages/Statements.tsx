@@ -8,6 +8,7 @@ import { workbook, XLSX_TYPE, type Cell } from '../lib/xlsx'
 import { Card, Field, Segmented, errorText, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
+import { Select, DateField } from '../controls'
 
 /**
  * Statements & export (docs/02, "Reports"): choose a report and its filters,
@@ -126,19 +127,19 @@ export function Statements({ go }: PageProps) {
         {needsPeriod && <>
           <div className="row date-chips">{ps.map(([id, label]) => <button key={id} type="button" className={`chip-btn ${preset === id ? 'on' : ''}`} onClick={() => pick(id)}>{label}</button>)}</div>
           <div className="two">
-            <Field label="From"><input type="date" value={from} onChange={(e) => { setFrom(e.target.value); setPreset('') }} /></Field>
-            <Field label="To"><input type="date" value={to} onChange={(e) => { setTo(e.target.value); setPreset('') }} /></Field>
+            <Field label="From"><DateField value={from} onChange={(e) => { setFrom(e.target.value); setPreset('') }} /></Field>
+            <Field label="To"><DateField value={to} onChange={(e) => { setTo(e.target.value); setPreset('') }} /></Field>
           </div>
         </>}
         {(kind === 'account' || kind === 'ledger') && (
           <div className="two">
-            <Field label="Account"><select value={account} onChange={(e) => setAccount(e.target.value)}>{kind === 'ledger' && <option value="">All accounts</option>}{accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></Field>
-            {kind === 'ledger' && <Field label="Category"><select value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All categories</option><option value="none">Needs a category</option>{['expense', 'income'].flatMap((k) => cats.roots(k)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>}
+            <Field label="Account"><Select value={account} onChange={(e) => setAccount(e.target.value)}>{kind === 'ledger' && <option value="">All accounts</option>}{accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</Select></Field>
+            {kind === 'ledger' && <Field label="Category"><Select value={category} onChange={(e) => setCategory(e.target.value)}><option value="">All categories</option><option value="none">Needs a category</option>{['expense', 'income'].flatMap((k) => cats.roots(k)).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</Select></Field>}
           </div>
         )}
         {kind === 'ledger' && <Segmented label="Type" value={type} onChange={setType} options={[['', 'All'], ['expense', 'Spending'], ['income', 'Income'], ['transfer', 'Transfers']]} />}
-        {kind === 'loans' && <Field label="Loan"><select value={loan} onChange={(e) => setLoan(e.target.value)}><option value="">All loans (summary)</option>{(loans.data ?? []).filter((x) => !x.deleted).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>}
-        {kind === 'person' && <Field label="Person"><select value={personSel ? `${personSel.name}|${personSel.currency}` : ''} onChange={(e) => setPerson(e.target.value)}>{peopleList.map((p) => <option key={`${p.name}|${p.currency}`} value={`${p.name}|${p.currency}`}>{p.name} ({p.currency})</option>)}</select></Field>}
+        {kind === 'loans' && <Field label="Loan"><Select value={loan} onChange={(e) => setLoan(e.target.value)}><option value="">All loans (summary)</option>{(loans.data ?? []).filter((x) => !x.deleted).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</Select></Field>}
+        {kind === 'person' && <Field label="Person"><Select value={personSel ? `${personSel.name}|${personSel.currency}` : ''} onChange={(e) => setPerson(e.target.value)}>{peopleList.map((p) => <option key={`${p.name}|${p.currency}`} value={`${p.name}|${p.currency}`}>{p.name} ({p.currency})</option>)}</Select></Field>}
         {kind === 'networth' && <Segmented label="History" value={months} onChange={setMonths} options={[['6', '6 months'], ['12', '12 months'], ['24', '2 years'], ['60', '5 years']]} />}
         {invalid && <p className="error">{invalid}</p>}
         <div className="row mt">

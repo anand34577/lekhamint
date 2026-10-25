@@ -4,7 +4,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { App } from './App'
 import { DEMO, startDemo } from './lib/demo'
 import { session } from './lib/api'
+import { installFormValidation } from './lib/validation'
 import './styles.css'
+
+installFormValidation()
 
 const client = new QueryClient({
   defaultOptions: {

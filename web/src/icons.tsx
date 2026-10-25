@@ -1,6 +1,8 @@
 // Stroke icons on a 24px grid. Inline SVG: no font or network request, and
 // they follow `currentColor` so they work in every theme.
 
+import { EXTRA_ICONS } from './iconPaths'
+
 const P: Record<string, string> = {
   home: 'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z',
   list: 'M8 6h13M8 12h13M8 18h13M3.5 6h.01M3.5 12h.01M3.5 18h.01',
@@ -58,7 +60,11 @@ const P: Record<string, string> = {
   split: 'M16 3h5v5M8 3H3v5M21 3l-7.5 7.5M3 3l7.5 7.5M12 12v9',
   send: 'M22 2 11 13M22 2l-7 20-4-9-9-4z',
   info: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01',
+  ...EXTRA_ICONS,
 }
+
+/** Whether [name] is a known icon (category icon keys that are not fall back to a tag). */
+export const hasIcon = (name: string | null | undefined): name is string => !!name && name in P
 
 export type IconName = keyof typeof P
 
@@ -69,5 +75,14 @@ export function Icon({ name, size = 18, className = '', title }: { name: IconNam
       {title && <title>{title}</title>}
       <path d={P[name] ?? P.list} />
     </svg>
+  )
+}
+
+/** A rounded tile with a category icon on its colour, used wherever a category is shown. */
+export function CatIcon({ name, color, size = 32 }: { name?: string | null; color?: string | null; size?: number }) {
+  return (
+    <span className="cat-icon" style={{ ['--c' as string]: color ?? 'var(--muted)', width: size, height: size }} aria-hidden>
+      <Icon name={hasIcon(name) ? name : 'tag'} size={Math.round(size * 0.55)} />
+    </span>
   )
 }

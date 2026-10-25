@@ -6,6 +6,7 @@ import { AiError, PROVIDERS, ask, destination, loadAi, saveAi, type AiSettings, 
 import { Card, Check, Field, Modal, Segmented, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps, Route } from '../App'
+import { Select, PasswordInput } from '../controls'
 
 /**
  * Ask questions about your own money (docs/11-assistant.md). Answers come from
@@ -205,14 +206,14 @@ function AiSetup({ s, server, onSave, onClose }: { s: AiSettings; server: Server
           <Field label="Model (optional)" hint="Leave empty to use the server's default"><input value={model} onChange={(e) => setModel(e.target.value)} placeholder={server?.model || 'default'} /></Field>
         </div>
       ) : <>
-        <Field label="Provider"><select value={provider} onChange={(e) => { setProvider(e.target.value); const u = PROVIDERS.find((x) => x.id === e.target.value)?.url; if (u !== undefined && (u || e.target.value === 'custom')) setBaseUrl(u) }}>{PROVIDERS.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+        <Field label="Provider"><Select value={provider} onChange={(e) => { setProvider(e.target.value); const u = PROVIDERS.find((x) => x.id === e.target.value)?.url; if (u !== undefined && (u || e.target.value === 'custom')) setBaseUrl(u) }}>{PROVIDERS.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</Select></Field>
         <p className="muted small">{p.note}</p>
         <div className="two">
           <Field label="Base URL" hint="Up to /v1, without /chat/completions"><input value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} placeholder="https://…/v1" spellCheck={false} /></Field>
-          <Field label={p.key ? 'API key' : 'API key (if your server needs one)'} hint="Stored only in this browser"><input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" /></Field>
+          <Field label={p.key ? 'API key' : 'API key (if your server needs one)'} hint="Stored only in this browser"><PasswordInput value={apiKey} onChange={(e) => setApiKey(e.target.value)} autoComplete="off" /></Field>
         </div>
         <Field label="Model" hint={models.length ? undefined : 'For example gpt-4o-mini, openai/gpt-4o-mini, llama3.1:8b or qwen2.5:7b'}>
-          {models.length ? <select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((x) => <option key={x}>{x}</option>)}</select> : <input value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} />}
+          {models.length ? <Select value={model} onChange={(e) => setModel(e.target.value)}>{models.map((x) => <option key={x}>{x}</option>)}</Select> : <input value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} />}
         </Field>
       </>}
       <div className="row"><button onClick={check} disabled={testing}>{testing ? 'Testing…' : 'Test connection'}</button>{test && <span className={test.ok ? 'pos-text small' : 'error small'}>{test.text}</span>}</div>

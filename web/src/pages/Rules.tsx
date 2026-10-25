@@ -7,6 +7,7 @@ import { Card, Empty, Field, Modal, errorText, toast } from '../components'
 import { CategorySelect } from './Transactions'
 import { TagInput } from './parts'
 import type { PageProps } from '../App'
+import { Select, NumInput } from '../controls'
 
 /** Rules fill in the category, payee and tags for new and imported transactions. */
 export function Rules(_: PageProps) {
@@ -129,17 +130,17 @@ function RuleForm({ rule, nextOrder, onClose }: { rule?: WithId<Rule>; nextOrder
       <button className="primary" onClick={() => save(false)} disabled={busy}>Save</button></>}>
       <h3 style={{ marginTop: 0 }}>When</h3>
       <div className="two">
-        <Field label="Look at"><select value={field} onChange={(e) => setField(e.target.value as Rule['match_field'])}><option value="payee">Payee</option><option value="note">Note</option><option value="any">Payee or note</option></select></Field>
-        <Field label="Match"><select value={how} onChange={(e) => setHow(e.target.value as Rule['match_type'])}><option value="contains">contains</option><option value="starts_with">starts with</option><option value="equals">is exactly</option></select></Field>
+        <Field label="Look at"><Select value={field} onChange={(e) => setField(e.target.value as Rule['match_field'])}><option value="payee">Payee</option><option value="note">Note</option><option value="any">Payee or note</option></Select></Field>
+        <Field label="Match"><Select value={how} onChange={(e) => setHow(e.target.value as Rule['match_type'])}><option value="contains">contains</option><option value="starts_with">starts with</option><option value="equals">is exactly</option></Select></Field>
       </div>
       <Field label="Text" hint="Not case-sensitive. Example: swiggy"><input value={pattern} onChange={(e) => setPattern(e.target.value)} autoFocus /></Field>
       <div className="two">
-        <Field label="Only for"><select value={txType ?? ''} onChange={(e) => setTxType((e.target.value || null) as Rule['tx_type'])}><option value="expense">Expenses</option><option value="income">Income</option><option value="">Both</option></select></Field>
-        <Field label="Account"><select value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">Any account</option>{(accounts.data ?? []).filter((a) => !a.deleted).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></Field>
+        <Field label="Only for"><Select value={txType ?? ''} onChange={(e) => setTxType((e.target.value || null) as Rule['tx_type'])}><option value="expense">Expenses</option><option value="income">Income</option><option value="">Both</option></Select></Field>
+        <Field label="Account"><Select value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">Any account</option>{(accounts.data ?? []).filter((a) => !a.deleted).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
       </div>
       <div className="two">
-        <Field label="Min amount (optional)"><input inputMode="decimal" value={min} onChange={(e) => setMin(e.target.value)} /></Field>
-        <Field label="Max amount (optional)"><input inputMode="decimal" value={max} onChange={(e) => setMax(e.target.value)} /></Field>
+        <Field label="Min amount (optional)"><NumInput kind="decimal" value={min} onChange={(e) => setMin(e.target.value)} /></Field>
+        <Field label="Max amount (optional)"><NumInput kind="decimal" value={max} onChange={(e) => setMax(e.target.value)} /></Field>
       </div>
       <h3>Then</h3>
       <div className="two">

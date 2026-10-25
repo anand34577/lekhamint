@@ -140,11 +140,15 @@ export function useCategoryIndex() {
       const c = id ? byId.get(id) : undefined
       return c?.color ?? (c?.parent_id ? byId.get(c.parent_id)?.color : null) ?? '#94A3B8'
     }
+    const icon = (id: string | null | undefined): string | null => {
+      const c = id ? byId.get(id) : undefined
+      return c?.icon ?? (c?.parent_id ? byId.get(c.parent_id)?.icon : null) ?? null
+    }
     const rootOf = (id: string | null | undefined) => {
       const c = id ? byId.get(id) : undefined
       return c?.parent_id && byId.has(c.parent_id) ? c.parent_id : (id ?? null)
     }
-    return { all: live, byId, roots, children, name, path, color, rootOf }
+    return { all: live, byId, roots, children, name, path, color, icon, rootOf }
   }, [data])
 }
 

@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/mail"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -44,7 +46,30 @@ type Config struct {
 	AITimeout        time.Duration
 	AIConnectOrigins []string
 
-	aiOriginsRaw *string
+	// PublicURL is the address people reach this server at (https://kosh.example.com). Single sign-on
+	// redirects and links in messages are built from it.
+	PublicURL string
+	// Single sign-on through an OpenID Connect provider (Keycloak, Authentik, ...).
+	OIDCIssuer       string
+	OIDCClientID     string
+	OIDCClientSecret string
+	OIDCName         string
+	OIDCScopes       []string
+	OIDCAutoCreate   bool
+	OIDCOnly         bool // hide and refuse password sign-in
+	// Outgoing email and Gotify for notifications.
+	SMTPHost     string
+	SMTPPort     int
+	SMTPUser     string
+	SMTPPassword string
+	SMTPFrom     string
+	SMTPSecurity string
+	GotifyURL    string
+	// ReminderHour is the local hour (0-23) the daily reminders go out; -1 turns reminders off.
+	ReminderHour int
+
+	oidcScopesRaw *string
+	aiOriginsRaw  *string
 
 	corsRaw *string
 	envErrs []string
@@ -87,6 +112,22 @@ func Register(fs *flag.FlagSet) *Config {
 	fs.StringVar(&c.AIModel, "ai-model", env("LEKHAMINT_AI_MODEL", ""), "default model for the assistant")
 	fs.DurationVar(&c.AITimeout, "ai-timeout", envDuration("LEKHAMINT_AI_TIMEOUT", 2*time.Minute), "time limit for one assistant request")
 	c.aiOriginsRaw = fs.String("ai-connect-origins", env("LEKHAMINT_AI_CONNECT_ORIGINS", ""), "extra origins the web app may call directly for the assistant (comma-separated)")
+	fs.StringVar(&c.PublicURL, "public-url", env("LEKHAMINT_PUBLIC_URL", ""), "address people use to reach this server, e.g. https://kosh.example.com (needed for single sign-on)")
+	fs.StringVar(&c.OIDCIssuer, "oidc-issuer", env("LEKHAMINT_OIDC_ISSUER", ""), "OpenID Connect issuer URL, e.g. https://auth.example.com/realms/home (empty disables single sign-on)")
+	fs.StringVar(&c.OIDCClientID, "oidc-client-id", env("LEKHAMINT_OIDC_CLIENT_ID", ""), "OpenID Connect client ID")
+	fs.StringVar(&c.OIDCClientSecret, "oidc-client-secret", env("LEKHAMINT_OIDC_CLIENT_SECRET", ""), "OpenID Connect client secret (prefer the environment variable; empty for a public client)")
+	fs.StringVar(&c.OIDCName, "oidc-name", env("LEKHAMINT_OIDC_NAME", "Single sign-on"), "name shown on the sign-in button, e.g. Keycloak")
+	c.oidcScopesRaw = fs.String("oidc-scopes", env("LEKHAMINT_OIDC_SCOPES", "openid email profile"), "scopes to request")
+	fs.BoolVar(&c.OIDCAutoCreate, "oidc-auto-create", envBool("LEKHAMINT_OIDC_AUTO_CREATE", true), "create an account the first time someone signs in through the provider")
+	fs.BoolVar(&c.OIDCOnly, "oidc-only", envBool("LEKHAMINT_OIDC_ONLY", false), "turn off password sign-in and registration; use the provider only")
+	fs.StringVar(&c.SMTPHost, "smtp-host", env("LEKHAMINT_SMTP_HOST", ""), "mail server for email notifications (empty disables email)")
+	fs.IntVar(&c.SMTPPort, "smtp-port", envInt("LEKHAMINT_SMTP_PORT", 0), "mail server port (default 587, or 465 with --smtp-security tls)")
+	fs.StringVar(&c.SMTPUser, "smtp-user", env("LEKHAMINT_SMTP_USER", ""), "mail server user name")
+	fs.StringVar(&c.SMTPPassword, "smtp-password", env("LEKHAMINT_SMTP_PASSWORD", ""), "mail server password (prefer the environment variable)")
+	fs.StringVar(&c.SMTPFrom, "smtp-from", env("LEKHAMINT_SMTP_FROM", ""), "sender, e.g. \"LekhaMint <no-reply@example.com>\"")
+	fs.StringVar(&c.SMTPSecurity, "smtp-security", env("LEKHAMINT_SMTP_SECURITY", "starttls"), "starttls, tls (implicit TLS) or none")
+	fs.StringVar(&c.GotifyURL, "gotify-url", env("LEKHAMINT_GOTIFY_URL", ""), "Gotify server, e.g. https://gotify.example.com (empty disables Gotify)")
+	fs.IntVar(&c.ReminderHour, "reminder-hour", envInt("LEKHAMINT_REMINDER_HOUR", 8), "hour of day (server time, 0-23) for bill and budget reminders; -1 turns them off")
 	c.corsRaw = origins
 	return c
 }
@@ -120,6 +161,60 @@ func (c *Config) Finish() error {
 			bad("LEKHAMINT_AI_BASE_URL (--ai-base-url) must be an http(s) URL such as http://localhost:11434/v1")
 		}
 		c.AIBaseURL = strings.TrimRight(c.AIBaseURL, "/")
+	}
+	c.PublicURL = strings.TrimRight(c.PublicURL, "/")
+	if c.PublicURL != "" {
+		if u, err := url.Parse(c.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			bad("LEKHAMINT_PUBLIC_URL (--public-url) must be an http(s) address such as https://kosh.example.com")
+		}
+	}
+	if c.oidcScopesRaw != nil {
+		c.OIDCScopes = strings.Fields(strings.ReplaceAll(*c.oidcScopesRaw, ",", " "))
+	}
+	if c.OIDCIssuer != "" {
+		if u, err := url.Parse(c.OIDCIssuer); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			bad("LEKHAMINT_OIDC_ISSUER (--oidc-issuer) must be an http(s) URL such as https://auth.example.com/realms/home")
+		}
+		if c.OIDCClientID == "" {
+			bad("LEKHAMINT_OIDC_CLIENT_ID (--oidc-client-id) is required with an OIDC issuer")
+		}
+		if c.PublicURL == "" {
+			bad("LEKHAMINT_PUBLIC_URL (--public-url) is required for single sign-on: the provider redirects people back to it")
+		}
+		if !slices.Contains(c.OIDCScopes, "openid") {
+			c.OIDCScopes = append([]string{"openid"}, c.OIDCScopes...)
+		}
+	} else if c.OIDCOnly {
+		bad("LEKHAMINT_OIDC_ONLY needs LEKHAMINT_OIDC_ISSUER; otherwise nobody could sign in")
+	}
+	c.SMTPSecurity = strings.ToLower(c.SMTPSecurity)
+	if c.SMTPHost != "" {
+		switch c.SMTPSecurity {
+		case "starttls", "tls", "none":
+		default:
+			bad("LEKHAMINT_SMTP_SECURITY (--smtp-security) must be starttls, tls or none, not %q", c.SMTPSecurity)
+		}
+		if c.SMTPPort == 0 {
+			c.SMTPPort = map[string]int{"tls": 465, "none": 25}[c.SMTPSecurity]
+			if c.SMTPPort == 0 {
+				c.SMTPPort = 587
+			}
+		}
+		if c.SMTPPort < 1 || c.SMTPPort > 65535 {
+			bad("LEKHAMINT_SMTP_PORT (--smtp-port) must be between 1 and 65535")
+		}
+		if _, err := mail.ParseAddress(c.SMTPFrom); err != nil {
+			bad("LEKHAMINT_SMTP_FROM (--smtp-from) must be an email address such as no-reply@example.com when email is on")
+		}
+	}
+	if c.GotifyURL != "" {
+		c.GotifyURL = strings.TrimRight(c.GotifyURL, "/")
+		if u, err := url.Parse(c.GotifyURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			bad("LEKHAMINT_GOTIFY_URL (--gotify-url) must be an http(s) URL such as https://gotify.example.com")
+		}
+	}
+	if c.ReminderHour < -1 || c.ReminderHour > 23 {
+		bad("LEKHAMINT_REMINDER_HOUR (--reminder-hour) must be 0 to 23, or -1 to turn reminders off")
 	}
 	if c.AITimeout < time.Second {
 		bad("LEKHAMINT_AI_TIMEOUT (--ai-timeout) must be at least 1s")

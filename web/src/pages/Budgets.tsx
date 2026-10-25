@@ -6,6 +6,7 @@ import { isoDate, monthRange, shortDate } from '../lib/util'
 import { Bar, Card, Check, CurrencySelect, Empty, Field, Modal, Money, Skeleton, errorText, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
+import { Select, DateField, NumInput } from '../controls'
 
 export function Budgets({ go }: PageProps) {
   const budgets = useBudgets()
@@ -126,16 +127,16 @@ function BudgetForm({ budget, onClose }: { budget?: WithId<Budget>; onClose: () 
         <fieldset disabled={!can} className="plain">
           <div className="two">
             <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required /></Field>
-            <Field label="Amount per period"><input inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required autoFocus={!budget} /></Field>
+            <Field label="Amount per period"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} required autoFocus={!budget} /></Field>
           </div>
           <div className="two">
-            <Field label="Period"><select value={period} onChange={(e) => setPeriod(e.target.value)}>
-              <option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option><option value="custom">Custom dates</option></select></Field>
+            <Field label="Period"><Select value={period} onChange={(e) => setPeriod(e.target.value)}>
+              <option value="weekly">Weekly</option><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option><option value="yearly">Yearly</option><option value="custom">Custom dates</option></Select></Field>
             <Field label="Currency" hint="Only accounts in this currency count"><CurrencySelect value={cur} onChange={setCur} /></Field>
           </div>
           <div className="two">
-            <Field label="Starts" hint="Anchors each period, e.g. your payday"><input type="date" value={start} onChange={(e) => setStart(e.target.value)} required /></Field>
-            {period === 'custom' && <Field label="Ends"><input type="date" value={end} onChange={(e) => setEnd(e.target.value)} required /></Field>}
+            <Field label="Starts" hint="Anchors each period, e.g. your payday"><DateField value={start} onChange={(e) => setStart(e.target.value)} required /></Field>
+            {period === 'custom' && <Field label="Ends"><DateField value={end} onChange={(e) => setEnd(e.target.value)} required /></Field>}
           </div>
           <Field label="Categories" hint="None selected = all spending. A group includes its sub-categories.">
             <div className="check-grid">
@@ -154,7 +155,7 @@ function BudgetForm({ budget, onClose }: { budget?: WithId<Budget>; onClose: () 
               {period !== 'custom' && <Check checked={rollover} onChange={setRollover}>Roll over unspent money (and overspending) to the next period</Check>}
               {budget && <Check checked={archived} onChange={setArchived}>Archived</Check>}
             </div>
-            <Field label={`Warn me at ${alert}%`}><input type="range" min={50} max={100} step={5} value={alert} onChange={(e) => setAlert(Number(e.target.value))} /></Field>
+            <Field label={`Warn me at ${alert}%`}><input type="range" min={50} max={100} step={5} value={alert} style={{ ['--fill' as string]: `${((alert - 50) / 50) * 100}%` }} onChange={(e) => setAlert(Number(e.target.value))} /></Field>
           </div>
           {err && <p className="error" role="alert">{err}</p>}
         </fieldset>

@@ -6,8 +6,8 @@ import { insights } from '../lib/insights'
 import { formatMoney } from '../lib/money'
 import { useObligations, type Obligation } from './obligations'
 import { addDays, dayLabel, isoDate, monthRange, parseDate } from '../lib/util'
-import { Bar, Card, Dot, Empty, Money, PaceChart, Skeleton } from '../components'
-import { Icon } from '../icons'
+import { Bar, Card, Empty, Money, PaceChart, Skeleton } from '../components'
+import { CatIcon, Icon } from '../icons'
 import { BudgetCard } from './Budgets'
 import { QuickAddBar } from './QuickAdd'
 import type { PageProps } from '../App'
@@ -195,7 +195,7 @@ export function Dashboard({ go, openAdd }: PageProps) {
                   const title = transfer ? `${accName(t.account_id)} → ${accName(t.to_account_id)}` : t.payee || label
                   return (
                     <li key={r.id}>
-                      <Dot color={transfer ? 'var(--transfer)' : split ? '#7C3AED' : cats.color(t.category_id)} />
+                      {transfer ? <CatIcon name="transfer" color="var(--transfer)" /> : split ? <CatIcon name="split" color="#7C3AED" /> : <CatIcon name={cats.icon(t.category_id)} color={cats.color(t.category_id)} />}
                       <div className="grow"><div className="ellipsis">{title}</div><div className="sub ellipsis">{dayLabel(t.local_date)} · {label}</div></div>
                       <Money value={t.type === 'income' ? t.amount : -t.amount} currency={accCur(t.account_id)} signed={!transfer} />
                     </li>
@@ -229,7 +229,7 @@ export function Dashboard({ go, openAdd }: PageProps) {
               <ul className="list">
                 {top.map(([id, v]) => (
                   <li key={id ?? 'none'} className="clickable" onClick={() => go('transactions', id ? { category: id } : { category: 'none' })}>
-                    <Dot color={cats.color(id)} /><div className="grow"><div className="row between"><span>{cats.name(id)}</span><Money value={v} currency={base} /></div><Bar fraction={v / top[0][1]} color={cats.color(id)} /></div>
+                    <CatIcon name={cats.icon(id)} color={cats.color(id)} /><div className="grow"><div className="row between"><span>{cats.name(id)}</span><Money value={v} currency={base} /></div><Bar fraction={v / top[0][1]} color={cats.color(id)} /></div>
                   </li>
                 ))}
               </ul>

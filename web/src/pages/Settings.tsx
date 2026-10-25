@@ -3,11 +3,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ExchangeRate } from '../lib/api'
 import { useCanWrite, useExchangeRates, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
 import { download, isoDate, shortDate } from '../lib/util'
-import { Card, Confirm, CurrencySelect, Field, Modal, Segmented, errorText, toast } from '../components'
+import { Card, Confirm, CurrencySelect, Field, Modal, errorText, toast } from '../components'
+import { Notifications } from './Notifications'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
+import { Select, DateField, NumInput, PasswordInput } from '../controls'
 
-export function Settings({ theme, setTheme, onSignOut, params }: PageProps) {
+export function Settings({ theme, setTheme, accent, setAccent, onSignOut, params }: PageProps) {
   const l = useLedger()
   const qc = useQueryClient()
   const me = useQuery({ queryKey: ['me'], queryFn: api.me })
@@ -42,10 +44,28 @@ export function Settings({ theme, setTheme, onSignOut, params }: PageProps) {
           </div>
           {!owner && <p className="muted small">Only the owner can change these.</p>}
         </Card>
-        <Card title={<><Icon name="eye" size={16} /> Appearance</>}>
-          <Field label="Theme"><Segmented label="Theme" value={theme} onChange={setTheme} options={[['system', 'System'], ['light', 'Light'], ['dark', 'Dark'], ['black', 'Black']]} /></Field>
+        <Card title={<><Icon name="palette" size={16} /> Appearance</>}>
+          <div className="field"><span className="field-label">Theme</span>
+            <div className="theme-cards" role="radiogroup" aria-label="Theme">
+              {([['system', 'System', 'monitor'], ['light', 'Light', 'sun'], ['dark', 'Dark', 'moon'], ['black', 'Black', 'moon']] as const).map(([k, text, icon]) => (
+                <button type="button" key={k} role="radio" aria-checked={theme === k} className={`theme-card ${theme === k ? 'on' : ''}`} onClick={() => setTheme(k)}>
+                  <span className="theme-prev" style={PREVIEW[k]}><i /><b /></span>
+                  <span className="row nowrap"><Icon name={icon} size={15} />{text}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="field"><span className="field-label">Accent colour</span>
+            <div className="accent-picker" role="radiogroup" aria-label="Accent colour">
+              {ACCENTS.map(([k, text, color]) => (
+                <button type="button" key={k} role="radio" aria-checked={accent === k} aria-label={text} title={text} className={`accent-swatch ${accent === k ? 'on' : ''}`}
+                  style={{ background: color, color }} onClick={() => setAccent(k)}>{accent === k && <Icon name="check" size={16} className="on-accent" />}</button>
+              ))}
+            </div>
+          </div>
           <p className="muted small">Black uses true black for OLED screens. Press <kbd className="kbd">?</kbd> anywhere for keyboard shortcuts.</p>
         </Card>
+        <Notifications />
         <div ref={ratesRef}><Rates /></div>
         {owner && <Sharing />}
         <Card title={<><Icon name="download" size={16} /> Your data</>}>
@@ -69,8 +89,8 @@ export function Settings({ theme, setTheme, onSignOut, params }: PageProps) {
         <Card title={<><Icon name="users" size={16} /> Your account</>}>
           <p>{me.data?.user.name && <strong>{me.data.user.name} · </strong>}{me.data?.user.email}</p>
           <form onSubmit={(e) => { e.preventDefault(); run('pw', async () => { await api.changePassword(pw.current, pw.next); setPw({ current: '', next: '' }); return 'Password changed. Other devices were signed out.' }) }}>
-            <Field label="Current password"><input type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} required /></Field>
-            <Field label="New password" hint="At least 8 characters"><input type="password" autoComplete="new-password" minLength={8} value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} required /></Field>
+            <Field label="Current password"><PasswordInput autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} required /></Field>
+            <Field label="New password" hint="At least 8 characters"><PasswordInput autoComplete="new-password" minLength={8} value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} required /></Field>
             <button disabled={!!busy}>Change password</button>
           </form>
           <div className="row">
@@ -83,6 +103,13 @@ export function Settings({ theme, setTheme, onSignOut, params }: PageProps) {
       {deletingAccount && <DeleteAccount email={me.data?.user.email ?? ''} onClose={() => setDeletingAccount(false)} onDeleted={onSignOut} />}
     </>
   )
+}
+
+const ACCENTS: [string, string, string][] = [['teal', 'Teal', '#0f9488'], ['emerald', 'Emerald', '#12a15d'], ['sky', 'Sky', '#2f7de1'], ['indigo', 'Indigo', '#5b5ce0'],
+  ['violet', 'Violet', '#9b51d6'], ['rose', 'Rose', '#e0436b'], ['amber', 'Amber', '#d98a00']]
+const PREVIEW: Record<string, React.CSSProperties> = {
+  system: { background: 'linear-gradient(110deg, #f3f5fa 50%, #0a0f1a 50%)' },
+  light: { background: '#f3f5fa' }, dark: { background: '#0a0f1a' }, black: { background: '#000' },
 }
 
 function DeleteBook({ onClose }: { onClose: () => void }) {
@@ -116,7 +143,7 @@ function DeleteAccount({ email, onClose, onDeleted }: { email: string; onClose: 
       }}
       body={<>
         <p>This permanently deletes <strong>{email}</strong>, every book that only you own and all of their data. You are removed from books that have another owner. Phones keep their own copy. Export first if you might need it.</p>
-        <Field label="Password"><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus /></Field>
+        <Field label="Password" hint="Signed in through single sign-on? Type your email address instead."><PasswordInput autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus /></Field>
       </>} />
   )
 }
@@ -171,8 +198,8 @@ function RateForm({ rate, onClose }: { rate?: WithId<ExchangeRate>; onClose: () 
           <Field label="equals this many"><CurrencySelect value={quote} onChange={setQuote} /></Field>
         </div>
         <div className="two">
-          <Field label="Rate"><input inputMode="decimal" value={value} onChange={(e) => setValue(e.target.value)} placeholder="83.25" autoFocus /></Field>
-          <Field label="From date"><input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+          <Field label="Rate"><NumInput kind="decimal" value={value} onChange={(e) => setValue(e.target.value)} placeholder="83.25" autoFocus /></Field>
+          <Field label="From date"><DateField value={date} onChange={(e) => setDate(e.target.value)} /></Field>
         </div>
         {err && <p className="error" role="alert">{err}</p>}
       </form>
@@ -212,7 +239,7 @@ function Sharing() {
       </ul>
       <form className="row" onSubmit={add} style={{ marginTop: 8 }}>
         <input type="email" required placeholder="Their email" value={email} onChange={(e) => setEmail(e.target.value)} style={{ flex: 1, minWidth: 160 }} aria-label="Email" />
-        <select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: 'auto' }} aria-label="Role"><option value="editor">Can edit</option><option value="viewer">Can view</option></select>
+        <Select value={role} onChange={(e) => setRole(e.target.value)} style={{ width: 'auto' }} aria-label="Role"><option value="editor">Can edit</option><option value="viewer">Can view</option></Select>
         <button disabled={busy}>Share</button>
       </form>
     </Card>
