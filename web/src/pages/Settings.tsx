@@ -16,6 +16,7 @@ export function Settings({ theme, setTheme, onSignOut, params }: PageProps) {
   const [pw, setPw] = useState({ current: '', next: '' })
   const [busy, setBusy] = useState('')
   const [deleting, setDeleting] = useState(false)
+  const [deletingAccount, setDeletingAccount] = useState(false)
   const file = useRef<HTMLInputElement>(null)
   const ratesRef = useRef<HTMLDivElement>(null)
   useEffect(() => { if (params.section === 'rates') ratesRef.current?.scrollIntoView({ behavior: 'smooth' }) }, [params.section])
@@ -72,10 +73,14 @@ export function Settings({ theme, setTheme, onSignOut, params }: PageProps) {
             <Field label="New password" hint="At least 8 characters"><input type="password" autoComplete="new-password" minLength={8} value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} required /></Field>
             <button disabled={!!busy}>Change password</button>
           </form>
-          <p><button onClick={async () => { await api.logout().catch(() => {}); onSignOut() }}><Icon name="logout" size={16} /> Sign out</button></p>
+          <div className="row">
+            <button onClick={async () => { await api.logout().catch(() => {}); onSignOut() }}><Icon name="logout" size={16} /> Sign out</button>
+            <button className="danger" onClick={() => setDeletingAccount(true)}>Delete account…</button>
+          </div>
         </Card>
       </div>
       {deleting && <DeleteBook onClose={() => setDeleting(false)} />}
+      {deletingAccount && <DeleteAccount email={me.data?.user.email ?? ''} onClose={() => setDeletingAccount(false)} onDeleted={onSignOut} />}
     </>
   )
 }
@@ -95,6 +100,23 @@ function DeleteBook({ onClose }: { onClose: () => void }) {
       body={<>
         <p>This permanently removes every account, transaction and budget in this book from the server, for every member. Phones keep their own copy until they sync. Export first if you might need it.</p>
         <Field label={`Type ${l.name} to confirm`}><input value={typed} onChange={(e) => setTyped(e.target.value)} autoFocus /></Field>
+      </>} />
+  )
+}
+
+function DeleteAccount({ email, onClose, onDeleted }: { email: string; onClose: () => void; onDeleted: () => void }) {
+  const [password, setPassword] = useState('')
+  return (
+    <Confirm title="Delete your account?" danger confirm="Delete account forever" onClose={onClose} disabled={!password}
+      onConfirm={async () => {
+        await api.deleteAccount(password)
+        try { localStorage.removeItem('kosh.ledger') } catch { /* ignore */ }
+        toast('Your account was deleted')
+        onDeleted()
+      }}
+      body={<>
+        <p>This permanently deletes <strong>{email}</strong>, every book that only you own and all of their data. You are removed from books that have another owner. Phones keep their own copy. Export first if you might need it.</p>
+        <Field label="Password"><input type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus /></Field>
       </>} />
   )
 }

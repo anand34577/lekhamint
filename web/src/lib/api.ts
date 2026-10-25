@@ -116,10 +116,11 @@ async function call<T>(method: string, path: string, body?: unknown, raw = false
   } catch {
     throw new ApiError(0, 'network', "Can't reach the LekhaMint server. Check your connection.")
   }
-  if (res.status === 401 && t) { session.token = null; onUnauthorized() }
   if (!res.ok) {
     let code = `http_${res.status}`, message = res.statusText, fields
     try { const e = (await res.json()).error; code = e.code; message = e.message; fields = e.fields } catch { /* not JSON */ }
+    // A wrong password (change password, delete account) is also a 401 but the session is still fine.
+    if (res.status === 401 && t && code !== 'invalid_credentials') { session.token = null; onUnauthorized() }
     throw new ApiError(res.status, code, message, fields, res.headers.get('X-Request-ID') ?? undefined)
   }
   if (raw) return res as unknown as T
@@ -139,6 +140,7 @@ export const api = {
   sessions: () => call<{ sessions: Session[] }>('GET', '/auth/sessions').then((r) => r.sessions),
   revokeSession: (id: string) => call<void>('DELETE', `/auth/sessions/${id}`),
   changePassword: (current_password: string, new_password: string) => call<void>('POST', '/auth/password', { current_password, new_password }),
+  deleteAccount: (password: string) => call<{ deleted_ledgers: string[] }>('DELETE', '/auth/me', { password }),
 
   ledgers: () => call<{ ledgers: Ledger[] }>('GET', '/ledgers').then((r) => r.ledgers),
   createLedger: (name: string, base_currency: string) =>

@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -152,6 +153,20 @@ class SyncViewModel(private val c: AppContainer) : ViewModel() {
         message = "Signed out. Your data stays on this phone."
     }
 
+    /** Deletes the server account. Data on this phone stays; sync is turned off. */
+    fun deleteAccount(password: String) = launchBusy {
+        val api = c.sync.api() ?: error("Not signed in")
+        try {
+            api.deleteAccount(password)
+        } catch (e: app.kosh.sync.ApiException) {
+            if (e.code == "invalid_credentials") error("Wrong password. Your account was not deleted.")
+            throw e
+        }
+        c.settings.disconnect()
+        c.scheduler.schedulePeriodicSync(false)
+        message = "Your server account was deleted. Your data stays on this phone."
+    }
+
     fun cancelChoice() {
         serverLedgers = null
         pendingToken = null
@@ -181,6 +196,7 @@ fun SyncScreen(onJoined: () -> Unit) {
     val pending by c.repo.pendingCount.collectAsStateWithLifecycle(0)
     val rejected by c.repo.rejectedCount.collectAsStateWithLifecycle(0)
     var confirmUse by androidx.compose.runtime.remember { mutableStateOf<ApiLedger?>(null) }
+    var confirmDelete by androidx.compose.runtime.remember { mutableStateOf(false) }
     LaunchedEffect(vm.joined) { if (vm.joined) onJoined() }
 
     Scaffold(topBar = { KoshTopBar("Sync", onBack = { nav.popBackStack() }) }) { padding ->
@@ -235,6 +251,9 @@ fun SyncScreen(onJoined: () -> Unit) {
                     }
                     Button(onClick = vm::syncNow, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Sync now") }
                     OutlinedButton(onClick = vm::signOut, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) { Text("Sign out") }
+                    TextButton(onClick = { confirmDelete = true }, enabled = !vm.busy, modifier = Modifier.fillMaxWidth()) {
+                        Text("Delete account", color = MaterialTheme.colorScheme.error)
+                    }
                     Text(
                         "LekhaMint syncs in the background when you make changes and every 15 minutes. It always works offline; changes upload when you're back online.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -278,6 +297,11 @@ fun SyncScreen(onJoined: () -> Unit) {
             Spacer(Modifier.height(24.dp))
         }
     }
+    if (confirmDelete) DeleteAccountDialog(
+        email = s.accountEmail.orEmpty(),
+        onConfirm = { pw -> confirmDelete = false; vm.deleteAccount(pw) },
+        onDismiss = { confirmDelete = false },
+    )
     confirmUse?.let { l ->
         ConfirmDialog(
             "Replace this phone's data?",
@@ -286,4 +310,33 @@ fun SyncScreen(onJoined: () -> Unit) {
             onConfirm = { vm.useServerBook(l) }, onDismiss = { confirmUse = null },
         )
     }
+}
+
+@Composable
+private fun DeleteAccountDialog(email: String, onConfirm: (String) -> Unit, onDismiss: () -> Unit) {
+    var password by androidx.compose.runtime.remember { mutableStateOf("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete your account?") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    "This permanently deletes $email from the server, every book that only you own, and their data. " +
+                        "You are removed from books shared with another owner. This cannot be undone.",
+                )
+                Text("The data on this phone is kept. Make a backup first if you want a copy of the server books.", style = MaterialTheme.typography.bodySmall)
+                OutlinedTextField(
+                    password, { password = it }, label = { Text("Password") }, singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onConfirm(password) }, enabled = password.isNotEmpty()) {
+                Text("Delete account", color = MaterialTheme.colorScheme.error)
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

@@ -98,6 +98,24 @@ func (s *Server) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"user": currentUser(r), "session": currentSession(r)})
 }
 
+// deleteMe permanently deletes the signed-in account (and the ledgers only it
+// owns). The password is required again so a stolen session cannot do this.
+func (s *Server) deleteMe(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Password string `json:"password"`
+	}
+	if err := decode(w, r, smallBody, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	deleted, err := s.Auth.DeleteAccount(r.Context(), currentUser(r), in.Password)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted_ledgers": deleted})
+}
+
 func (s *Server) listSessions(w http.ResponseWriter, r *http.Request) {
 	list, err := store.ListSessions(r.Context(), s.DB, currentUser(r).ID)
 	if err != nil {

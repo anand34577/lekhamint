@@ -123,7 +123,7 @@ Tests: `make test` in `server/` (set `LEKHAMINT_TEST_PG_DSN` to include PostgreS
 
 ## Security and privacy
 
-No telemetry, no analytics, no third-party calls. Passwords use Argon2id, sessions are stored hashed, and Android backups are encrypted. Please report vulnerabilities privately: see [SECURITY.md](SECURITY.md).
+No telemetry, no analytics, no third-party calls. Passwords use Argon2id, sessions are stored hashed, and Android backups are encrypted. Please report vulnerabilities privately: see [SECURITY.md](SECURITY.md). The full [privacy policy](PRIVACY.md) explains what the apps store and when data leaves your device.
 
 ## License
 

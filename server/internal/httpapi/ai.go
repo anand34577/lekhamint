@@ -118,6 +118,13 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	if res.StatusCode >= 400 {
 		s.Log.Warn("assistant upstream error", "endpoint", RedactURL(s.AI.BaseURL), "status", res.StatusCode)
 	}
+	// A 401/403 from the model service means the server's AI key is wrong. Passing it on
+	// would look like the user's own LekhaMint session had expired.
+	if res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden {
+		writeError(w, http.StatusBadGateway, "ai_upstream_auth",
+			"the model service refused this server's API key; ask the admin to check LEKHAMINT_AI_API_KEY", nil)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(res.StatusCode)

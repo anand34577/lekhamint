@@ -66,6 +66,7 @@ func (s *Server) Handler() http.Handler {
 	public("POST /api/v1/auth/login", s.limited(s.login))
 	private("POST /api/v1/auth/logout", s.logout)
 	private("GET /api/v1/auth/me", s.me)
+	private("DELETE /api/v1/auth/me", s.limited(s.deleteMe))
 	private("GET /api/v1/auth/sessions", s.listSessions)
 	private("DELETE /api/v1/auth/sessions/{id}", s.deleteSession)
 	private("POST /api/v1/auth/password", s.changePassword)

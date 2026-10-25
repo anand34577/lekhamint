@@ -38,6 +38,7 @@ Base path is `/api/v1`. The API speaks JSON only. Authenticated endpoints need
 | `GET /auth/sessions` | Devices signed in: `{sessions:[{id, device_name, last_used_at, current}]}` |
 | `DELETE /auth/sessions/{id}` | Sign out that device |
 | `POST /auth/password` | `{current_password, new_password}`. Also signs out all other devices. |
+| `DELETE /auth/me` | `{password}` → `{deleted_ledgers}`. Permanently deletes the account and every ledger it alone owns; removes it from ledgers with another owner. Wrong password: 401 `invalid_credentials` (the session stays valid). |
 
 ## Ledgers
 
