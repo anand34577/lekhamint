@@ -36,6 +36,11 @@ func TestAssistantProxy(t *testing.T) {
 			_, _ = io.WriteString(w, `{"error":{"message":"Incorrect API key"}}`)
 			return
 		}
+		if body["stream"] == true {
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = io.WriteString(w, "data: {\"choices\":[{\"delta\":{\"content\":\"You spent\"}}]}\n\ndata: [DONE]\n\n")
+			return
+		}
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"You spent ₹1,250.00."}}]}`)
 	}))
 	defer upstream.Close()
@@ -69,6 +74,11 @@ func TestAssistantProxy(t *testing.T) {
 	c.do("POST", "/api/v1/ai/chat/completions", map[string]any{"model": "qwen2.5:7b", "messages": []any{}}, http.StatusOK)
 	if got.model != "qwen2.5:7b" {
 		t.Fatalf("model override ignored: %q", got.model)
+	}
+	// A streamed answer is relayed as server-sent events.
+	streamed := c.do("POST", "/api/v1/ai/chat/completions", map[string]any{"stream": true, "messages": []any{}}, http.StatusOK)
+	if raw := streamed["_raw"].(string); !strings.Contains(raw, `"content":"You spent"`) || !strings.Contains(raw, "[DONE]") {
+		t.Fatalf("stream relay: %q", raw)
 	}
 	c.do("POST", "/api/v1/ai/chat/completions", map[string]any{"nope": 1}, http.StatusBadRequest)
 	// A rejected server key is a gateway error, never a 401 that looks like an expired session.

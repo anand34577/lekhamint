@@ -59,6 +59,10 @@ describe('planning', () => {
     expect(a.totalInterest).toBeLessThanOrEqual(s.totalInterest)
     expect(s.order[0]).toBe('Small')
     expect(payoff(debts, 100, 'avalanche').never).toBe(true)
+    // The timeline starts at today's total, falls to zero, and has one entry per month.
+    expect(a.balances[0]).toBe(36000000)
+    expect(a.balances).toHaveLength(a.months + 1)
+    expect(a.balances[a.balances.length - 1]).toBe(0)
   })
   test('recurring payees', () => {
     const rows = ['2026-05-03', '2026-06-03', '2026-07-04', '2026-08-03'].map((d) => ({ payee: 'Netflix', amount: 64900, local_date: d, currency: 'INR', type: 'expense' }))

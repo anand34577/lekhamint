@@ -61,8 +61,20 @@ class SyncEngine(private val repo: Repository) {
         }
     }
 
+    /** Files attached on this phone go up before the records that point at them. */
+    private suspend fun uploadBlobs(api: KoshApi, ledgerId: String) {
+        val pending = repo.db.raw().ofEntity(app.kosh.domain.Attachment.ENTITY).filter { it.dirty == Dirty.PENDING && !it.deleted }
+            .mapNotNull(app.kosh.domain.Attachment::parse)
+        for (a in pending) {
+            if (repo.blobs.isUploaded(a.sha256) || !repo.blobs.has(a.sha256)) continue
+            api.uploadBlob(ledgerId, repo.blobs.file(a.sha256).readBytes(), a.mime)
+            repo.blobs.markUploaded(a.sha256)
+        }
+    }
+
     /** Returns (accepted, conflicts, rejected). */
     private suspend fun push(api: KoshApi, ledgerId: String): Triple<Int, Int, Int> {
+        uploadBlobs(api, ledgerId)
         var accepted = 0; var conflicts = 0; var rejected = 0
         // Bounded so a server that answers without acknowledging rows cannot loop us forever.
         repeat(MAX_PUSH_BATCHES) {
@@ -99,14 +111,28 @@ class SyncEngine(private val repo: Repository) {
         return Triple(accepted, conflicts, rejected)
     }
 
-    private suspend fun pull(api: KoshApi, ledgerId: String): Int {
-        var cursor = settings.syncCursor
+    private suspend fun pull(api: KoshApi, ledgerId: String): Int = try {
+        pullFrom(api, ledgerId, settings.syncCursor, null)
+    } catch (e: ApiException) {
+        // The server cleared deleted items older than this phone's last sync, so it can no
+        // longer say which records were deleted since. Download the whole book again; any
+        // synced record the server no longer has was deleted elsewhere.
+        if (e.code != "resync_required") throw e
+        val seen = HashSet<String>()
+        val n = pullFrom(api, ledgerId, 0, seen)
+        repo.db.withTransaction { dropMissing(seen) }
+        n
+    }
+
+    private suspend fun pullFrom(api: KoshApi, ledgerId: String, from: Long, seen: MutableSet<String>?): Int {
+        var cursor = from
         var total = 0
         while (true) {
             val page = api.pull(ledgerId, cursor, PULL_LIMIT)
             repo.db.withTransaction {
                 for (r in page.changes) {
                     repo.clock.observe(r.hlc)
+                    seen?.add(r.entity + ":" + r.id)
                     applyRemote(r)
                 }
             }
@@ -116,6 +142,19 @@ class SyncEngine(private val repo: Repository) {
             if (!page.has_more || page.changes.isEmpty()) break
         }
         return total
+    }
+
+    /** After a full download: synced, unchanged local records the server no longer has are marked deleted. */
+    private suspend fun dropMissing(seen: Set<String>) {
+        for (t in tables.typed) dropMissingIn(t, seen)
+        val raws = repo.db.raw().everything()
+        repo.db.raw().upsertAll(raws.filter { !it.deleted && it.dirty == Dirty.CLEAN && (it.entity + ":" + it.id) !in seen }
+            .map { it.withMeta(it.hlc, true, Dirty.CLEAN) })
+    }
+
+    private suspend fun <T : Synced<T>> dropMissingIn(t: SyncTable<T>, seen: Set<String>) {
+        val gone = t.everything().filter { !it.deleted && it.dirty == Dirty.CLEAN && (t.entity + ":" + it.id) !in seen }
+        if (gone.isNotEmpty()) t.upsert(gone.map { it.withMeta(it.hlc, true, Dirty.CLEAN) })
     }
 
     /** Applies a pulled record unless a newer unpushed local edit exists. */

@@ -1,13 +1,14 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useIsFetching, useIsMutating, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, session, setUnauthorizedHandler, type Ledger } from './lib/api'
 import { DEMO } from './lib/demo'
 import { LedgerContext } from './lib/data'
 import { defaultCurrency } from './lib/money'
-import { CurrencySelect, ErrorBoundary, Field, HideAmounts, Kbd, Skeleton, Toaster, errorText } from './components'
+import { CurrencySelect, ErrorBoundary, Field, HideAmounts, Kbd, Skeleton, Toaster, errorText, toast } from './components'
 import { Icon } from './icons'
+import { Loading } from './charts'
 import { Select } from './controls'
-import { Login } from './pages/Login'
+import { Login, readResetToken } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { Transactions, TxForm } from './pages/Transactions'
 import { Accounts } from './pages/Accounts'
@@ -22,12 +23,16 @@ import { Import } from './pages/Import'
 import { Debts } from './pages/Debts'
 import { Loans } from './pages/Loans'
 import { Deposits } from './pages/Deposits'
+import { Goals } from './pages/Goals'
+const YearTax = lazy(() => import('./pages/YearTax').then((m) => ({ default: m.YearTax })))
+const Insights = lazy(() => import('./pages/Insights').then((m) => ({ default: m.Insights })))
 // Bigger, less used pages load on first visit.
 const Tools = lazy(() => import('./pages/Tools').then((m) => ({ default: m.Tools })))
 const Statements = lazy(() => import('./pages/Statements').then((m) => ({ default: m.Statements })))
 const Assistant = lazy(() => import('./pages/Assistant').then((m) => ({ default: m.Assistant })))
 const Print = lazy(() => import('./pages/Print').then((m) => ({ default: m.Print })))
 import { CommandPalette, type Command, type Resolved } from './pages/QuickAdd'
+import { flushOutbox, outbox } from './lib/outbox'
 
 // [route, label, icon, nav section]
 const ROUTES = [
@@ -36,12 +41,15 @@ const ROUTES = [
   ['accounts', 'Accounts', 'wallet', 'main'],
   ['budgets', 'Budgets', 'target', 'main'],
   ['reports', 'Reports', 'chart', 'main'],
+  ['insights', 'Insights & forecast', 'forecast', 'main'],
   ['recurring', 'Bills & recurring', 'repeat', 'plan'],
+  ['goals', 'Goals', 'sprout', 'plan'],
   ['loans', 'Loans & EMIs', 'bank', 'plan'],
   ['deposits', 'Deposits', 'piggy', 'plan'],
   ['debts', 'Lent & borrowed', 'hand', 'plan'],
   ['tools', 'Calculators & tools', 'calc', 'tools'],
   ['assistant', 'Assistant', 'chat', 'tools'],
+  ['tax', 'Year & tax', 'percent', 'tools'],
   ['statements', 'Statements & export', 'file', 'tools'],
   ['import', 'Import statement', 'upload', 'tools'],
   ['categories', 'Categories', 'grid', 'organise'],
@@ -50,7 +58,7 @@ const ROUTES = [
   ['settings', 'Settings', 'settings', 'organise'],
 ] as const
 export type Route = (typeof ROUTES)[number][0] | (typeof HIDDEN_ROUTES)[number]
-const SECTIONS: [string, string][] = [['main', ''], ['plan', 'Commitments'], ['tools', 'Tools'], ['organise', 'Organise']]
+const SECTIONS: [string, string][] = [['main', ''], ['plan', 'Plan & commitments'], ['tools', 'Tools'], ['organise', 'Organise']]
 /** Pages reachable by link but not listed in the navigation. */
 const HIDDEN_ROUTES = ['print'] as const
 const MOBILE_TABS: Route[] = ['dashboard', 'transactions', 'budgets', 'reports']
@@ -100,6 +108,7 @@ export function App() {
     if (DEMO) { setAuthed(false); return } // the demo shows its own login
     api.me().then(() => { session.start(); setAuthed(true) }).catch(() => setAuthed(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  const [resetLink, setResetLink] = useState(readResetToken)
   const [theme, setTheme] = useState(() => pref('kosh.theme', 'system'))
   const [accent, setAccent] = useState(() => pref('kosh.accent', 'teal'))
   useEffect(() => {
@@ -113,9 +122,59 @@ export function App() {
     setPref('kosh.accent', accent)
   }, [accent])
 
-  if (authed === null) return <div className="splash"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="splash-logo" /><span className="muted">Loading…</span></div>
-  if (!authed) return <><Login onDone={() => setAuthed(true)} /><Toaster /></>
-  return <Signed theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} onSignOut={() => { session.end(); qc.clear(); setAuthed(false) }} />
+  if (authed === null) return <div className="splash"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="splash-logo" /><div className="splash-bar" /><span className="muted">Loading…</span></div>
+  // A password reset link opens the reset form even in a browser that is still signed in.
+  if (!authed || resetLink) return <><Login onDone={() => { if (resetLink) qc.clear(); setResetLink(''); setAuthed(true) }} /><Toaster /></>
+  return <Signed theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} onSignOut={() => { session.end(); qc.clear(); forgetChats(); outbox.clear(); setAuthed(false) }} />
+}
+
+/** Saved assistant conversations hold financial details; they do not outlive the session. */
+function forgetChats() {
+  try { for (const k of Object.keys(localStorage)) if (k.startsWith('kosh.chats.')) localStorage.removeItem(k) } catch { /* ignore */ }
+}
+
+/**
+ * Changes saved while offline: how many are waiting, sending them when the
+ * connection is back (and every 30 seconds while any wait), and any the server refused.
+ */
+function OfflineQueue({ online }: { online: boolean }) {
+  const qc = useQueryClient()
+  const [, bump] = useState(0)
+  useEffect(() => outbox.subscribe(() => bump((n) => n + 1)), [])
+  const waiting = outbox.list().length
+  const failed = outbox.failed()
+  useEffect(() => {
+    if (!online || waiting === 0) return
+    const go = async () => {
+      const sent = await flushOutbox()
+      if (sent > 0) { qc.invalidateQueries(); toast(`Saved ${sent} ${sent === 1 ? 'change' : 'changes'} made while offline`) }
+    }
+    void go()
+    const t = setInterval(go, 30_000)
+    return () => clearInterval(t)
+  }, [online, waiting, qc])
+  return <>
+    {!online && <div className="banner warn"><Icon name="alert" size={16} /> You are offline. You can keep adding and editing: changes are kept in this browser and saved when you are back online.{waiting > 0 && ` ${waiting} waiting.`}</div>}
+    {online && waiting > 0 && <div className="banner"><Icon name="refresh" size={16} /> Saving {waiting} {waiting === 1 ? 'change' : 'changes'} made while offline…</div>}
+    {failed.length > 0 && <div className="banner warn"><Icon name="alert" size={16} />
+      <span className="grow">{failed.length} {failed.length === 1 ? 'change' : 'changes'} made offline could not be saved: {failed.slice(0, 3).map((f) => `${f.label} (${f.message})`).join('; ')}</span>
+      <button className="link" onClick={() => outbox.clearFailed()}>Dismiss</button></div>}
+  </>
+}
+
+/**
+ * A thin bar under the top bar while anything loads or saves. It appears only
+ * after a short delay, so quick requests do not flicker.
+ */
+function TopProgress() {
+  const active = useIsFetching() + useIsMutating() > 0
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    if (!active) { setShown(false); return }
+    const t = setTimeout(() => setShown(true), 180)
+    return () => clearTimeout(t)
+  }, [active])
+  return <div className={`top-progress ${shown ? 'on' : ''}`} role="progressbar" aria-hidden={!shown} aria-label="Loading" />
 }
 
 function Signed({ theme, setTheme, accent, setAccent, onSignOut }: { theme: string; setTheme: (t: string) => void; accent: string; setAccent: (a: string) => void; onSignOut: () => void }) {
@@ -125,7 +184,7 @@ function Signed({ theme, setTheme, accent, setAccent, onSignOut }: { theme: stri
   const [creating, setCreating] = useState(false)
   const [route, params, go] = useHashRoute()
 
-  if (ledgers.isPending) return <div className="splash"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="splash-logo" /><span className="muted">Loading your books…</span></div>
+  if (ledgers.isPending) return <div className="splash"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="splash-logo" /><div className="splash-bar" /><span className="muted">Loading your books…</span></div>
   if (ledgers.isError) return <div className="splash"><p>{errorText(ledgers.error)}</p><button className="primary" onClick={() => ledgers.refetch()}>Retry</button></div>
   const list = ledgers.data
   const created = (l: Ledger) => { setPref('kosh.ledger', l.id); setLedgerId(l.id); setCreating(false); ledgers.refetch(); go('dashboard') }
@@ -203,13 +262,13 @@ function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden,
 
   const props: PageProps = { go, params, theme, setTheme, accent, setAccent, onSignOut, openAdd: (draft) => setAdding({ draft: draft ?? null }) }
   const Page = { dashboard: Dashboard, transactions: Transactions, budgets: Budgets, accounts: Accounts, reports: Reports, recurring: Recurring,
-    categories: Categories, settings: Settings, tags: Tags, rules: Rules, import: Import, debts: Debts, loans: Loans, deposits: Deposits,
+    categories: Categories, settings: Settings, tags: Tags, rules: Rules, import: Import, debts: Debts, loans: Loans, deposits: Deposits, goals: Goals, insights: Insights, tax: YearTax,
     tools: Tools, statements: Statements, assistant: Assistant, print: Print }[route]
   const label = ROUTES.find(([r]) => r === route)?.[1] ?? (route === 'print' ? 'Report' : '')
   const initial = (me.data?.user.name || me.data?.user.email || '?').trim()[0]?.toUpperCase()
   useEffect(() => { document.title = `${label} · LekhaMint` }, [label])
 
-  if (route === 'print') return <ErrorBoundary resetKey={route}><Suspense fallback={<div className="splash"><span className="muted">Preparing the report…</span></div>}><Print {...props} /></Suspense></ErrorBoundary>
+  if (route === 'print') return <ErrorBoundary resetKey={route}><Suspense fallback={<div className="splash"><Loading text="Preparing the report…" /></div>}><Print {...props} /></Suspense></ErrorBoundary>
   return (
     <div className={`shell ${rail ? 'collapsed' : ''}`}>
       <aside className={`side ${menu ? 'open' : ''}`} aria-label="Main">
@@ -252,11 +311,12 @@ function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden,
           <button className="icon-btn" onClick={() => setTheme(dark ? 'light' : 'dark')} aria-label={dark ? 'Switch to light theme' : 'Switch to dark theme'} title={dark ? 'Light theme' : 'Dark theme'}><Icon name={dark ? 'sun' : 'moon'} /></button>
           <button className="icon-btn" onClick={toggleHidden} aria-label={hidden ? 'Show amounts' : 'Hide amounts'} title={`${hidden ? 'Show' : 'Hide'} amounts (Shift+H)`}><Icon name={hidden ? 'eye' : 'eyeOff'} /></button>
           {canWrite && <button className="primary tb-wide" onClick={() => setAdding({ draft: null })}><Icon name="plus" size={17} /> New</button>}
+          <TopProgress />
         </header>
-        <main className="main" id="main">
-          {!online && <div className="banner warn"><Icon name="alert" size={16} /> You are offline. LekhaMint will reconnect by itself; changes need a connection to save.</div>}
+        <main className={`main ${route === 'assistant' ? 'main-chat' : ''}`} id="main">
+          <OfflineQueue online={online} />
           {ledger.role === 'viewer' && <div className="banner"><Icon name="eye" size={16} /> You can view this shared book but not change it.</div>}
-          <ErrorBoundary resetKey={route}><Suspense fallback={<div className="card pad"><Skeleton rows={4} /></div>}><Page {...props} /></Suspense></ErrorBoundary>
+          <ErrorBoundary resetKey={route}><Suspense fallback={<div className="card pad"><Loading text={`Opening ${label.toLowerCase()}…`} /><Skeleton rows={3} /></div>}><Page {...props} /></Suspense></ErrorBoundary>
         </main>
       </div>
       <nav className="tabbar" aria-label="Quick navigation">

@@ -88,7 +88,10 @@ function Doc({ r, book }: { r: Report; book: string }) {
                   <tr key={i}>{row.map((v, j) => {
                     const c = s.table!.columns[j]
                     const neg = c.kind === 'money' && typeof v === 'number' && v < 0
-                    return <td key={j} className={`${c.kind === 'money' || c.kind === 'number' ? 'num' : ''} ${c.kind === 'date' ? 'date' : ''} ${neg ? 'neg' : ''}`}>{cell(v, c, r.currency)}</td>
+                    // Share columns (% of spending, % used) carry a small bar so the biggest parts stand out on paper.
+                    const share = c.kind === 'number' && c.label.startsWith('%') && typeof v === 'number'
+                    return <td key={j} className={`${c.kind === 'money' || c.kind === 'number' ? 'num' : ''} ${c.kind === 'date' ? 'date' : ''} ${neg ? 'neg' : ''}`}>
+                      {share ? <span className="doc-share"><i style={{ width: `${Math.min(100, Math.max(0, v as number))}%` }} className={(v as number) > 100 ? 'over' : ''} /></span> : null}{cell(v, c, r.currency)}</td>
                   })}</tr>
                 ))}
                 {s.table.total && <tr className="total">{s.table.total.map((v, j) => <td key={j} className={s.table!.columns[j].kind === 'money' || s.table!.columns[j].kind === 'number' ? 'num' : ''}>{cell(v, s.table!.columns[j], r.currency)}</td>)}</tr>}

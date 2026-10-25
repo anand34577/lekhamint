@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ExchangeRate } from '../lib/api'
-import { useCanWrite, useExchangeRates, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
+import { useAccounts, useCanWrite, useExchangeRates, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
 import { download, isoDate, shortDate } from '../lib/util'
 import { Card, Confirm, CurrencySelect, Field, Modal, errorText, toast } from '../components'
 import { Notifications } from './Notifications'
+import { TwoStep } from './Security'
+import { Spinner } from '../charts'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
 import { Select, DateField, NumInput, PasswordInput } from '../controls'
@@ -71,8 +73,8 @@ export function Settings({ theme, setTheme, accent, setAccent, onSignOut, params
         <Card title={<><Icon name="download" size={16} /> Your data</>}>
           <p className="muted small">Exports use the same format as the Android app and server, so you can move data anywhere.</p>
           <div className="row">
-            <button disabled={!!busy} onClick={() => run('export', async () => { download(`lekhamint-${l.name}-${isoDate()}.json`, await api.exportLedger(l.id)); return 'Export downloaded' })}>Export (JSON)</button>
-            <button disabled={!!busy || !canWrite} onClick={() => file.current?.click()}>Import (JSON)…</button>
+            <button disabled={!!busy} onClick={() => run('export', async () => { download(`lekhamint-${l.name}-${isoDate()}.json`, await api.exportLedger(l.id)); return 'Export downloaded' })}>{busy === 'export' ? <Spinner size={15} /> : <Icon name="download" size={15} />} Export (JSON)</button>
+            <button disabled={!!busy || !canWrite} onClick={() => file.current?.click()}>{busy === 'import' ? <Spinner size={15} /> : <Icon name="upload" size={15} />} Import (JSON)…</button>
             <input ref={file} type="file" accept=".json,application/json" hidden onChange={(e) => {
               const f = e.target.files?.[0]; e.target.value = ''
               if (f) run('import', async () => {
@@ -83,19 +85,23 @@ export function Settings({ theme, setTheme, accent, setAccent, onSignOut, params
             }} />
           </div>
           <p className="muted small">Importing merges by last change: nothing is deleted, and newer versions win. A failed import changes nothing. For bank statements use <a href="#/import">Import statement</a>.</p>
-          {busy && <p className="muted">Working…</p>}
+          {(busy === 'export' || busy === 'import') && <div className="progress-line"><Spinner size={15} /> {busy === 'export' ? 'Preparing your export…' : 'Importing; this can take a minute for a large book…'}</div>}
         </Card>
+        <TwoStep />
         <Devices />
         <Card title={<><Icon name="users" size={16} /> Your account</>}>
           <p>{me.data?.user.name && <strong>{me.data.user.name} · </strong>}{me.data?.user.email}</p>
           <form onSubmit={(e) => { e.preventDefault(); run('pw', async () => { await api.changePassword(pw.current, pw.next); setPw({ current: '', next: '' }); return 'Password changed. Other devices were signed out.' }) }}>
             <Field label="Current password"><PasswordInput autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} required /></Field>
             <Field label="New password" hint="At least 8 characters"><PasswordInput autoComplete="new-password" minLength={8} value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} required /></Field>
-            <button disabled={!!busy}>Change password</button>
+            <div className="form-actions">
+              <button className="primary" disabled={!!busy || !pw.current || pw.next.length < 8}>{busy === 'pw' ? <Spinner size={15} /> : <Icon name="lock" size={15} />} Change password</button>
+            </div>
           </form>
-          <div className="row">
+          <div className="account-actions">
             <button onClick={async () => { await api.logout().catch(() => {}); onSignOut() }}><Icon name="logout" size={16} /> Sign out</button>
-            <button className="danger" onClick={() => setDeletingAccount(true)}>Delete account…</button>
+            <span className="spacer" />
+            <button className="danger" onClick={() => setDeletingAccount(true)}><Icon name="trash" size={15} /> Delete account…</button>
           </div>
         </Card>
       </div>
@@ -155,14 +161,46 @@ function Rates() {
   const write = useWrite()
   const can = useCanWrite()
   const [edit, setEdit] = useState<WithId<ExchangeRate> | 'new' | null>(null)
+  const [fetching, setFetching] = useState(false)
+  const meta = useQuery({ queryKey: ['meta'], queryFn: api.meta, staleTime: 10 * 60_000 })
+  const accounts = useAccounts()
+  const qc = useQueryClient()
   const list = (rates.data ?? []).filter((r) => !r.deleted).sort((a, b) => b.effective_date.localeCompare(a.effective_date) || a.base.localeCompare(b.base))
+  // Currencies the book uses besides its main one: the ones that need a rate.
+  const foreign = [...new Set((accounts.data ?? []).filter((a) => !a.deleted && !a.archived && a.currency !== l.base_currency).map((a) => a.currency))].sort()
+  const canFetch = can && meta.data?.features?.fx_fetch && foreign.length > 0
+  const fetchNow = async () => {
+    setFetching(true)
+    try {
+      // One request per currency, so each is saved as "1 USD = 83.2 INR", the way people read rates.
+      const got: string[] = [], missing: string[] = []
+      let date = '', source = ''
+      for (const c of foreign) {
+        try {
+          const r = await api.fetchRates(l.id, c, [l.base_currency])
+          date = r.date; source = r.source
+          if (r.rates[l.base_currency]) got.push(`1 ${c} = ${r.rates[l.base_currency]} ${l.base_currency}`)
+          else missing.push(c)
+        } catch { missing.push(c) }
+      }
+      qc.invalidateQueries({ queryKey: [l.id] })
+      toast(got.length ? `Saved ${got.join(', ')} (rates of ${date}, ${source})${missing.length ? `. Not available: ${missing.join(', ')}` : ''}` : `No rates found for ${missing.join(', ')}. Type them in instead.`)
+    } finally { setFetching(false) }
+  }
   return (
     <Card title={<><Icon name="coins" size={16} /> Exchange rates</>} action={can ? <button className="link" onClick={() => setEdit('new')}>+ Rate</button> : undefined}>
-      <p className="muted small">LekhaMint converts other currencies into {l.base_currency} for totals using the newest rate on or before each period. Rates are typed in by you; nothing is fetched from the internet.</p>
+      <p className="muted small">LekhaMint converts other currencies into {l.base_currency} for totals using the newest rate on or before each period.
+        {meta.data?.features?.fx_fetch ? ' Type rates in, or fetch the European Central Bank reference rates; nothing is fetched unless you press the button.' : ' Rates are typed in by you; nothing is fetched from the internet.'}</p>
+      {canFetch && <div className="row" style={{ marginBottom: 8 }}>
+        <button onClick={fetchNow} disabled={fetching}>{fetching ? <Spinner size={15} /> : <Icon name="refresh" size={15} />} Fetch today's rates for {foreign.join(', ')}</button>
+      </div>}
+      {list.length > 0 && foreign.some((c) => !list.some((r) => r.base === c || r.quote === c)) && (
+        <p className="callout warn small"><Icon name="alert" size={14} /> No rate yet for {foreign.filter((c) => !list.some((r) => r.base === c || r.quote === c)).join(', ')}: those accounts are left out of combined totals.</p>
+      )}
       {list.length === 0 ? <p className="muted">No rates yet.</p> : (
         <ul className="list">{list.slice(0, 12).map((r) => (
           <li key={r.id} className={can ? 'clickable' : ''} onClick={() => can && setEdit(r)}>
-            <div className="grow"><div>1 {r.base} = {r.rate} {r.quote}</div><div className="sub">from {shortDate(r.effective_date)}</div></div>
+            <div className="grow"><div>1 {r.base} = {r.rate} {r.quote}</div><div className="sub">from {shortDate(r.effective_date)}{r.source === 'imported' ? ' · fetched' : ''}</div></div>
             {can && <button className="icon-btn" aria-label="Delete rate" onClick={async (e) => { e.stopPropagation(); await write.remove.mutateAsync({ entity: 'exchange_rates', id: r.id }); toast('Rate deleted', { label: 'Undo', run: () => write.restore.mutate({ entity: 'exchange_rates', id: r.id }) }) }}><Icon name="trash" size={16} /></button>}
           </li>
         ))}</ul>

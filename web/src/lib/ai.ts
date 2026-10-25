@@ -4,7 +4,7 @@
 // read-only tools that this file runs against the user's own records, and
 // every figure in a tool result is calculated here, not by the model.
 
-import { api, type Debt, type Deposit, type Loan, type RecurringRule } from './api'
+import { api, type Debt, type Deposit, type Goal, type Loan, type RecurringRule } from './api'
 import { DEMO } from './demo'
 import { estimate } from './deposits'
 import { loanStatus } from './loans'
@@ -13,6 +13,7 @@ import { dueDates } from './recurrence'
 import { allTransactions, presets } from './reports'
 import { addDays, isoDate, monthRange } from './util'
 import { people, type Move } from './debts'
+import { STATUS_TEXT, goalProgress } from './goals'
 
 // --- Settings (per browser; the API key never syncs) ---------------------------------------
 
@@ -33,7 +34,9 @@ export interface AiSettings {
 export const PROVIDERS: { id: string; name: string; url: string; key: boolean; note: string }[] = [
   { id: 'openai', name: 'OpenAI', url: 'https://api.openai.com/v1', key: true, note: 'Cloud. Your questions and the records the assistant looks up are sent to OpenAI.' },
   { id: 'openrouter', name: 'OpenRouter', url: 'https://openrouter.ai/api/v1', key: true, note: 'Cloud gateway to many models. Data goes to OpenRouter and the model provider you pick.' },
-  { id: 'ollama', name: 'Ollama (this computer or home server)', url: 'http://localhost:11434/v1', key: false, note: 'Runs on your own machine. Start Ollama with OLLAMA_ORIGINS set to this site, or use the server option.' },
+  { id: 'groq', name: 'Groq (free tier)', url: 'https://api.groq.com/openai/v1', key: true, note: 'Cloud, fast, with a free tier: sign in at console.groq.com, create an API key and paste it here. Try the model llama-3.3-70b-versatile. Questions and looked-up records go to Groq.' },
+  { id: 'gemini', name: 'Google Gemini (free tier)', url: 'https://generativelanguage.googleapis.com/v1beta/openai', key: true, note: 'Cloud, with a free tier: create a key at aistudio.google.com and paste it here. Try gemini-2.0-flash. Questions and looked-up records go to Google.' },
+  { id: 'ollama', name: 'Ollama (this computer or home server)', url: 'http://localhost:11434/v1', key: false, note: 'Free and private: runs on your own computer. 1) Install Ollama from ollama.com. 2) In a terminal run: ollama pull llama3.1. 3) Allow this site: set OLLAMA_ORIGINS to this page’s address (or *) and restart Ollama. Then press Test connection.' },
   { id: 'lmstudio', name: 'LM Studio', url: 'http://localhost:1234/v1', key: false, note: 'Local server in LM Studio. Enable CORS in its server settings.' },
   { id: 'vllm', name: 'vLLM / llama.cpp server', url: 'http://localhost:8000/v1', key: false, note: 'Any OpenAI-compatible server you run yourself.' },
   { id: 'custom', name: 'Other OpenAI-compatible', url: '', key: true, note: 'Enter the base URL that ends before /chat/completions.' },
@@ -105,9 +108,21 @@ export class AiError extends Error {
   constructor(message: string, public kind: 'config' | 'network' | 'auth' | 'tools' | 'provider' | 'cors') { super(message) }
 }
 
-async function complete(s: AiSettings, messages: ChatMessage[], withTools: boolean, signal?: AbortSignal): Promise<ChatMessage> {
+/** One chat completion. With [onText] the answer is streamed and [onText] gets the text so far. */
+async function complete(s: AiSettings, messages: ChatMessage[], withTools: boolean, signal?: AbortSignal, onText?: (text: string) => void): Promise<ChatMessage> {
+  try {
+    return await completeOnce(s, messages, withTools, signal, onText)
+  } catch (e) {
+    // A few servers refuse streaming (or streaming with tools); ask again for one response.
+    if (onText && e instanceof AiError && e.kind === 'provider' && /stream/i.test(e.message)) return completeOnce(s, messages, withTools, signal)
+    throw e
+  }
+}
+
+async function completeOnce(s: AiSettings, messages: ChatMessage[], withTools: boolean, signal?: AbortSignal, onText?: (text: string) => void): Promise<ChatMessage> {
   const body: Record<string, unknown> = { model: s.model || undefined, messages, temperature: 0.2 }
   if (withTools) { body.tools = TOOL_SPECS; body.tool_choice = 'auto' }
+  if (onText) body.stream = true
   let res: Response
   try {
     if (s.mode === 'server') {
@@ -137,10 +152,47 @@ async function complete(s: AiSettings, messages: ChatMessage[], withTools: boole
     if (withTools && res.status === 400 && /tool|function/i.test(msg)) throw new AiError(msg, 'tools')
     throw new AiError(`The model returned an error: ${msg}`, 'provider')
   }
+  if (onText && res.body && (res.headers.get('Content-Type') ?? '').includes('text/event-stream')) return readStream(res.body, onText)
   const j = await res.json()
   const m = j.choices?.[0]?.message
   if (!m) throw new AiError('The model sent an empty answer.', 'provider')
+  if (m.content) onText?.(m.content)
   return { role: 'assistant', content: m.content ?? null, tool_calls: m.tool_calls }
+}
+
+/** Reads an OpenAI-style event stream: text deltas, and tool calls assembled from their pieces. */
+export async function readStream(stream: ReadableStream<Uint8Array>, onText: (text: string) => void): Promise<ChatMessage> {
+  const reader = stream.pipeThrough(new TextDecoderStream()).getReader()
+  let buf = '', content = ''
+  const calls: ToolCall[] = []
+  const take = (line: string) => {
+    if (!line.startsWith('data:')) return
+    const data = line.slice(5).trim()
+    if (!data || data === '[DONE]') return
+    let j: { error?: { message?: string }; choices?: { delta?: { content?: string | null; tool_calls?: { index?: number; id?: string; function?: { name?: string; arguments?: string } }[] } }[] }
+    try { j = JSON.parse(data) } catch { return }
+    if (j.error) throw new AiError(`The model returned an error: ${j.error.message ?? 'unknown error'}`, 'provider')
+    const d = j.choices?.[0]?.delta
+    if (!d) return
+    if (d.content) { content += d.content; onText(content) }
+    for (const tc of d.tool_calls ?? []) {
+      const c = (calls[tc.index ?? 0] ??= { id: '', type: 'function', function: { name: '', arguments: '' } })
+      if (tc.id) c.id = tc.id
+      if (tc.function?.name) c.function.name += tc.function.name
+      if (tc.function?.arguments) c.function.arguments += tc.function.arguments
+    }
+  }
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buf += value
+    let i: number
+    while ((i = buf.indexOf('\n')) >= 0) { take(buf.slice(0, i).trim()); buf = buf.slice(i + 1) }
+  }
+  take(buf.trim())
+  const toolCalls = calls.filter(Boolean).map((c, i) => ({ ...c, id: c.id || `call_${i}` }))
+  if (!content && !toolCalls.length) throw new AiError('The model sent an empty answer.', 'provider')
+  return { role: 'assistant', content: content || null, tool_calls: toolCalls.length ? toolCalls : undefined }
 }
 
 // --- Tools ---------------------------------------------------------------------------------
@@ -159,6 +211,7 @@ export const TOOL_SPECS = [
   { type: 'function', function: { name: 'people_debts', description: 'Money lent to and borrowed from friends and family: who owes what, due dates, overdue.', parameters: P({}) } },
   { type: 'function', function: { name: 'upcoming', description: 'Bills, EMIs, deposit maturities and personal debts due in the next N days (default 30).', parameters: P({ days: { type: 'integer' } }) } },
   { type: 'function', function: { name: 'budgets', description: 'Active budgets with limit, spent, left and days left.', parameters: P({}) } },
+  { type: 'function', function: { name: 'goals', description: 'Savings goals: target, saved so far, percent, target date, monthly saving needed and whether on track.', parameters: P({}) } },
   { type: 'function', function: { name: 'net_worth_history', description: 'Month-end net worth, assets and debts for the last N months (default 12).', parameters: P({ months: { type: 'integer' } }) } },
 ]
 
@@ -177,6 +230,7 @@ export const TOOL_LABELS: Record<string, string> = {
   upcoming: 'What is coming up',
   budgets: 'Budgets',
   net_worth_history: 'Net worth history',
+  goals: 'Goals',
 }
 export const toolLabel = (name: string): string => TOOL_LABELS[name] ?? name
 
@@ -359,6 +413,16 @@ export async function runTool(c: Ctx, name: string, args: Record<string, unknown
         run.link = { route: 'budgets', params: {} }
         break
       }
+      case 'goals': {
+        const [goals, balances] = await Promise.all([api.records<Goal>(c.ledgerId, 'goals'), api.balances(c.ledgerId)])
+        run.result = goals.filter((r) => !r.deleted && !r.data.archived).map((r) => {
+          const g = r.data, p = goalProgress(g, balances)
+          return { name: g.name, target: money(p.target, g.currency), saved: money(p.saved, g.currency), percent: `${Math.floor(p.fraction * 100)}%`, target_date: g.target_date,
+            status: STATUS_TEXT[p.status].toLowerCase(), ...(p.perMonth ? { per_month: money(p.perMonth, g.currency) } : {}), still_to_save: money(p.left, g.currency) }
+        })
+        run.link = { route: 'goals', params: {} }
+        break
+      }
       case 'net_worth_history': {
         const n = Math.min(120, Math.max(1, Number(args.months) || 12))
         const pts = await api.netWorth(c.ledgerId, n)
@@ -403,32 +467,35 @@ export async function snapshot(c: Ctx): Promise<string> {
     parts.map((p) => `## ${p.name}${p.args.from ? ` ${p.args.from}..${p.args.to}` : ''}\n${JSON.stringify(p.result)}`).join('\n\n')
 }
 
-export interface Turn { question: string; answer: string; runs: ToolRun[]; mode: 'tools' | 'snapshot'; error?: string }
+export interface Turn { question: string; answer: string; runs: ToolRun[]; mode: 'tools' | 'snapshot' | 'quick'; error?: string; /** When it was answered (ms). */ at?: number }
 
 /** Asks one question with the conversation so far; runs up to 6 rounds of tool
- *  calls. [onRun] fires after each lookup so the UI can show live progress. */
-export async function ask(s: AiSettings, c: Ctx, bookName: string, history: Turn[], question: string, signal?: AbortSignal, onRun?: (r: ToolRun) => void): Promise<Turn> {
+ *  calls. [onRun] fires after each lookup so the UI can show live progress, and
+ *  [onText] gets the answer as it is written (streamed). */
+export async function ask(s: AiSettings, c: Ctx, bookName: string, history: Turn[], question: string, signal?: AbortSignal, onRun?: (r: ToolRun) => void, onText?: (text: string) => void): Promise<Turn> {
   const runs: ToolRun[] = []
   const msgs: ChatMessage[] = [{ role: 'system', content: systemPrompt(c.base, bookName) }]
   for (const t of history.slice(-6)) { msgs.push({ role: 'user', content: t.question }); msgs.push({ role: 'assistant', content: t.answer }) }
   if (!s.tools) {
     msgs.push({ role: 'system', content: await snapshot(c) }, { role: 'user', content: question })
-    const m = await complete(s, msgs, false, signal)
+    const m = await complete(s, msgs, false, signal, onText)
     return { question, answer: m.content ?? '', runs, mode: 'snapshot' }
   }
   msgs.push({ role: 'user', content: question })
   for (let round = 0; round < 6; round++) {
     let m: ChatMessage
-    try { m = await complete(s, msgs, true, signal) } catch (e) {
+    try { m = await complete(s, msgs, true, signal, onText) } catch (e) {
       if (e instanceof AiError && e.kind === 'tools') {
         // The model cannot call tools: fall back to a summary for this question.
         msgs.splice(1, 0, { role: 'system', content: await snapshot(c) })
-        const plain = await complete(s, msgs.filter((x) => x.role !== 'tool' && !x.tool_calls), false, signal)
+        onText?.('')
+        const plain = await complete(s, msgs.filter((x) => x.role !== 'tool' && !x.tool_calls), false, signal, onText)
         return { question, answer: plain.content ?? '', runs, mode: 'snapshot' }
       }
       throw e
     }
     if (!m.tool_calls?.length) return { question, answer: m.content ?? '', runs, mode: 'tools' }
+    onText?.('') // any text before a lookup ("Let me check…") is not the answer
     msgs.push(m)
     for (const call of m.tool_calls) {
       let args: Record<string, unknown> = {}

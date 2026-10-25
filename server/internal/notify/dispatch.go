@@ -46,6 +46,8 @@ func (d *Dispatcher) wants(pr store.Prefs, event string) bool {
 		return pr.EvDue
 	case EventBudget:
 		return pr.EvBudget
+	case EventDigest:
+		return pr.EvDigest
 	}
 	return false
 }
@@ -144,7 +146,7 @@ func (d *Dispatcher) RunOnce(ctx context.Context, now time.Time) error {
 	}
 	today := now.Format("2006-01-02")
 	for _, pr := range prefs {
-		if !pr.EvDue && !pr.EvBudget {
+		if !pr.EvDue && !pr.EvBudget && !pr.EvDigest {
 			continue
 		}
 		u, err := store.UserByID(ctx, d.DB, pr.UserID)
@@ -164,6 +166,9 @@ func (d *Dispatcher) RunOnce(ctx context.Context, now time.Time) error {
 			if pr.EvBudget {
 				d.budgetAlerts(ctx, u, pr, l, today)
 			}
+		}
+		if pr.EvDigest {
+			d.weeklyDigests(ctx, u, pr, ledgers, now)
 		}
 	}
 	return nil

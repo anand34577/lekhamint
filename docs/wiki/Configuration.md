@@ -29,6 +29,9 @@ A value that cannot be understood (`LEKHAMINT_ALLOW_SIGNUP=yes please`, a port o
 | `LEKHAMINT_BACKUP_DIR` | `<data dir>/backups` | Where automatic backups go. Best on a different disk. |
 | `LEKHAMINT_BACKUP_KEEP` | `14` | How many automatic backups to keep. |
 | `LEKHAMINT_MAX_IMPORT_MB` | `256` | Largest book import accepted. |
+| `LEKHAMINT_MAX_ATTACHMENT_MB` | `10` | Largest receipt or bill file attached to a transaction, in MB (1–100). |
+| `LEKHAMINT_HISTORY_DAYS` | `365` | Days to keep the change history of records (“who changed what”). `0` keeps it forever. |
+| `LEKHAMINT_TRASH_DAYS` | `0` (forever) | Days deleted items stay in the Trash before they are removed for good. `0` keeps them forever; otherwise at least `30`, so devices that are offline for a while still learn about deletes. |
 | `LEKHAMINT_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error`. |
 | `LEKHAMINT_LOG_FORMAT` | `text` (`json` in Docker) | `text` for people, `json` for log collectors. |
 | `LEKHAMINT_LOG_FILE` | *(none)* | Also write logs to this file. It is rotated at 10 MB and three old files are kept. The Windows and macOS installers set this. |
@@ -50,6 +53,7 @@ A value that cannot be understood (`LEKHAMINT_ALLOW_SIGNUP=yes please`, a port o
 | `LEKHAMINT_REMINDER_HOUR` | `8` | Hour of day (server time, 0-23) for bill and budget reminders. `-1` turns them off. |
 | `LEKHAMINT_AI_BASE_URL` / `_API_KEY` / `_MODEL` | *(none)* | Assistant through the server: any OpenAI-compatible API. See the assistant guide. |
 | `LEKHAMINT_AI_TIMEOUT` / `_CONNECT_ORIGINS` | `2m` / *(none)* | Time limit per assistant request; extra origins the web app may call directly. |
+| `LEKHAMINT_FX_URL` | `https://api.frankfurter.app` | Exchange-rate service used by the “Fetch today's rates” button (European Central Bank rates via Frankfurter). `off` hides the button. |
 
 Durations use Go syntax: `90m`, `24h`, `2160h`.
 

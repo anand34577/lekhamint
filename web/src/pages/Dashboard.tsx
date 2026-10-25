@@ -10,6 +10,7 @@ import { Bar, Card, Empty, Money, PaceChart, Skeleton } from '../components'
 import { CatIcon, Icon } from '../icons'
 import { BudgetCard } from './Budgets'
 import { QuickAddBar } from './QuickAdd'
+import { GettingStarted, GoalsMini } from './GettingStarted'
 import type { PageProps } from '../App'
 
 const OB_ICON: Record<Obligation['kind'], string> = { bill: 'repeat', income: 'coins', emi: 'bank', rd: 'piggy', maturity: 'piggy', payout: 'coins', debt: 'hand' }
@@ -101,17 +102,7 @@ export function Dashboard({ go, openAdd }: PageProps) {
           <h1>{greeting()}</h1>
         </div>
       </div>
-      {noAccounts && (
-        <Card className="mb onboarding">
-          <h2><Icon name="sparkles" /> Welcome to LekhaMint</h2>
-          <p className="muted">Three steps to a clear picture of your money:</p>
-          <ol className="steps">
-            <li><button className="link" onClick={() => go('accounts')}>Add your accounts</button>: cash, bank, cards and wallets, with today's balance.</li>
-            <li>Log a few expenses below, or <button className="link" onClick={() => go('import')}>import a bank statement</button>.</li>
-            <li><button className="link" onClick={() => go('budgets')}>Set a monthly budget</button> to see what you can still spend per day.</li>
-          </ol>
-        </Card>
-      )}
+      <GettingStarted go={go} onAdd={() => openAdd()} />
       {can && !noAccounts && <QuickAddBar onOpenForm={(r) => openAdd(r)} />}
 
       <div className="grid stats">
@@ -210,6 +201,7 @@ export function Dashboard({ go, openAdd }: PageProps) {
           {activeBudgets.length === 0 && !budgets.isPending && can && (
             <Card title="Budgets"><p className="muted">A monthly budget shows how much you can still spend per day.</p><button onClick={() => go('budgets')}>Create a budget</button></Card>
           )}
+          <GoalsMini go={go} />
           {upcoming.length > 0 && (
             <Card title="Coming up" action={<button className="link" onClick={() => go('recurring')}>All bills</button>}>
               <ul className="list">

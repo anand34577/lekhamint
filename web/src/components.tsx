@@ -181,49 +181,72 @@ export function PaceChart({ now, prev, days, today, label }: { now: number[]; pr
  * table for screen readers (and anyone who prefers numbers). [onPick] makes
  * points clickable, e.g. to open the records behind them.
  */
-export function LineChart({ series, labels, currency: code, label, onPick, height = 160 }: {
+export function LineChart({ series, labels, currency: code, label, onPick, height = 160, area, fit }: {
   series: { name: string; color: string; values: number[]; dashed?: boolean }[]; labels: string[]; currency: string; label: string; onPick?: (i: number) => void; height?: number
+  /** Washes the area under the first series. */
+  area?: boolean
+  /** Fits the axis to the data instead of starting at zero, for small changes on a large base (a deposit growing). */
+  fit?: boolean
 }) {
   const hidden = useContext(HideAmounts)
   const [hover, setHover] = useState<number | null>(null)
   const all = series.flatMap((s) => s.values)
   if (!labels.length || !all.length) return null
-  const lo = Math.min(0, ...all), hi = Math.max(1, ...all)
+  const span = Math.max(...all) - Math.min(...all) || Math.abs(Math.max(...all)) || 1
+  const lo = fit ? Math.min(...all) - span * 0.12 : Math.min(0, ...all) < 0 ? -niceStep(-Math.min(0, ...all)) : 0
+  const hi = fit ? Math.max(...all) + span * 0.08 : niceStep(Math.max(1, ...all))
   const W = 600, H = height, P = 6
   const x = (i: number) => (labels.length === 1 ? W / 2 : (i / (labels.length - 1)) * (W - 2 * P) + P)
   const y = (v: number) => H - P - ((v - lo) / (hi - lo || 1)) * (H - 2 * P)
+  const ticks = fit ? [hi, (hi + lo) / 2, lo] : lo < 0 ? [hi, 0, lo] : [hi, hi / 2, 0]
+  const first = series[0]
+  const dots = hover !== null ? series.map((s) => [s, hover] as const) : series.filter((s) => !s.dashed).map((s) => [s, s.values.length - 1] as const)
   return (
     <figure className="line-chart" aria-label={label}>
-      <div className="line-plot">
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label} onMouseLeave={() => setHover(null)}>
-          {lo < 0 && <line x1="0" x2={W} y1={y(0)} y2={y(0)} stroke="var(--line)" vectorEffect="non-scaling-stroke" />}
-          {series.map((s) => (
-            <polyline key={s.name} points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(' ')} fill="none" stroke={s.color} strokeWidth="2.2"
-              strokeDasharray={s.dashed ? '5 5' : undefined} vectorEffect="non-scaling-stroke" strokeLinejoin="round" />
+      <div className="line-body">
+        {!hidden && <div className="line-axis" style={{ height: H }} aria-hidden>{ticks.map((t) => <span key={t} style={{ top: `${(y(t) / H) * 100}%` }}>{compactMoney(t, code)}</span>)}</div>}
+        <div className="line-plot">
+          <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" role="img" aria-label={label} onMouseLeave={() => setHover(null)} style={{ height: H }}>
+            {ticks.map((t) => <line key={t} x1="0" x2={W} y1={y(t)} y2={y(t)} stroke={t === 0 ? 'var(--line-strong)' : 'var(--line)'} vectorEffect="non-scaling-stroke" />)}
+            {area && first && first.values.length > 1 && (
+              <polygon points={`${x(0)},${y(Math.max(lo, 0))} ${first.values.map((v, i) => `${x(i)},${y(v)}`).join(' ')} ${x(first.values.length - 1)},${y(Math.max(lo, 0))}`} fill={first.color} fillOpacity="0.1" />
+            )}
+            {series.map((s) => (
+              <polyline key={s.name} points={s.values.map((v, i) => `${x(i)},${y(v)}`).join(' ')} fill="none" stroke={s.color} strokeWidth="2"
+                strokeDasharray={s.dashed ? '5 5' : undefined} vectorEffect="non-scaling-stroke" strokeLinejoin="round" strokeLinecap="round" />
+            ))}
+            {labels.map((_, i) => (
+              <rect key={i} x={x(i) - W / labels.length / 2} y="0" width={W / labels.length} height={H} fill="transparent"
+                onMouseEnter={() => setHover(i)} onClick={() => { setHover(i); onPick?.(i) }} style={{ cursor: onPick ? 'pointer' : 'default' }} />
+            ))}
+            {hover !== null && <line x1={x(hover)} x2={x(hover)} y1="0" y2={H} stroke="var(--muted)" strokeOpacity="0.4" vectorEffect="non-scaling-stroke" />}
+          </svg>
+          {dots.map(([s, i]) => i >= 0 && s.values[i] !== undefined && (
+            <i key={s.name} className="line-dot" style={{ left: `${(x(i) / W) * 100}%`, top: y(s.values[i]), background: s.color }} />
           ))}
-          {labels.map((_, i) => (
-            <rect key={i} x={x(i) - W / labels.length / 2} y="0" width={W / labels.length} height={H} fill="transparent"
-              onMouseEnter={() => setHover(i)} onClick={() => onPick?.(i)} style={{ cursor: onPick ? 'pointer' : 'default' }} />
-          ))}
-          {hover !== null && <line x1={x(hover)} x2={x(hover)} y1="0" y2={H} stroke="var(--muted)" strokeOpacity="0.4" vectorEffect="non-scaling-stroke" />}
-        </svg>
-        {hover !== null && !hidden && (
-          <div className="chart-tip" style={{ left: `${(x(hover) / W) * 100}%` }}>
-            <strong>{labels[hover]}</strong>
-            {series.map((s) => <span key={s.name}><i className="sw" style={{ background: s.color }} />{s.name}: {formatMoney(s.values[hover] ?? 0, code)}</span>)}
-          </div>
-        )}
+          {hover !== null && !hidden && (
+            <div className="chart-tip" style={{ left: `${Math.min(85, Math.max(15, (x(hover) / W) * 100))}%` }}>
+              <strong>{labels[hover]}</strong>
+              {series.map((s) => <span key={s.name}><i className="sw" style={{ background: s.color }} />{s.name}: {formatMoney(s.values[hover] ?? 0, code)}</span>)}
+            </div>
+          )}
+          <div className="line-labels" aria-hidden><span>{labels[0]}</span>{labels.length > 2 && <span>{labels[Math.floor((labels.length - 1) / 2)]}</span>}{labels.length > 1 && <span>{labels[labels.length - 1]}</span>}</div>
+        </div>
       </div>
-      <figcaption className="legend">
-        {series.map((s) => <span key={s.name}><i className="sw" style={{ background: s.color }} />{s.name}</span>)}
-        <span className="muted">{labels[0]} – {labels[labels.length - 1]}{hidden ? '' : ` · range ${compactMoney(lo, code)} to ${compactMoney(hi, code)}`}</span>
-      </figcaption>
+      {series.length > 1 && <figcaption className="legend">{series.map((s) => <span key={s.name}><i className="sw" style={{ background: s.color }} />{s.name}</span>)}</figcaption>}
       <details className="chart-data"><summary className="muted small">Show as a table</summary>
         <table className="table compact"><thead><tr><th>Period</th>{series.map((s) => <th key={s.name} className="num">{s.name}</th>)}</tr></thead>
           <tbody>{labels.map((l, i) => <tr key={l + i}><td>{l}</td>{series.map((s) => <td key={s.name} className="num"><Money value={s.values[i] ?? 0} currency={code} /></td>)}</tr>)}</tbody></table>
       </details>
     </figure>
   )
+}
+
+/** Rounds up to a clean axis value (1, 2, 2.5 or 5 × 10ⁿ). */
+function niceStep(v: number): number {
+  const p = 10 ** Math.floor(Math.log10(v))
+  for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p
+  return 10 * p
 }
 
 /** Small undo toast for reversible actions (docs/01: Undo instead of "Are you sure?"). */

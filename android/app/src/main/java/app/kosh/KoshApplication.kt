@@ -48,15 +48,15 @@ class AppContainer(app: Application) {
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     val lookup: StateFlow<Lookup> = combine(
-        combine(repo.accounts, repo.balances, ::Pair), repo.categories, repo.tags, settings.state,
+        combine(repo.accounts, repo.balances, repo.accountValues, ::Triple), repo.categories, repo.tags, settings.state,
         combine(combine(repo.allSplits, repo.debts, repo.debtMoves, ::Triple), repo.exchangeRates, ::Pair),
-    ) { (accounts, balances), categories, tags, s, (parts, rates) ->
+    ) { (accounts, balances, values), categories, tags, s, (parts, rates) ->
         val (splits, debts, moves) = parts
         val (owedToMe, iOwe) = Debts.totals(debts, moves)
         Lookup(
             accounts, balances.associate { it.accountId to it.balance }, categories, tags, s.baseCurrency,
             splitCategories = splits.groupBy({ it.transactionId }, { it.categoryId }),
-            receivable = owedToMe, payable = iOwe, rates = rates,
+            receivable = owedToMe, payable = iOwe, rates = rates, values = values,
         )
     }.stateIn(appScope, SharingStarted.Eagerly, Lookup(baseCurrency = settings.current.baseCurrency))
 

@@ -1,5 +1,56 @@
 # Changelog
 
+## 1.5.0
+
+**Sign-in and account security**
+- Two-step sign-in with any authenticator app (Google Authenticator, Aegis, 1Password…): scan a QR code or type the key, verify one code, and keep ten one-time recovery codes that you can regenerate. Turning it on signs out other devices; each code works once. Web and Android.
+- "Forgot password" on the web emails a one-hour, single-use reset link (needs mail and the public address configured on the server); resetting signs out every device. The Android sign-in screen links to it.
+- Every record keeps its change history: who changed it, from which device, when, and exactly which fields went from what to what — shown on transactions ("Show change history") and kept for a year by default (`LEKHAMINT_HISTORY_DAYS`).
+- The Trash can empty itself: set `LEKHAMINT_TRASH_DAYS` (30 or more) and deleted items are removed for good after that long; a device that last synced before the purge is told to re-download the book instead of silently missing the deletes.
+
+**Goals, investments and the tax year**
+- Savings goals (web and Android): name, target amount and date, accounts whose balances count towards it, and money already set aside elsewhere. Each goal shows progress, a status (ahead of plan, on track, behind, past the date) and how much to put aside each month; the dashboard shows the goals nearest their date.
+- Investment valuations (web and Android): record what an investment, savings or "other" account is worth on a date — fund statement, broker, gold rate — with a note. The app shows the gain or loss against what you put in, and once a valuation exists, net worth and the accounts list count the account at market value.
+- Year & tax (web and Android): a financial-year summary of income, spending and the share of income kept, month by month, plus a tax summary that totals spending in categories marked with a section (80C, 80D, HRA, 24(b)…) with limit meters; home-loan principal and interest are pulled from Loans on the web. Any category can be tagged with a section; a record for proof-gathering, not tax advice. The year's summary exports to CSV.
+
+**Receipts and quicker entry**
+- Attach receipts and bills to any transaction — photos or PDFs, from a file or the phone camera — on the web and Android. Files are stored on your own server, deduplicated by content, synced between devices, and open in your device's viewer; removing one goes to Trash. `LEKHAMINT_MAX_ATTACHMENT_MB` caps the size (default 10).
+- Android: share text, a photo or a PDF from any app to LekhaMint. A bank or payment SMS is parsed into a prefilled transaction (amount, direction, payee, note); a shared image or PDF becomes that transaction's receipt.
+- Web: import OFX, QFX and QIF statement files directly, with no column mapping; statement IDs become fingerprints, so re-importing an overlapping statement creates no duplicates.
+- Web: pick a category by hand for a payee no rule covers, and a toast offers to make that the rule for next time.
+- Web: Activity gains a calendar view — per-day in and out, heat shading by spend, tap a day to filter the list; list or calendar is remembered.
+
+**Insights and staying on top**
+- New Insights page (web): a 30/60/90-day cash-flow forecast from known bills, EMIs and your recent everyday spending, with likely, cautious and hopeful lines, a "could run short around …" warning and a plain-words explainer of how it is worked out.
+- Subscriptions (web, on Insights): repeat payments are found in your history — same payee, steady interval, steady amount — with their yearly cost, price-rise flags ("was ₹499"), a "stopped?" nudge for stale ones, and one tap to track one as a recurring bill.
+- Weekly summary email: Monday morning, last week's spending against your usual week, the biggest categories, and what is due. On by default for each person; turn it off in Settings → Notifications.
+- Budgets (web): a "plan your month" card compares what the budgets plan against income, warns when every rupee is not given a job or too much is planned, and offers suggested budgets for your biggest uncovered categories based on the last three months.
+- Debts (web): "Send a reminder" on a person who owes you opens an editable, friendly message with the amount and date, ready for WhatsApp, SMS or copy. LekhaMint itself sends nothing.
+- Settings (web): "Fetch today's rates" pulls European Central Bank reference rates for the currencies your accounts use (`LEKHAMINT_FX_URL`; `off` hides the button).
+- The dashboard's getting-started checklist walks a new book through accounts, a first transaction, regular income, a budget, a goal and two-step sign-in, ticking itself off as you go.
+
+**Web: assistant, charts and explanations**
+- The assistant works like a chat app: it fills the screen with the question box pinned at the bottom, keeps a list of conversations (on this device, cleared on sign-out) that can be reopened or deleted, streams each answer as it is written, shows each lookup as a step while it works, and offers Edit, Regenerate, Copy and suggested follow-up questions. Answers draw the figures they used as charts (spending by category, monthly trend, net worth, loans, deposits, budgets, what is coming up). The server proxy relays streamed answers.
+- Every calculator explains its result “in simple words”, step by step with your own numbers, and shows it as a chart: EMI principal against interest and a year-by-year split, how much of your income a loan would take, how a deposit grows, a savings path to the goal, months of essentials covered, total debt over time for each payoff order, each person's share of a bill and who pays whom. Tools are grouped into borrowing, saving and everyday money.
+- Charts on Loans (repaid, interest paid, still owed, interest to come), Deposits (when each deposit pays back), Accounts (what you have against what you owe). Line charts gain axis values, gridlines and hover dots.
+- Loading: a thin progress bar under the top bar while anything loads or saves, spinners on long actions (export, import, change password, saving), and labelled loading states.
+- Printing and “Save as PDF” no longer show black page margins with a dark theme; share columns in printed reports get small bars.
+- Settings: the account card's buttons are laid out properly (Change password with the form; Sign out and Delete account in their own row).
+- Light theme: stronger field borders and placeholder text, so suggested values in calculators are easy to read.
+- With no AI model configured, the assistant still answers common questions — "how much did I spend this month?", "what is coming up?", "spent on Swiggy" — straight from the app's own look-ups, with a chart and a note that no model was used; the welcome screen offers tappable quick questions.
+- Groq and Google Gemini (both with a free tier) join the assistant's provider list, and the Ollama note now gives step-by-step setup instructions.
+- Calculators lead into the app: an EMI result offers "took this loan? Track it in Loans & EMIs" with the form pre-filled, and the goal calculator offers "save as a goal".
+
+**Offline and sync**
+- The web app queues changes made while offline and sends them in order when the connection returns ("Saved N changes made while offline"), with an "N waiting" banner and a clear error if the server refuses one. Signing out discards the queue.
+- Android rides out a server-side Trash purge: instead of failing, the sync re-downloads the book and marks records the server no longer has as deleted.
+
+**Server**
+- The assistant proxy relays streamed answers word by word instead of waiting for the whole reply.
+- `/api/v1/meta` now tells apps which features the server offers (two-step sign-in, password reset, attachments, rate fetching, history), so the matching buttons hide themselves where a feature is absent.
+- Backups include attachments and two-step settings (dump format 2); older dump files still restore. Schema v8 adds goals, valuations, attachments, change history and two-step sign-in.
+- The demo book seeds goals, mutual-fund valuations, insurance premiums with tax sections and a rising subscription, so every new feature shows something.
+
 ## 1.4.0
 
 **Audit round 3 (the gaps left over)**

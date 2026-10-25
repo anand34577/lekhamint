@@ -46,9 +46,20 @@ type Server struct {
 	OIDCOnly       bool
 	// Notice delivers email and Gotify messages; nil disables notifications.
 	Notice *notify.Dispatcher
+	// PublicURL is the address people reach the server at; password reset
+	// links are built from it.
+	PublicURL string
+	// MaxAttachment is the largest attachment file accepted, in bytes.
+	MaxAttachment int64
+	// FXURL is the Frankfurter-compatible exchange rate service used when
+	// someone asks to fetch rates; empty turns the button off.
+	FXURL string
+	// HTTPClient makes outgoing requests (exchange rates); nil uses the default.
+	HTTPClient *http.Client
 
 	authLimiter *rateLimiter
 	aiLimiter   *rateLimiter
+	userLimiter *rateLimiter
 }
 
 // Body size limits.
@@ -62,6 +73,11 @@ func (s *Server) Handler() http.Handler {
 	if s.authLimiter == nil {
 		// 10 attempts per minute per IP, bursts of 10.
 		s.authLimiter = newRateLimiter(10, time.Minute)
+	}
+	if s.userLimiter == nil {
+		// 10 two-step sign-in changes per minute per person, so a stolen
+		// session cannot guess codes quickly.
+		s.userLimiter = newRateLimiter(10, time.Minute)
 	}
 	if s.aiLimiter == nil {
 		// 30 assistant questions per minute per signed-in person, so one
@@ -85,6 +101,13 @@ func (s *Server) Handler() http.Handler {
 	private("GET /api/v1/auth/sessions", s.listSessions)
 	private("DELETE /api/v1/auth/sessions/{id}", s.deleteSession)
 	private("POST /api/v1/auth/password", s.changePassword)
+	public("POST /api/v1/auth/forgot", s.limited(s.forgotPassword))
+	public("POST /api/v1/auth/reset", s.limited(s.resetPassword))
+	private("GET /api/v1/auth/2fa", s.totpStatus)
+	private("POST /api/v1/auth/2fa/setup", s.totpSetup)
+	private("POST /api/v1/auth/2fa/enable", s.perUser(s.totpEnable))
+	private("POST /api/v1/auth/2fa/disable", s.perUser(s.totpDisable))
+	private("POST /api/v1/auth/2fa/recovery-codes", s.perUser(s.totpRecoveryCodes))
 	public("GET /api/v1/auth/oidc/start", s.limited(s.oidcStart))
 	public("GET /api/v1/auth/oidc/callback", s.limited(s.oidcCallback))
 	public("POST /api/v1/auth/oidc/exchange", s.limited(s.oidcExchange))
@@ -115,6 +138,10 @@ func (s *Server) Handler() http.Handler {
 	private("PATCH /api/v1/ledgers/{lid}/records/{entity}/{id}", s.updateRecord)
 	private("DELETE /api/v1/ledgers/{lid}/records/{entity}/{id}", s.deleteRecord)
 	private("POST /api/v1/ledgers/{lid}/records/{entity}/{id}/restore", s.restoreRecord)
+	private("GET /api/v1/ledgers/{lid}/records/{entity}/{id}/history", s.recordHistory)
+	private("POST /api/v1/ledgers/{lid}/blobs", s.putBlob)
+	private("GET /api/v1/ledgers/{lid}/blobs/{sha}", s.getBlob)
+	private("POST /api/v1/ledgers/{lid}/rates/fetch", s.fetchRates)
 	private("GET /api/v1/ledgers/{lid}/transactions", s.listTransactions)
 
 	private("GET /api/v1/ledgers/{lid}/reports/balances", s.balances)
@@ -237,6 +264,8 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.Handler {
 		}
 		ctx := context.WithValue(r.Context(), userKey, u)
 		ctx = context.WithValue(ctx, sessionKey, sess)
+		// Writes made in this request are saved in the change history as theirs.
+		ctx = syncer.WithActor(ctx, syncer.Actor{UserID: u.ID, Device: sess.DeviceName})
 		if viaCookie {
 			ctx = context.WithValue(ctx, cookieAuthKey, true)
 		}
@@ -247,6 +276,18 @@ func (s *Server) requireAuth(next http.HandlerFunc) http.Handler {
 func (s *Server) limited(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.authLimiter.allow(s.clientIP(r)) {
+			w.Header().Set("Retry-After", "60")
+			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many attempts; try again in a minute", nil)
+			return
+		}
+		next(w, r)
+	}
+}
+
+// perUser rate-limits a signed-in endpoint per person.
+func (s *Server) perUser(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.userLimiter.allow(currentUser(r).ID) {
 			w.Header().Set("Retry-After", "60")
 			writeError(w, http.StatusTooManyRequests, "rate_limited", "too many attempts; try again in a minute", nil)
 			return

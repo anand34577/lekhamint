@@ -220,6 +220,8 @@ func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.C
 		Ledgers: ledgers, Reports: &report.Service{DB: d},
 		Log: log, Version: version, CORSOrigins: cfg.CORSOrigins, TrustProxy: cfg.TrustProxy,
 		MaxImportSize: cfg.MaxImportSize,
+		PublicURL:     cfg.PublicURL, MaxAttachment: int64(cfg.MaxAttachmentMB) << 20, FXURL: cfg.FXURL,
+		HTTPClient: &http.Client{Timeout: 20 * time.Second},
 	}
 	if cfg.AIBaseURL != "" {
 		api.AI = &httpapi.AIProxy{BaseURL: cfg.AIBaseURL, APIKey: cfg.AIAPIKey, Model: cfg.AIModel, Timeout: cfg.AITimeout}
@@ -264,7 +266,7 @@ func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.C
 	}
 
 	go (&backup.Scheduler{DB: d, Dir: cfg.BackupDir, Interval: cfg.BackupEvery, Keep: cfg.BackupKeep, Log: log}).Run(ctx)
-	go housekeeping(ctx, d, log)
+	go housekeeping(ctx, d, log, cfg)
 	go api.Notice.Run(ctx)
 
 	errCh := make(chan error, 1)
@@ -307,20 +309,49 @@ func backupDesc(cfg *config.Config) string {
 	return fmt.Sprintf("every %s to %s (keep %d)", cfg.BackupEvery, cfg.BackupDir, cfg.BackupKeep)
 }
 
-// housekeeping removes expired sessions hourly.
-func housekeeping(ctx context.Context, d *db.DB, log *slog.Logger) {
+// housekeeping removes expired sessions and reset links hourly, and once a
+// day prunes old change history, empties old Trash (when LEKHAMINT_TRASH_DAYS
+// is set) and removes attachment files nothing refers to any more.
+func housekeeping(ctx context.Context, d *db.DB, log *slog.Logger, cfg *config.Config) {
 	t := time.NewTicker(time.Hour)
 	defer t.Stop()
+	lastDaily := time.Time{}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if n, err := store.DeleteExpiredSessions(ctx, d, time.Now().UnixMilli()); err != nil {
-				log.Warn("session cleanup failed", "err", err)
+		}
+		now := time.Now()
+		if n, err := store.DeleteExpiredSessions(ctx, d, now.UnixMilli()); err != nil {
+			log.Warn("session cleanup failed", "err", err)
+		} else if n > 0 {
+			log.Info("expired sessions removed", "count", n)
+		}
+		_ = store.DeleteExpiredResets(ctx, d, now.UnixMilli())
+		if now.Sub(lastDaily) < 24*time.Hour {
+			continue
+		}
+		lastDaily = now
+		if cfg.HistoryDays > 0 {
+			if n, err := store.PruneHistory(ctx, d, now.AddDate(0, 0, -cfg.HistoryDays).UnixMilli()); err != nil {
+				log.Warn("history cleanup failed", "err", err)
 			} else if n > 0 {
-				log.Info("expired sessions removed", "count", n)
+				log.Info("old change history removed", "versions", n)
 			}
+		}
+		if cfg.TrashDays > 0 {
+			if n, err := store.PurgeTombstones(ctx, d, now.AddDate(0, 0, -cfg.TrashDays).UnixMilli(), now.UnixMilli()); err != nil {
+				log.Warn("trash cleanup failed", "err", err)
+			} else if n > 0 {
+				log.Info("old items removed from the Trash", "count", n)
+			}
+		}
+		// A day's grace lets a file uploaded just before its record is saved survive.
+		if n, err := store.DeleteOrphanBlobs(ctx, d, now.Add(-24*time.Hour).UnixMilli()); err != nil {
+			log.Warn("attachment cleanup failed", "err", err)
+		} else if n > 0 {
+			log.Info("unused attachment files removed", "count", n)
 		}
 	}
 }

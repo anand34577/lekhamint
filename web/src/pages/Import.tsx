@@ -7,6 +7,7 @@ import {
   parseCsv, toRows, type DateFormat, type Existing, type ParsedRow, type Role,
 } from '../lib/csv'
 import { applyRules } from '../lib/rules'
+import { parseOfx, parseQif, statementKind, type Parsed } from '../lib/ofx'
 import { ID_NAMESPACE, uuidv5 } from '../lib/util'
 import { Card, Field, Money, errorText, toast } from '../components'
 import { CategorySelect } from './Transactions'
@@ -37,6 +38,8 @@ export function Import({ go }: PageProps) {
   const [decimalComma, setDecimalComma] = useState(false)
   const [positiveIsExpense, setPositiveIsExpense] = useState(false)
   const [plan, setPlan] = useState<Planned[] | null>(null)
+  // OFX and QIF files need no column mapping: they are read straight into rows.
+  const [direct, setDirect] = useState<(Parsed & { kind: 'ofx' | 'qif' }) | null>(null)
   const [busy, setBusy] = useState('')
   const [err, setErr] = useState('')
   useEffect(() => { if (!accountId && live[0]) setAccountId(live[0].id) }, [accountId, live])
@@ -47,6 +50,14 @@ export function Import({ go }: PageProps) {
     setErr(''); setPlan(null)
     if (f.size > 20 << 20) return setErr('That file is over 20 MB. Split it into smaller statements.')
     const text = await f.text()
+    const kind = statementKind(f.name, text)
+    if (kind !== 'csv') {
+      const p = kind === 'ofx' ? parseOfx(text, code) : parseQif(text, code, navigator.language === 'en-US')
+      if (p.rows.length === 0) return setErr(`No transactions found in this ${kind.toUpperCase()} file.`)
+      setFileName(f.name); setTable(null); setDirect({ ...p, kind })
+      return
+    }
+    setDirect(null)
     const t = parseCsv(text, detectDelimiter(text))
     if (t.length < 2) return setErr('No rows found. Is this a CSV file?')
     setFileName(f.name); setTable(t)
@@ -58,9 +69,9 @@ export function Import({ go }: PageProps) {
   }
 
   const width = table ? Math.max(...table.slice(0, 50).map((r) => r.length)) : 0
-  const parsed = useMemo(() => table && roles.length
+  const parsed = useMemo(() => direct ?? (table && roles.length
     ? toRows(table, { roles, hasHeader, dateFormat, currency: code, decimalComma, positiveIsExpense })
-    : null, [table, roles, hasHeader, dateFormat, code, decimalComma, positiveIsExpense])
+    : null), [direct, table, roles, hasHeader, dateFormat, code, decimalComma, positiveIsExpense])
 
   const preview = async () => {
     if (!parsed || !accountId) return
@@ -114,7 +125,7 @@ export function Import({ go }: PageProps) {
       const created = res.filter((r) => r.status === 'created').length
       const skipped = res.length - created
       toast(`Imported ${created} ${created === 1 ? 'transaction' : 'transactions'}${skipped ? ` · ${skipped} already imported` : ''}`)
-      setPlan(null); setTable(null); setFileName('')
+      setPlan(null); setTable(null); setDirect(null); setFileName('')
       go('transactions')
     } catch (x) { setErr(errorText(x)) } finally { setBusy('') }
   }
@@ -127,14 +138,23 @@ export function Import({ go }: PageProps) {
   return (
     <>
       <div className="page-head"><h1>Import statement</h1></div>
-      <Card title="1. Choose a CSV file">
-        <p className="muted small" style={{ marginTop: 0 }}>Download a statement as CSV from your bank or card website. The file is read here in your browser; only the rows you confirm are saved.</p>
+      <Card title="1. Choose a statement file">
+        <p className="muted small" style={{ marginTop: 0 }}>Download a statement from your bank or card website as CSV, OFX (also called Money or QFX) or QIF. Exports from other money apps in these formats work too. The file is read here in your browser; only the rows you confirm are saved.</p>
         <div className="two">
-          <div className="field"><span className="field-label">File</span><FilePick accept=".csv,text/csv,.txt" onPick={load} label="Choose a CSV file or drop it here" hint="CSV or text export from your bank" /></div>
+          <div className="field"><span className="field-label">File</span><FilePick accept=".csv,text/csv,.txt,.ofx,.qfx,.qif" onPick={load} label="Choose a file or drop it here" hint="CSV, OFX, QFX or QIF" /></div>
           <Field label="Into account"><Select value={accountId} onChange={(e) => { setAccountId(e.target.value); setPlan(null) }}>{live.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</Select></Field>
         </div>
-        {fileName && <p className="small">{fileName}: {table!.length - (hasHeader ? 1 : 0)} rows</p>}
+        {fileName && table && <p className="small">{fileName}: {table.length - (hasHeader ? 1 : 0)} rows</p>}
       </Card>
+
+      {direct && (
+        <Card title={`2. Read from ${direct.kind.toUpperCase()}`} className="mt">
+          <p className="small">{fileName}: {direct.rows.length} transactions{direct.errors.length > 0 && <>, <span style={{ color: 'var(--danger)' }}>{direct.errors.length} skipped</span> ({direct.errors.slice(0, 3).map((e) => `#${e.line}: ${e.message}`).join('; ')})</>}.
+            {direct.kind === 'ofx' && ' Each transaction carries the bank’s own ID, so importing an overlapping statement later never adds it twice.'}</p>
+          {direct.currency && account && direct.currency !== account.currency && <p className="callout warn small">This statement is in {direct.currency} but {account.name} is in {account.currency}. Pick a {direct.currency} account.</p>}
+          <button className="primary" onClick={preview} disabled={!accountId || !!busy}>Preview</button>
+        </Card>
+      )}
 
       {table && (
         <Card title="2. Match the columns" className="mt">

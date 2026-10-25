@@ -26,7 +26,15 @@ var (
 	ErrSSOAccount         = errors.New("this account signs in through your identity provider and has no password here")
 	ErrSSOMismatch        = errors.New("this account is already linked to a different identity at your provider; ask the administrator if you believe that is wrong")
 	ErrAccountDisabled    = errors.New("this account is disabled")
+	ErrOTPRequired        = errors.New("enter the 6-digit code from your authenticator app")
+	ErrInvalidOTP         = errors.New("that code is not right; check the time on your phone and try the newest code, or use a recovery code")
+	ErrTOTPNotSetUp       = errors.New("start two-step sign-in setup first")
+	ErrTOTPAlreadyOn      = errors.New("two-step sign-in is already on; turn it off first to set up a new app")
+	ErrResetInvalid       = errors.New("this reset link is invalid or has expired; ask for a new one")
 )
+
+// ResetLinkTTL is how long a password reset link works.
+const ResetLinkTTL = time.Hour
 
 // NoPassword is stored as the password hash of accounts created through single
 // sign-on. It is not a valid hash, so no password ever matches it.
@@ -131,6 +139,13 @@ func (s *Service) Register(ctx context.Context, email, name, password, device st
 // cost the same hashing time as wrong passwords, so timing does not reveal
 // which emails have accounts.
 func (s *Service) Login(ctx context.Context, email, password, device string) (store.User, string, error) {
+	return s.LoginOTP(ctx, email, password, "", device)
+}
+
+// LoginOTP is Login for accounts that may have two-step sign-in on. The
+// password is checked first, so ErrOTPRequired is only ever returned to
+// someone who knows it. otp is a 6-digit authenticator code or a recovery code.
+func (s *Service) LoginOTP(ctx context.Context, email, password, otp, device string) (store.User, string, error) {
 	u, err := store.UserByEmail(ctx, s.DB, email)
 	if errors.Is(err, store.ErrNotFound) {
 		_, _ = VerifyPassword(s.dummy(), password)
@@ -143,8 +158,189 @@ func (s *Service) Login(ctx context.Context, email, password, device string) (st
 	if err != nil || !ok || u.Disabled {
 		return store.User{}, "", ErrInvalidCredentials
 	}
+	if u.TOTPEnabled {
+		if strings.TrimSpace(otp) == "" {
+			return store.User{}, "", ErrOTPRequired
+		}
+		if err := s.checkSecondFactor(ctx, u, otp); err != nil {
+			return store.User{}, "", err
+		}
+	}
 	token, err := s.newSession(ctx, u.ID, device)
 	return u, token, err
+}
+
+// checkSecondFactor accepts a current authenticator code (once) or an unused
+// recovery code (which is then used up).
+func (s *Service) checkSecondFactor(ctx context.Context, u store.User, otp string) error {
+	if step, ok := CheckTOTP(u.TOTPSecret, otp, s.Now(), u.TOTPLastStep); ok {
+		won, err := store.UseTOTPStep(ctx, s.DB, u.ID, step)
+		if err != nil {
+			return err
+		}
+		if !won {
+			return ErrInvalidOTP
+		}
+		return nil
+	}
+	if rest, ok := UseRecoveryCode(u.RecoveryCodes, otp); ok {
+		won, err := store.SetRecoveryCodes(ctx, s.DB, u.ID, u.RecoveryCodes, rest)
+		if err != nil {
+			return err
+		}
+		if won {
+			return nil
+		}
+	}
+	return ErrInvalidOTP
+}
+
+// StartTOTP creates a new authenticator secret for u (not yet turned on) and
+// returns it with the otpauth link for a QR code. Turning it on needs a code
+// from the app (EnableTOTP), which proves the app was set up correctly.
+func (s *Service) StartTOTP(ctx context.Context, u store.User, issuer string) (secret, link string, err error) {
+	if u.TOTPEnabled {
+		return "", "", ErrTOTPAlreadyOn
+	}
+	secret, err = NewTOTPSecret()
+	if err != nil {
+		return "", "", err
+	}
+	if err := store.SetTOTP(ctx, s.DB, u.ID, secret, false, ""); err != nil {
+		return "", "", err
+	}
+	return secret, TOTPURL(secret, u.Email, issuer), nil
+}
+
+// EnableTOTP turns two-step sign-in on after checking a code from the app,
+// signs out every other session, and returns ten recovery codes to show once.
+func (s *Service) EnableTOTP(ctx context.Context, u store.User, sessionID, code string) ([]string, error) {
+	if u.TOTPEnabled {
+		return nil, ErrTOTPAlreadyOn
+	}
+	if u.TOTPSecret == "" {
+		return nil, ErrTOTPNotSetUp
+	}
+	step, ok := CheckTOTP(u.TOTPSecret, code, s.Now(), 0)
+	if !ok {
+		return nil, ErrInvalidOTP
+	}
+	codes, err := NewRecoveryCodes(10)
+	if err != nil {
+		return nil, err
+	}
+	err = s.DB.InTx(ctx, func(tx *db.Tx) error {
+		if err := store.SetTOTP(ctx, tx, u.ID, u.TOTPSecret, true, HashRecoveryCodes(codes)); err != nil {
+			return err
+		}
+		if _, err := store.UseTOTPStep(ctx, tx, u.ID, step); err != nil {
+			return err
+		}
+		return store.DeleteUserSessions(ctx, tx, u.ID, sessionID)
+	})
+	return codes, err
+}
+
+// DisableTOTP turns two-step sign-in off. It asks for the password (or, for
+// single sign-on accounts, the email) and a current code or recovery code, so
+// a stolen session alone cannot remove it.
+func (s *Service) DisableTOTP(ctx context.Context, u store.User, password, code string) error {
+	if !u.TOTPEnabled {
+		return store.SetTOTP(ctx, s.DB, u.ID, "", false, "")
+	}
+	if err := s.confirmIdentity(u, password); err != nil {
+		return err
+	}
+	if err := s.checkSecondFactor(ctx, u, code); err != nil {
+		return err
+	}
+	return store.SetTOTP(ctx, s.DB, u.ID, "", false, "")
+}
+
+// NewRecoveryCodesFor replaces the recovery codes after checking a current code.
+func (s *Service) NewRecoveryCodesFor(ctx context.Context, u store.User, code string) ([]string, error) {
+	if !u.TOTPEnabled {
+		return nil, ErrTOTPNotSetUp
+	}
+	if err := s.checkSecondFactor(ctx, u, code); err != nil {
+		return nil, err
+	}
+	fresh, err := store.UserByID(ctx, s.DB, u.ID) // the check may have used a recovery code
+	if err != nil {
+		return nil, err
+	}
+	codes, err := NewRecoveryCodes(10)
+	if err != nil {
+		return nil, err
+	}
+	ok, err := store.SetRecoveryCodes(ctx, s.DB, u.ID, fresh.RecoveryCodes, HashRecoveryCodes(codes))
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrInvalidOTP
+	}
+	return codes, nil
+}
+
+// confirmIdentity checks the password, or for single sign-on accounts (which
+// have none) that the email was typed.
+func (s *Service) confirmIdentity(u store.User, password string) error {
+	if u.PasswordHash == NoPassword {
+		if store.NormalizeEmail(password) != u.Email {
+			return ErrInvalidCredentials
+		}
+		return nil
+	}
+	if ok, err := VerifyPassword(u.PasswordHash, password); err != nil || !ok {
+		return ErrInvalidCredentials
+	}
+	return nil
+}
+
+// RequestPasswordReset makes a one-hour reset token for the account with
+// email, if there is one that signs in with a password. It returns ok=false
+// when nothing should be sent. Callers must answer the same way either way, so
+// the response does not reveal who has an account.
+func (s *Service) RequestPasswordReset(ctx context.Context, email string) (store.User, string, bool, error) {
+	u, err := store.UserByEmail(ctx, s.DB, email)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.User{}, "", false, nil
+	}
+	if err != nil || u.Disabled || u.PasswordHash == NoPassword {
+		return store.User{}, "", false, err
+	}
+	token, hash, err := NewToken()
+	if err != nil {
+		return store.User{}, "", false, err
+	}
+	now := s.Now()
+	if err := store.CreatePasswordReset(ctx, s.DB, u.ID, hash, now.UnixMilli(), now.Add(ResetLinkTTL).UnixMilli()); err != nil {
+		return store.User{}, "", false, err
+	}
+	return u, token, true, nil
+}
+
+// ResetPassword sets a new password with a reset token and signs out every
+// session. Two-step sign-in stays on.
+func (s *Service) ResetPassword(ctx context.Context, token, password string) (store.User, error) {
+	if err := CheckPasswordPolicy(password); err != nil {
+		return store.User{}, err
+	}
+	if !strings.HasPrefix(token, TokenPrefix) {
+		return store.User{}, ErrResetInvalid
+	}
+	userID, err := store.TakePasswordReset(ctx, s.DB, HashToken(token), s.Now().UnixMilli())
+	if errors.Is(err, store.ErrNotFound) {
+		return store.User{}, ErrResetInvalid
+	}
+	if err != nil {
+		return store.User{}, err
+	}
+	if err := s.SetPassword(ctx, userID, "", password); err != nil {
+		return store.User{}, err
+	}
+	return store.UserByID(ctx, s.DB, userID)
 }
 
 // SSOLogin signs in the person an identity provider vouched for. subject is
@@ -309,13 +505,9 @@ func (s *Service) SetPassword(ctx context.Context, userID, keepSessionID, passwo
 // Ledgers they alone own are deleted with all their data; they are removed
 // from ledgers that have another owner. Returns the IDs of deleted ledgers.
 func (s *Service) DeleteAccount(ctx context.Context, u store.User, password string) ([]string, error) {
-	if u.PasswordHash == NoPassword {
-		// Single sign-on accounts have no password; typing their email confirms the deletion.
-		if store.NormalizeEmail(password) != u.Email {
-			return nil, ErrInvalidCredentials
-		}
-	} else if ok, err := VerifyPassword(u.PasswordHash, password); err != nil || !ok {
-		return nil, ErrInvalidCredentials
+	// Single sign-on accounts have no password; typing their email confirms the deletion.
+	if err := s.confirmIdentity(u, password); err != nil {
+		return nil, err
 	}
 	var err error
 	var deleted []string

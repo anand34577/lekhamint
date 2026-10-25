@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { BatchOp, Loan, Transaction } from '../lib/api'
 import { useAccounts, useBalances, useCanWrite, useCategories, useLedger, useLinkedMoves, useLoans, useStableId, useWrite, type WithId } from '../lib/data'
 import { LOAN_KINDS, emi, loanKindLabel, loanStatus, monthlyInterest, prepaymentOptions, rateError, schedule, splitPayment, type LoanStatus, type ScheduleRow } from '../lib/loans'
@@ -6,7 +6,8 @@ import { createOp, feeCategory, interestExpenseCategory, linkedTxData } from '..
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
 import { addMonths, dayLabel, download, isoDate, monthRange, uuidv7 } from '../lib/util'
 import { workbook, XLSX_TYPE } from '../lib/xlsx'
-import { Bar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
+import { Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
+import { SERIES, StackBar } from '../charts'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
 import { Select, DateField, NumInput } from '../controls'
@@ -42,6 +43,11 @@ export function Loans({ params, go }: PageProps) {
   const today = isoDate()
   const [edit, setEdit] = useState<LoanRec | 'new' | null>(null)
   const [openId, setOpenId] = useState<string | null>(params.id ?? null)
+  // The EMI calculator links here with ?new=1&principal=…&rate=…&months=… to start a loan from its numbers.
+  const [preset, setPreset] = useState<LoanPreset | undefined>()
+  useEffect(() => {
+    if (params.new === '1' && can) { setPreset({ principal: Number(params.principal) || 0, rate: params.rate ?? '', months: Number(params.months) || 0 }); setEdit('new'); go('loans') }
+  }, [params.new]) // eslint-disable-line react-hooks/exhaustive-deps
   const [showClosed, setShowClosed] = useState(false)
   const active = list.filter((x) => !x.loan.closed)
   const shown = list.filter((x) => showClosed || !x.loan.closed)
@@ -97,7 +103,7 @@ export function Loans({ params, go }: PageProps) {
         </div>
       )}
       <p className="muted small">Schedules assume interest is charged monthly on the reducing balance. Your lender may round or count days differently; enter the EMI and each payment's interest as your statement shows and LekhaMint follows them.</p>
-      {edit && <LoanForm loan={edit === 'new' ? undefined : edit} onClose={() => setEdit(null)} />}
+      {edit && <LoanForm loan={edit === 'new' ? undefined : edit} preset={edit === 'new' ? preset : undefined} onClose={() => { setEdit(null); setPreset(undefined) }} />}
       {sel && <LoanDetail x={sel} onClose={() => setOpenId(null)} onEdit={() => { setEdit(sel.loan); setOpenId(null) }} go={go} />}
     </>
   )
@@ -121,7 +127,12 @@ function LoanCard({ loan, s, today, onOpen }: { loan: LoanRec; s: LoanStatus; to
       </div>
       {!loan.closed && (
         <>
-          <Bar fraction={s.progress} />
+          <StackBar inline currency={loan.currency} label={`${loan.name}: repaid, interest paid, still owed and interest still to come`} parts={[
+            { name: 'Principal repaid', value: s.principalPaid, color: SERIES[0] },
+            { name: 'Interest paid', value: s.interestPaid, color: SERIES[1] },
+            { name: 'Still owed', value: s.outstanding, color: 'var(--line-strong)' },
+            { name: 'Interest to come (est.)', value: s.projectedInterest, color: SERIES[3] },
+          ]} />
           <div className="loan-facts small">
             <span><span className="muted">EMI</span> <Money value={s.emi} currency={loan.currency} /></span>
             {due && <span className={s.overdue ? 'error' : ''}><span className="muted">Next</span> {dayLabel(due)}</span>}
@@ -500,7 +511,9 @@ function DeleteLoan({ loan, moves, onClose, onDone }: { loan: LoanRec; moves: { 
 
 // --- Create / edit -----------------------------------------------------------------
 
-function LoanForm({ loan, onClose }: { loan?: LoanRec; onClose: () => void }) {
+interface LoanPreset { principal: number; rate: string; months: number }
+
+function LoanForm({ loan, preset, onClose }: { loan?: LoanRec; preset?: LoanPreset; onClose: () => void }) {
   const l = useLedger()
   const write = useWrite()
   const cats = useCategories()
@@ -516,11 +529,11 @@ function LoanForm({ loan, onClose }: { loan?: LoanRec; onClose: () => void }) {
   const [lender, setLender] = useState(loan?.lender ?? '')
   const [kind, setKind] = useState(loan?.kind ?? 'home')
   const [cur, setCur] = useState(loan?.currency ?? l.base_currency)
-  const [principal, setPrincipal] = useState(loan ? toPlain(loan.principal, loan.currency) : '')
+  const [principal, setPrincipal] = useState(loan ? toPlain(loan.principal, loan.currency) : preset?.principal ? toPlain(preset.principal, l.base_currency) : '')
   const [rateKind, setRateKind] = useState<'fixed' | 'floating' | 'free'>(loan ? (loan.annual_rate ? loan.rate_type : 'free') : 'fixed')
-  const [rate, setRate] = useState(loan?.annual_rate ?? '')
-  const [years, setYears] = useState(loan ? String(Math.floor(loan.tenure_months / 12)) : '')
-  const [months, setMonths] = useState(loan ? String(loan.tenure_months % 12) : '0')
+  const [rate, setRate] = useState(loan?.annual_rate ?? preset?.rate ?? '')
+  const [years, setYears] = useState(loan ? String(Math.floor(loan.tenure_months / 12)) : preset?.months ? String(Math.floor(preset.months / 12)) : '')
+  const [months, setMonths] = useState(loan ? String(loan.tenure_months % 12) : preset?.months ? String(preset.months % 12) : '0')
   const [start, setStart] = useState(loan?.start_date ?? today)
   const [firstDue, setFirstDue] = useState(loan?.first_due_date ?? addMonths(today, 1))
   const [firstTouched, setFirstTouched] = useState(!!loan)

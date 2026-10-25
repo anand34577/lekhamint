@@ -32,6 +32,21 @@ type Balance struct {
 	IncludeInNetWorth bool   `json:"include_in_net_worth"`
 	OpeningBalance    int64  `json:"opening_balance"`
 	Balance           int64  `json:"balance"`
+	// Value is what the account is worth when a valuation exists (a fund at
+	// today's price): the latest valuation on or before the date, plus money
+	// moved in or out after it. Balance is then what was put in, and
+	// Value − Balance the gain or loss. Nil when the account has no valuation.
+	Value    *int64 `json:"value,omitempty"`
+	ValuedOn string `json:"valued_on,omitempty"`
+}
+
+// Worth is the account's value for net worth: its valuation when it has one,
+// otherwise its balance.
+func (b Balance) Worth() int64 {
+	if b.Value != nil {
+		return *b.Value
+	}
+	return b.Balance
 }
 
 // Balances returns every live account's balance as of asOf (YYYY-MM-DD;
@@ -68,7 +83,67 @@ func (s *Service) Balances(ctx context.Context, ledgerID, asOf string) ([]Balanc
 		b.Balance = b.OpeningBalance + own + transfers
 		out = append(out, b)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows.Close()
+	if err := s.applyValuations(ctx, ledgerID, asOf, out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// applyValuations sets Value on accounts that have a valuation on or before asOf.
+func (s *Service) applyValuations(ctx context.Context, ledgerID, asOf string, list []Balance) error {
+	rows, err := s.DB.QueryContext(ctx, `SELECT account_id, date, value FROM valuations
+		WHERE ledger_id = ? AND deleted = 0 AND date <= ? ORDER BY account_id, date DESC, created_at DESC`, ledgerID, asOf)
+	if err != nil {
+		return err
+	}
+	type val struct {
+		date  string
+		value int64
+	}
+	latest := map[string]val{}
+	for rows.Next() {
+		var id, date string
+		var v int64
+		if err := rows.Scan(&id, &date, &v); err != nil {
+			rows.Close()
+			return err
+		}
+		if _, seen := latest[id]; !seen {
+			latest[id] = val{date, v}
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil || len(latest) == 0 {
+		return err
+	}
+	for i := range list {
+		v, ok := latest[list[i].AccountID]
+		if !ok {
+			continue
+		}
+		then, err := s.accountBalanceAt(ctx, ledgerID, list[i].AccountID, v.date)
+		if err != nil {
+			return err
+		}
+		worth := v.value + (list[i].Balance - then)
+		list[i].Value, list[i].ValuedOn = &worth, v.date
+	}
+	return nil
+}
+
+// accountBalanceAt is one account's balance at the end of date.
+func (s *Service) accountBalanceAt(ctx context.Context, ledgerID, accountID, date string) (int64, error) {
+	const live = `t.ledger_id = a.ledger_id AND t.deleted = 0 AND COALESCE(t.status, 'cleared') <> 'planned' AND t.local_date <= ?`
+	var bal int64
+	err := s.DB.QueryRowContext(ctx, `SELECT CAST(COALESCE(a.opening_balance, 0)
+		+ COALESCE((SELECT SUM(CASE t.type WHEN 'income' THEN t.amount ELSE -t.amount END) FROM transactions t WHERE `+live+` AND t.account_id = a.id), 0)
+		+ COALESCE((SELECT SUM(t.to_amount) FROM transactions t WHERE `+live+` AND t.type = 'transfer' AND t.to_account_id = a.id), 0) AS BIGINT)
+		FROM accounts a WHERE a.ledger_id = ? AND a.id = ?`, date, date, ledgerID, accountID).Scan(&bal)
+	return bal, err
 }
 
 // CategoryTotal is net spending (or income) in one category.

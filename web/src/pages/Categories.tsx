@@ -1,3 +1,4 @@
+import { TAX_SECTIONS } from '../lib/tax'
 import { useState } from 'react'
 import type { Category } from '../lib/api'
 import { useCategoryIndex, useStableId, useWrite, type WithId } from '../lib/data'
@@ -44,6 +45,7 @@ function CategoryForm({ cat, kind, parent, onClose }: Edit & { onClose: () => vo
   const [parentId, setParentId] = useState(parent ?? '')
   const [nature, setNature] = useState(cat?.nature ?? parentCat?.nature ?? '')
   const [color, setColor] = useState(cat?.color ?? parentCat?.color ?? PALETTE[6])
+  const [tax, setTax] = useState(cat?.tax_section ?? '')
   const [err, setErr] = useState('')
   const hasKids = !!cat && cats.children(cat.id).length > 0
   return (
@@ -60,7 +62,7 @@ function CategoryForm({ cat, kind, parent, onClose }: Edit & { onClose: () => vo
         e.preventDefault()
         try {
           await write.save.mutateAsync({ entity: 'categories', id: cat?.id, newId, data: {
-            name: name.trim(), kind: kind as Category['kind'], parent_id: parentId || null, nature: kind === 'expense' ? nature || null : null, color,
+            name: name.trim(), kind: kind as Category['kind'], parent_id: parentId || null, nature: kind === 'expense' ? nature || null : null, color, tax_section: tax || null,
             ...(cat ? {} : { sort_order: 999, icon: parentCat?.icon ?? 'dots' }),
           } satisfies Partial<Category> })
           onClose()
@@ -71,6 +73,8 @@ function CategoryForm({ cat, kind, parent, onClose }: Edit & { onClose: () => vo
           {cats.roots(kind).filter((r) => r.id !== cat?.id).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</Select></Field>}
         {kind === 'expense' && <Field label="Kind of spending" hint="Used for the needs / wants / savings (50/30/20) view">
           <Select value={nature} onChange={(e) => setNature(e.target.value)}><option value="">Not set</option>{NATURES.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>}
+        <Field label="Counts for tax (optional)" hint="Adds this spending to the Year &amp; tax summary. A guide, not tax advice.">
+          <Select value={tax} onChange={(e) => setTax(e.target.value)}><option value="">No</option>{TAX_SECTIONS.map((t) => <option key={t.code} value={t.code}>{t.label}</option>)}</Select></Field>
         <Field label="Colour"><div className="row">{PALETTE.map((c) => <button type="button" key={c} className={`swatch ${c === color ? 'on' : ''}`} aria-label={`Colour ${c}`} aria-pressed={c === color} onClick={() => setColor(c)} style={{ background: c }} />)}</div></Field>
         {err && <p className="error">{err}</p>}
       </form>

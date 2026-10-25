@@ -73,6 +73,43 @@ type PullResult struct {
 	ServerTime int64          `json:"server_time"`
 }
 
+// ErrResyncRequired means the device last synced before deleted records were
+// cleared out of the Trash, so it must download the whole book again.
+var ErrResyncRequired = errors.New("this device has been away longer than the server keeps deleted items; it will download the book again")
+
+// Actor is who is writing: saved with each version in the change history.
+type Actor struct {
+	UserID string
+	Device string
+}
+
+type actorKey struct{}
+
+// WithActor marks writes made with ctx as done by a.
+func WithActor(ctx context.Context, a Actor) context.Context {
+	return context.WithValue(ctx, actorKey{}, a)
+}
+
+// ActorFrom returns the writer set by WithActor.
+func ActorFrom(ctx context.Context) (Actor, bool) {
+	a, ok := ctx.Value(actorKey{}).(Actor)
+	return a, ok
+}
+
+// remember saves the version just written to the change history when the
+// writer is known (people using the API or syncing). Imports and seeding have
+// no actor and are not recorded.
+func (s *Service) remember(ctx context.Context, q db.Querier, ledgerID string, rec store.Record) error {
+	a, ok := ActorFrom(ctx)
+	if !ok || a.UserID == "" {
+		return nil
+	}
+	return store.AddHistory(ctx, q, ledgerID, store.HistoryEntry{
+		Seq: rec.Seq, Entity: rec.Entity, RecordID: rec.ID, HLC: rec.HLC, UserID: a.UserID, Device: a.Device,
+		Deleted: rec.Deleted, Data: rec.Data, At: s.Now().UnixMilli(),
+	})
+}
+
 // Service is safe for concurrent use.
 type Service struct {
 	DB      *db.DB
@@ -168,6 +205,9 @@ func (s *Service) apply(ctx context.Context, q db.Querier, ledgerID string, ch C
 		*seq--
 		return reject("internal", err.Error(), nil)
 	}
+	if err := s.remember(ctx, q, ledgerID, rec); err != nil {
+		return reject("internal", err.Error(), nil)
+	}
 	s.Clock.Observe(ch.HLC)
 	return accepted, rec, nil
 }
@@ -217,6 +257,7 @@ func (s *Service) mergeStale(ctx context.Context, q db.Querier, spec *entity.Spe
 		*seq--
 		return store.Record{}, false
 	}
+	_ = s.remember(ctx, q, ledgerID, rec)
 	return rec, true
 }
 
@@ -266,6 +307,15 @@ func (s *Service) Pull(ctx context.Context, ledgerID string, since int64, limit 
 	l, err := store.GetLedger(ctx, s.DB, ledgerID)
 	if err != nil {
 		return PullResult{}, err
+	}
+	if since > 0 {
+		purged, err := store.PurgedSeq(ctx, s.DB, ledgerID)
+		if err != nil {
+			return PullResult{}, err
+		}
+		if since < purged {
+			return PullResult{}, ErrResyncRequired
+		}
 	}
 	changes, more, err := store.ChangesSince(ctx, s.DB, ledgerID, since, l.Seq, limit)
 	if err != nil {

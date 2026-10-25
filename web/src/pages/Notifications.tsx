@@ -56,6 +56,7 @@ export function Notifications() {
         <Switch checked={p.ev_security} disabled={!!busy} onChange={(v) => save({ ev_security: v })} hint="New sign-ins and password changes">Security alerts</Switch>
         <Switch checked={p.ev_due} disabled={!!busy} onChange={(v) => save({ ev_due: v })} hint="Bills and recurring payments due within 3 days">Bills due</Switch>
         <Switch checked={p.ev_budget} disabled={!!busy} onChange={(v) => save({ ev_budget: v })} hint="When a budget reaches its warning level or limit">Budget limits</Switch>
+        <Switch checked={p.ev_digest ?? true} disabled={!!busy} onChange={(v) => save({ ev_digest: v })} hint="Every Monday: last week's spending against your usual week, biggest categories and what is due">Weekly summary</Switch>
       </>}
     </Card>
   )

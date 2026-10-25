@@ -3,17 +3,19 @@
 
 import { DEMO, demoFetch } from './demo'
 
-export interface User { id: string; email: string; name: string; is_admin: boolean }
+export interface User { id: string; email: string; name: string; is_admin: boolean; totp_enabled?: boolean }
 export interface Ledger { id: string; name: string; base_currency: string; seq: number; role?: string }
 
 export interface Meta {
   version: string; signup_allowed: boolean
   oidc?: { enabled: boolean; name?: string; only?: boolean }
   notify?: { email: boolean; gotify: boolean; gotify_host?: string }
+  /** What this server version offers; missing on older servers. */
+  features?: { password_reset?: boolean; two_step?: boolean; attachments?: boolean; max_attachment_size?: number; fx_fetch?: boolean; history?: boolean }
 }
 export interface NotificationPrefs {
   notify_email: boolean; notify_gotify: boolean; gotify_token_set: boolean
-  ev_security: boolean; ev_due: boolean; ev_budget: boolean
+  ev_security: boolean; ev_due: boolean; ev_budget: boolean; ev_digest?: boolean
   channels?: { email: boolean; gotify: boolean; gotify_host?: string }
 }
 
@@ -27,6 +29,8 @@ export interface Account {
 export interface Category {
   name: string; kind: 'expense' | 'income'; parent_id: string | null; nature: string | null
   color: string | null; icon: string | null; archived: boolean; sort_order: number
+  /** Income-tax section this spending counts for (80C, 80D, HRA…), for the year's tax summary. */
+  tax_section?: string | null
 }
 export interface Transaction {
   type: 'expense' | 'income' | 'transfer'; status: string; account_id: string; amount: number
@@ -65,6 +69,22 @@ export interface Deposit {
 export interface Position {
   currency: string; cash: number; investments: number; liabilities: number; receivable: number; payable: number; net_worth: number
   excluded_accounts: number; excluded_balance: number
+  /** Investments with a valuation: what was put in, and the gain (negative = loss). */
+  invested_cost?: number; gain?: number
+}
+/** A savings goal; progress = saved_amount + balances of account_ids (same currency). */
+export interface Goal {
+  name: string; target_amount: number; currency: string; target_date: string | null; start_date: string | null
+  account_ids: string[]; saved_amount: number; color: string | null; icon: string | null; archived: boolean
+  achieved_date: string | null; note: string | null; created_at: number
+}
+/** What an account was worth on a date (a fund at that day's price). */
+export interface Valuation { account_id: string; date: string; value: number; note: string | null; created_at: number }
+/** A file (receipt, bill) on a transaction; the content is fetched by sha256. */
+export interface Attachment { transaction_id: string; name: string; mime: string; size: number; sha256: string; created_at: number }
+export interface HistoryEntry {
+  seq: number; entity: string; record_id: string; hlc: string; user_id: string; user_name: string; user_email: string
+  device: string; deleted: boolean; data: Record<string, unknown>; at: number
 }
 export interface NetWorthPoint { date: string; positions: Position[] }
 export interface DebtOutstanding { debt_id: string; person: string; direction: 'lent' | 'borrowed'; currency: string; amount: number; repaid: number; outstanding: number; closed: boolean; start: string }
@@ -92,7 +112,11 @@ export interface BatchResult { entity: string; id: string; status: 'created' | '
 export const BATCH_OPS = 500
 export interface TxRow extends Transaction { id: string; hlc: string; deleted: boolean }
 
-export interface Balance { account_id: string; name: string; type: string; currency: string; archived: boolean; include_in_net_worth: boolean; opening_balance: number; balance: number }
+export interface Balance {
+  account_id: string; name: string; type: string; currency: string; archived: boolean; include_in_net_worth: boolean; opening_balance: number; balance: number
+  /** Market value from the latest valuation (plus money moved since); balance is then what was put in. */
+  value?: number; valued_on?: string
+}
 export interface CategoryTotal { category_id: string | null; parent_id: string | null; name: string; amount: number; count: number }
 export interface CurrencySummary { currency: string; income: number; expense: number; net: number; expense_by_category: CategoryTotal[]; income_by_category: CategoryTotal[] }
 export interface TrendPoint { period: string; currency: string; income: number; expense: number }
@@ -143,8 +167,8 @@ async function call<T>(method: string, path: string, body?: unknown, raw = false
   if (!res.ok) {
     let code = `http_${res.status}`, message = res.statusText, fields
     try { const e = (await res.json()).error; code = e.code; message = e.message; fields = e.fields } catch { /* not JSON */ }
-    // A wrong password (change password, delete account) is also a 401 but the session is still fine.
-    if (res.status === 401 && signedIn && code !== 'invalid_credentials') { session.end(); onUnauthorized() }
+    // A wrong password or code (change password, delete account, two-step) is also a 401 but the session is still fine.
+    if (res.status === 401 && signedIn && !['invalid_credentials', 'invalid_otp', 'otp_required'].includes(code)) { session.end(); onUnauthorized() }
     throw new ApiError(res.status, code, message, fields, res.headers.get('X-Request-ID') ?? undefined)
   }
   if (raw) return res as unknown as T
@@ -160,7 +184,15 @@ export const api = {
   notifications: () => call<NotificationPrefs>('GET', '/notifications'),
   saveNotifications: (patch: Partial<Omit<NotificationPrefs, 'gotify_token_set' | 'channels'>> & { gotify_token?: string }) => call<NotificationPrefs>('PUT', '/notifications', patch),
   testNotification: (channel: 'email' | 'gotify', gotify_token?: string) => call<{ sent: boolean }>('POST', '/notifications/test', { channel, ...(gotify_token ? { gotify_token } : {}) }),
-  login: (email: string, password: string) => call<{ user: User; token: string }>('POST', '/auth/login', { email, password, device_name: 'Web browser' }),
+  login: (email: string, password: string, otp?: string) => call<{ user: User; token: string }>('POST', '/auth/login', { email, password, device_name: 'Web browser', ...(otp ? { otp } : {}) }),
+  /** Emails a reset link if the address has an account (the answer is the same either way). */
+  forgotPassword: (email: string) => call<{ sent: boolean }>('POST', '/auth/forgot', { email }),
+  resetPassword: (token: string, new_password: string) => call<{ reset: boolean }>('POST', '/auth/reset', { token, new_password }),
+  twoStep: () => call<{ enabled: boolean; recovery_codes_left: number }>('GET', '/auth/2fa'),
+  twoStepSetup: () => call<{ secret: string; otpauth_url: string }>('POST', '/auth/2fa/setup', {}),
+  twoStepEnable: (code: string) => call<{ enabled: boolean; recovery_codes: string[] }>('POST', '/auth/2fa/enable', { code }),
+  twoStepDisable: (password: string, code: string) => call<{ enabled: boolean }>('POST', '/auth/2fa/disable', { password, code }),
+  twoStepNewCodes: (code: string) => call<{ recovery_codes: string[] }>('POST', '/auth/2fa/recovery-codes', { code }),
   register: (email: string, password: string, name: string) =>
     call<{ user: User; token: string }>('POST', '/auth/register', { email, password, name, device_name: 'Web browser' }),
   logout: () => call<void>('POST', '/auth/logout'),
@@ -200,6 +232,19 @@ export const api = {
     call<{ record: Rec<T> }>('PATCH', `${L(lid)}/records/${entity}/${id}`, { data }).then((r) => r.record),
   remove: (lid: string, entity: string, id: string) => call<unknown>('DELETE', `${L(lid)}/records/${entity}/${id}`),
   restore: (lid: string, entity: string, id: string) => call<unknown>('POST', `${L(lid)}/records/${entity}/${id}/restore`),
+  /** Who changed a record and what it looked like after each change, newest first. */
+  history: (lid: string, entity: string, id: string) =>
+    call<{ history: HistoryEntry[] }>('GET', `${L(lid)}/records/${entity}/${id}/history`).then((r) => r.history),
+  /** Uploads an attachment file; the server checks its type by content. */
+  uploadBlob: (lid: string, file: Blob) => call<{ sha256: string; mime: string; size: number }>('POST', `${L(lid)}/blobs`, file),
+  /** Address of an attachment file, for <img src> or a link (same origin, so the session cookie applies). */
+  blobUrl: (lid: string, sha: string, name?: string, download = false) =>
+    `/api/v1${L(lid)}/blobs/${sha}?${new URLSearchParams({ ...(name ? { name } : {}), ...(download ? { download: '1' } : {}) })}`,
+  /** An attachment file's content (works in the in-browser demo too, unlike a plain URL). */
+  fetchBlob: (lid: string, sha: string) => call<Response>('GET', `${L(lid)}/blobs/${sha}`, undefined, true).then((r) => r.blob()),
+  /** Fetches today's reference exchange rates for [quotes] against [base] and saves them. */
+  fetchRates: (lid: string, base: string, quotes: string[]) =>
+    call<{ base: string; date: string; rates: Record<string, string>; missing: string[]; source: string }>('POST', `${L(lid)}/rates/fetch`, { base, quotes }),
 
   transactions: (lid: string, params: Record<string, string>) =>
     call<{ transactions: Rec<Transaction>[]; next_cursor?: string }>('GET', `${L(lid)}/transactions?${new URLSearchParams(params)}`),

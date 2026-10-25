@@ -21,6 +21,10 @@ type Position struct {
 	Receivable  int64  `json:"receivable"`  // open debts others owe you
 	Payable     int64  `json:"payable"`     // open debts you owe others
 	NetWorth    int64  `json:"net_worth"`
+	// For investment accounts with a valuation: what was put in, and the
+	// gain (negative: loss) of their value over it.
+	InvestedCost int64 `json:"invested_cost"`
+	Gain         int64 `json:"gain"`
 	// Accounts left out (archived or excluded from net worth) that still hold money.
 	ExcludedAccounts int   `json:"excluded_accounts"`
 	ExcludedBalance  int64 `json:"excluded_balance"`
@@ -114,22 +118,27 @@ func combine(balances []Balance, debts []DebtOutstanding, asOf string) []Positio
 		return p
 	}
 	for _, b := range balances {
+		worth := b.Worth() // the valuation, when the account has one
 		if b.Archived || !b.IncludeInNetWorth {
-			if b.Balance != 0 {
+			if worth != 0 {
 				p := get(b.Currency)
 				p.ExcludedAccounts++
-				p.ExcludedBalance += b.Balance
+				p.ExcludedBalance += worth
 			}
 			continue
 		}
 		p := get(b.Currency)
 		switch {
 		case IsLiabilityType(b.Type):
-			p.Liabilities -= b.Balance // a card at −₹5,000 means ₹5,000 owed
+			p.Liabilities -= worth // a card at −₹5,000 means ₹5,000 owed
 		case IsInvestmentType(b.Type):
-			p.Investments += b.Balance
+			p.Investments += worth
+			if b.Value != nil {
+				p.InvestedCost += b.Balance
+				p.Gain += *b.Value - b.Balance
+			}
 		default:
-			p.Cash += b.Balance
+			p.Cash += worth
 		}
 	}
 	for _, d := range debts {

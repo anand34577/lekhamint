@@ -14,8 +14,18 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-/** A request coming from a shortcut, the Quick Settings tile or a notification. */
-data class LaunchRequest(val addType: String?, val nonce: Long = System.nanoTime())
+/** A request coming from a shortcut, the Quick Settings tile, a notification or the share sheet. */
+data class LaunchRequest(val addType: String?, val amount: String? = null, val nonce: Long = System.nanoTime())
+
+/**
+ * What was shared into the app (a bank SMS, a receipt photo or a PDF bill), waiting for the
+ * next new-transaction form to pick it up. The file is already copied into app storage.
+ */
+object SharedInbox {
+    data class Shared(val payee: String?, val note: String?, val file: app.kosh.data.BlobStore.Stored?)
+    @Volatile var pending: Shared? = null
+    fun take(): Shared? = pending.also { pending = null }
+}
 
 /** FragmentActivity (not ComponentActivity) because BiometricPrompt needs it for app lock. */
 class MainActivity : FragmentActivity() {
@@ -42,7 +52,23 @@ class MainActivity : FragmentActivity() {
     }
 
     private fun handle(intent: Intent?) {
-        if (intent?.action == ACTION_ADD) launch.value = LaunchRequest(intent.getStringExtra("type") ?: "expense")
+        when (intent?.action) {
+            ACTION_ADD -> launch.value = LaunchRequest(intent.getStringExtra("type") ?: "expense")
+            Intent.ACTION_SEND -> {
+                val text = intent.getStringExtra(Intent.EXTRA_TEXT)
+                @Suppress("DEPRECATION")
+                val uri = if (android.os.Build.VERSION.SDK_INT >= 33) intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
+                    else intent.getParcelableExtra(Intent.EXTRA_STREAM) as? android.net.Uri
+                val blobs = (application as KoshApplication).container.repo.blobs
+                lifecycleScope.launch {
+                    // Copy the file now, while this app has permission to read it.
+                    val file = uri?.let { u -> kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { blobs.import(u) }.getOrNull() } }
+                    val sms = text?.let(app.kosh.domain.SmsParser::parse)
+                    SharedInbox.pending = SharedInbox.Shared(sms?.payee, text?.takeIf { sms?.amount != null }?.let { sms!!.note }, file)
+                    launch.value = LaunchRequest(sms?.type ?: "expense", sms?.amount)
+                }
+            }
+        }
     }
 
     companion object {

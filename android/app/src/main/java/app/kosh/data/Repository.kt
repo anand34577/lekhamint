@@ -40,6 +40,9 @@ class Repository(
     val settings: Settings,
     private val onLocalChange: () -> Unit,
 ) {
+    /** Attachment files on this phone. */
+    val blobs = BlobStore(context)
+
     // --- Observations -------------------------------------------------------
 
     val accounts: Flow<List<AccountEntity>> = db.accounts().observeAll()
@@ -59,6 +62,44 @@ class Repository(
     /** Manual exchange rates, kept as raw records because only totals use them. */
     val exchangeRates: Flow<List<app.kosh.domain.Fx.Rate>> =
         db.raw().observeOfEntity(app.kosh.domain.Fx.ENTITY).map { rows -> rows.mapNotNull(app.kosh.domain.Fx::parse) }
+    val goals: Flow<List<app.kosh.domain.Goal>> = db.raw().observeOfEntity(app.kosh.domain.Goal.ENTITY).map { it.mapNotNull(app.kosh.domain.Goal::parse) }
+    val valuations: Flow<List<app.kosh.domain.Valuation>> = db.raw().observeOfEntity(app.kosh.domain.Valuation.ENTITY).map { it.mapNotNull(app.kosh.domain.Valuation::parse) }
+    val attachments: Flow<List<app.kosh.domain.Attachment>> = db.raw().observeOfEntity(app.kosh.domain.Attachment.ENTITY).map { it.mapNotNull(app.kosh.domain.Attachment::parse) }
+
+    /**
+     * Market value of accounts that have a valuation (server report.applyValuations):
+     * the latest valuation plus money moved in or out after it. Accounts without one are absent.
+     */
+    val accountValues: Flow<Map<String, Long>> = combine(valuations, balances) { vals, bals ->
+        val latest = vals.groupBy { it.accountId }.mapValues { (_, l) -> l.maxWith(compareBy<app.kosh.domain.Valuation> { it.date }.thenBy { it.createdAt }) }
+        latest.mapNotNull { (acc, v) ->
+            val now = bals.firstOrNull { it.accountId == acc }?.balance ?: return@mapNotNull null
+            val then = db.accounts().balanceAt(acc, v.date) ?: now
+            acc to v.value + (now - then)
+        }.toMap()
+    }
+
+    /** Creates or updates a record this app keeps as raw JSON; fields it does not set are kept. */
+    suspend fun saveRaw(entity: String, id: String, fields: Map<String, kotlinx.serialization.json.JsonElement>) {
+        val old = db.raw().find(entity, id)
+        val merged = (old?.let { runCatching { KoshJson.parseToJsonElement(it.data) as kotlinx.serialization.json.JsonObject }.getOrNull() } ?: emptyMap()) + fields
+        db.raw().upsertAll(listOf(RawRecordEntity(entity = entity, id = id, hlc = clock.now(), deleted = false, dirty = Dirty.PENDING,
+            data = KoshJson.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), kotlinx.serialization.json.JsonObject(merged)))))
+        onLocalChange()
+    }
+
+    suspend fun deleteRaw(entity: String, id: String) {
+        val row = db.raw().find(entity, id) ?: return
+        db.raw().upsertAll(listOf(row.copy(hlc = clock.now(), deleted = true, dirty = Dirty.PENDING)))
+        onLocalChange()
+    }
+
+    suspend fun restoreRaw(entity: String, id: String) {
+        val row = db.raw().find(entity, id) ?: return
+        db.raw().upsertAll(listOf(row.copy(hlc = clock.now(), deleted = false, dirty = Dirty.PENDING)))
+        onLocalChange()
+    }
+
     val pendingCount = db.stats().observePending()
     val rejectedCount = db.stats().observeRejected()
 
@@ -124,6 +165,13 @@ class Repository(
 
     suspend fun saveAccount(a: AccountEntity) = write(tables.accounts, listOf(a))
     suspend fun saveCategory(c: CategoryEntity) = write(tables.categories, listOf(c))
+
+    /** Sets (or with null clears) the income-tax section a category counts for, kept in its extras. */
+    suspend fun setTaxSection(c: CategoryEntity, code: String?) {
+        val extras = runCatching { KoshJson.parseToJsonElement(c.extras) as kotlinx.serialization.json.JsonObject }.getOrDefault(kotlinx.serialization.json.JsonObject(emptyMap()))
+        val next = kotlinx.serialization.json.JsonObject(extras + ("tax_section" to (code?.let { kotlinx.serialization.json.JsonPrimitive(it) } ?: kotlinx.serialization.json.JsonNull)))
+        saveCategory(c.copy(extras = KoshJson.encodeToString(kotlinx.serialization.json.JsonObject.serializer(), next)))
+    }
     suspend fun saveTag(t: TagEntity) = write(tables.tags, listOf(t))
     suspend fun saveTransaction(t: TransactionEntity) = write(tables.transactions, listOf(t))
     suspend fun saveTransactions(list: List<TransactionEntity>) = write(tables.transactions, list)

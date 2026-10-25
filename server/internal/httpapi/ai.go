@@ -79,7 +79,10 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		}
 		body["model"] = s.AI.Model
 	}
-	body["stream"] = false // the proxy relays one response; streaming is not supported
+	// The web app asks for a stream so answers appear as they are written; the
+	// events are relayed as they arrive. Anything else gets one JSON response.
+	stream, _ := body["stream"].(bool)
+	body["stream"] = stream
 	payload, err := json.Marshal(body)
 	if err != nil {
 		s.fail(w, r, err)
@@ -98,7 +101,11 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	if stream {
+		req.Header.Set("Accept", "text/event-stream, application/json")
+	} else {
+		req.Header.Set("Accept", "application/json")
+	}
 	req.Header.Set("X-Title", "LekhaMint")
 	if s.AI.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+s.AI.APIKey)
@@ -118,6 +125,10 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer res.Body.Close()
+	if stream && res.StatusCode == http.StatusOK && strings.HasPrefix(res.Header.Get("Content-Type"), "text/event-stream") {
+		relayStream(w, res.Body)
+		return
+	}
 	out, err := io.ReadAll(io.LimitReader(res.Body, aiResponseLimit+1))
 	if err != nil || len(out) > aiResponseLimit {
 		writeError(w, http.StatusBadGateway, "ai_upstream", "the assistant model sent an unreadable or oversized answer", nil)
@@ -137,6 +148,37 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(res.StatusCode)
 	_, _ = w.Write(out)
+}
+
+// aiStreamLimit caps a relayed stream; event framing makes it larger than the answer.
+const aiStreamLimit = 16 << 20
+
+// relayStream copies server-sent events to the browser, flushing after every
+// read so each piece of the answer shows up as soon as the model writes it.
+func relayStream(w http.ResponseWriter, body io.Reader) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Accel-Buffering", "no") // nginx and similar proxies: do not buffer
+	w.WriteHeader(http.StatusOK)
+	rc := http.NewResponseController(w)
+	buf := make([]byte, 8<<10)
+	left := aiStreamLimit
+	for left > 0 {
+		n, err := body.Read(buf)
+		if n > 0 {
+			if n > left {
+				n = left
+			}
+			left -= n
+			if _, werr := w.Write(buf[:n]); werr != nil {
+				return // the browser went away (Stop or a closed tab)
+			}
+			_ = rc.Flush()
+		}
+		if err != nil {
+			return
+		}
+	}
 }
 
 // --- personal assistant key -------------------------------------------------------------------
