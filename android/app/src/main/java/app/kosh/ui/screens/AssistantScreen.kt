@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -21,6 +22,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.Send
+import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
@@ -52,6 +54,7 @@ import app.kosh.ai.AiSettings
 import app.kosh.ai.AiStore
 import app.kosh.ai.Assistant
 import app.kosh.ai.Turn
+import app.kosh.core.Links
 import app.kosh.ui.LocalNav
 import app.kosh.ui.components.AssumptionNote
 import app.kosh.ui.components.KoshTopBar
@@ -79,6 +82,7 @@ fun AssistantScreen() {
     var busy by remember { mutableStateOf(false) }
     var setup by remember { mutableStateOf(!s.configured) }
     var consent by remember { mutableStateOf<String?>(null) }
+    var reporting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
     LaunchedEffect(turns.size, busy) { if (turns.isNotEmpty()) list.animateScrollToItem(turns.size) }
@@ -107,7 +111,7 @@ fun AssistantScreen() {
                         suggestions.forEach { AssistChip(onClick = { send(it) }, label = { Text(it) }) }
                     }
                 }
-                items(turns) { t -> TurnBubble(t) }
+                items(turns) { t -> TurnBubble(t, onReport = { reporting = true }) }
                 if (busy) item { Column { Text("Looking through your records…", style = MaterialTheme.typography.bodySmall); LinearProgressIndicator(Modifier.fillMaxWidth()) } }
             }
             Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -118,6 +122,21 @@ fun AssistantScreen() {
         }
     }
     if (setup) AiSetupDialog(s, store, onDismiss = { setup = false }) { s = it; setup = false }
+    if (reporting) {
+        AlertDialog(
+            onDismissRequest = { reporting = false },
+            title = { Text("Report this answer") },
+            text = {
+                Text(
+                    "If an answer was offensive, harmful or badly wrong, tell the LekhaMint developers. The report form opens in your browser. " +
+                        "The answer is not attached, because it may contain your financial details; describe the problem in your own words. " +
+                        "Answers come from the model service you chose (${s.host}), so you can also report it to them.",
+                )
+            },
+            confirmButton = { TextButton(onClick = { reporting = false; Links.open(context, Links.aiReport(s.host, s.model)) }) { Text("Open report form") } },
+            dismissButton = { TextButton(onClick = { reporting = false }) { Text("Cancel") } },
+        )
+    }
     consent?.let { pending ->
         AlertDialog(
             onDismissRequest = { consent = null },
@@ -130,7 +149,7 @@ fun AssistantScreen() {
 }
 
 @Composable
-private fun TurnBubble(t: Turn) {
+private fun TurnBubble(t: Turn, onReport: () -> Unit) {
     var open by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
@@ -143,6 +162,12 @@ private fun TurnBubble(t: Turn) {
                 Text(if (open) "Hide lookups" else "Show the ${t.runs.size} lookups behind this answer", Modifier.clickable { open = !open }.padding(top = 6.dp),
                     color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
                 if (open) t.runs.forEach { r -> Text("${r.name} ${r.args}\n${r.result.toString().take(1500)}", style = MaterialTheme.typography.bodySmall) }
+            }
+            if (t.error == null) {
+                Row(Modifier.clickable(onClick = onReport).padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Rounded.Flag, null, Modifier.size(14.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(" Report", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }

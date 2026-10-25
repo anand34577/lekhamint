@@ -38,8 +38,11 @@ android {
         targetSdk = 36
         // Release builds pass -PversionName=1.2.3 (from the git tag); versionCode is derived from it
         // (major * 10000 + minor * 100 + patch) so every release installs over the previous one.
-        versionName = (findProperty("versionName") as String?) ?: "1.0.0"
-        versionCode = versionName!!.split(".").map { it.toInt() }.let { (ma, mi, pa) -> ma * 10000 + mi * 100 + pa }
+        // A suffix such as "-rc1" stays in the name but is ignored for the code.
+        versionName = (findProperty("versionName") as String?)?.takeIf { it.isNotBlank() } ?: "1.0.0"
+        val semver = Regex("^(\\d+)\\.(\\d+)\\.(\\d+)").find(versionName!!)
+            ?: throw GradleException("versionName must start with MAJOR.MINOR.PATCH, got '$versionName'")
+        versionCode = semver.destructured.let { (ma, mi, pa) -> ma.toInt() * 10000 + mi.toInt() * 100 + pa.toInt() }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables { useSupportLibrary = true }
     }

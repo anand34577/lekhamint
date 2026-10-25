@@ -207,3 +207,28 @@ func (s *Service) SetPassword(ctx context.Context, userID, keepSessionID, passwo
 		return store.DeleteUserSessions(ctx, tx, userID, keepSessionID)
 	})
 }
+
+// DeleteAccount permanently deletes a user after checking their password.
+// Ledgers they alone own are deleted with all their data; they are removed
+// from ledgers that have another owner. Returns the IDs of deleted ledgers.
+func (s *Service) DeleteAccount(ctx context.Context, u store.User, password string) ([]string, error) {
+	ok, err := VerifyPassword(u.PasswordHash, password)
+	if err != nil || !ok {
+		return nil, ErrInvalidCredentials
+	}
+	var deleted []string
+	err = s.DB.InTx(ctx, func(tx *db.Tx) error {
+		ids, err := store.SoleOwnedLedgers(ctx, tx, u.ID)
+		if err != nil {
+			return err
+		}
+		for _, id := range ids {
+			if err := store.DeleteLedger(ctx, tx, id); err != nil {
+				return err
+			}
+		}
+		deleted = ids
+		return store.DeleteUser(ctx, tx, u.ID)
+	})
+	return deleted, err
+}

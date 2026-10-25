@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Backup
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.rounded.Handshake
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Sell
 import androidx.compose.material.icons.rounded.AutoFixHigh
@@ -57,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import app.kosh.BuildConfig
+import app.kosh.core.Links
 import app.kosh.data.ThemeMode
 import app.kosh.ui.LocalNav
 import app.kosh.ui.LocalSnackbar
@@ -159,6 +162,8 @@ fun MoreScreen() {
                     "Works fully offline. Your data stays on this phone unless you turn on sync with your own server.",
                     Icons.Rounded.Info,
                 )
+                SettingRow("Privacy policy", "What the app stores and where it goes", Icons.Rounded.Policy, onClick = { Links.open(context, Links.PRIVACY) })
+                SettingRow("Help & source code", "Guides, questions and bug reports", Icons.AutoMirrored.Rounded.HelpOutline, onClick = { Links.open(context, Links.HELP) })
             }
         }
     }

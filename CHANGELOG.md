@@ -7,6 +7,9 @@
 - Saves can no longer create duplicates on double click or a retried request: forms keep one record ID and create with `create_if_missing`; Android does the same.
 - Repayments above what is owed are refused with an explanation; overpaid debts show clearly and count on the other side. Web and Android now agree.
 - Reminders no longer show amounts on the lock screen.
+- The web app no longer signs you out when you type a wrong current password in *Change password*.
+- A wrong AI key on the server's assistant proxy is reported as a server problem (502) instead of a 401 that looked like an expired session.
+- Android: release lint is clean (Quick Settings tile on older Android, app lock activity lookup, CSV byte-order mark); a version tag like `v1.3.0-rc1` no longer breaks the build.
 
 **New**
 - Loans & EMIs: new or running loans, EMI split into principal and interest, schedules, prepayment (keep EMI or keep tenure), rate changes, foreclosure, reminders.
@@ -16,6 +19,8 @@
 - Statements & export: income & spending, account statement, transactions, loans, deposits, person, net worth, budgets, as PDF (print view on web, native on Android) and Excel; full-data Excel export.
 - Dashboard: everything due (bills, EMIs, RD, maturities, debts), "safe to spend", shortfall warnings. Transaction form warns before overdrawing, passing a card limit or a likely duplicate.
 - Assistant with any OpenAI-compatible model (cloud, home server, on-phone), read-only tools, consent prompt and optional server proxy. See docs/11-assistant.md.
+- Delete account: *More → Sync* on Android, *Settings → Your account* on the web, `DELETE /api/v1/auth/me` on the server. Deletes the account and the books only you own.
+- Google Play readiness: release builds also produce an App Bundle (`LekhaMint-play.aab`), a privacy policy ([PRIVACY.md](PRIVACY.md)) linked in the app, a *Report* action on assistant answers, and a publishing guide (docs/12-google-play.md).
 - Schema 3: `loans`, `deposits`, and `transactions.loan_id / deposit_id / part`; account type `deposit`.
 
 ## 1.1.0

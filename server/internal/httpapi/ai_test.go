@@ -31,6 +31,11 @@ func TestAssistantProxy(t *testing.T) {
 		var body map[string]any
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		got.auth, got.model = r.Header.Get("Authorization"), body["model"].(string)
+		if got.model == "bad-key" {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = io.WriteString(w, `{"error":{"message":"Incorrect API key"}}`)
+			return
+		}
 		_, _ = io.WriteString(w, `{"choices":[{"message":{"role":"assistant","content":"You spent ₹1,250.00."}}]}`)
 	}))
 	defer upstream.Close()
@@ -66,6 +71,9 @@ func TestAssistantProxy(t *testing.T) {
 		t.Fatalf("model override ignored: %q", got.model)
 	}
 	c.do("POST", "/api/v1/ai/chat/completions", map[string]any{"nope": 1}, http.StatusBadRequest)
+	// A rejected server key is a gateway error, never a 401 that looks like an expired session.
+	c.do("POST", "/api/v1/ai/chat/completions", map[string]any{"model": "bad-key", "messages": []any{}}, http.StatusBadGateway)
+	c.do("GET", "/api/v1/auth/me", nil, http.StatusOK)
 
 	// Disabled: a clear 503, and meta says so.
 	api.AI = nil
