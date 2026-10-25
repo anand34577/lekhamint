@@ -1,5 +1,6 @@
 package app.kosh.ui.screens
 
+import app.kosh.ui.components.FormSheet
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -61,6 +62,8 @@ import app.kosh.core.Currencies
 import app.kosh.core.Ids
 import app.kosh.core.Money
 import app.kosh.data.db.AccountEntity
+import app.kosh.domain.CardBilling
+import app.kosh.domain.Lookup
 import app.kosh.ui.LocalNav
 import app.kosh.ui.LocalSnackbar
 import app.kosh.ui.Routes
@@ -98,7 +101,17 @@ fun AccountsScreen() {
                         Text("Net worth", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (lookup.netWorth.isEmpty()) MoneyText(0, lookup.baseCurrency, style = MaterialTheme.typography.headlineMedium)
                         for ((cur, v) in lookup.netWorth.entries.sortedByDescending { it.key == lookup.baseCurrency }) {
-                            MoneyText(v, cur, style = if (cur == lookup.baseCurrency) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium)
+                            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                MoneyText(v, cur, style = if (cur == lookup.baseCurrency) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium)
+                                if (lookup.netWorth.size > 1) Text(cur, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
+                            }
+                        }
+                        lookup.netWorthInBase(app.kosh.core.Dates.today().toString())?.let { all ->
+                            Text(
+                                "All together: " + Money.format(all.total, lookup.baseCurrency) +
+                                    if (all.missing.isNotEmpty()) " (without ${all.missing.joinToString(", ")}: add an exchange rate)" else "",
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                         Text("Balances are calculated from your transactions, so they are always exact.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -117,9 +130,17 @@ fun AccountsScreen() {
 
 @Composable
 private fun AccountRow(a: AccountEntity, balance: Long, onClick: () -> Unit) {
+    val due = CardBilling.due(a, balance, app.kosh.core.Dates.today())
     ListItem(
         headlineContent = { Text(a.name) },
-        supportingContent = { Text(accountTypeLabel(a.type) + if (!a.includeInNetWorth) " · not in net worth" else "") },
+        supportingContent = {
+            val soon = due != null && due.daysLeft <= 3
+            Text(
+                accountTypeLabel(a.type) + (if (!a.includeInNetWorth) " · not in net worth" else "") +
+                    (due?.let { " · due " + if (it.daysLeft == 0L) "today" else if (it.daysLeft == 1L) "tomorrow" else "in ${it.daysLeft} days" } ?: ""),
+                color = if (soon) MaterialTheme.colorScheme.error else Color.Unspecified,
+            )
+        },
         leadingContent = { IconBadge(a.icon ?: KoshIcons.forAccountType(a.type), a.color) },
         trailingContent = { MoneyText(balance, a.currency, style = MaterialTheme.typography.titleMedium, color = if (balance < 0) MaterialTheme.colorScheme.error else Color.Unspecified) },
         modifier = Modifier.clickable(onClick = onClick),
@@ -132,7 +153,9 @@ fun AccountDetailScreen(id: String) {
     val c = LocalContainer.current
     val nav = LocalNav.current
     val lookup by c.lookup.collectAsStateWithLifecycle()
-    val txs by remember(id) { c.repo.accountTransactions(id) }.collectAsStateWithLifecycle(emptyList())
+    // History grows without bound, so it loads in pages: "Show older" raises the limit.
+    var limit by remember(id) { mutableIntStateOf(100) }
+    val txs by remember(id, limit) { c.repo.accountTransactions(id, limit) }.collectAsStateWithLifecycle(emptyList())
     val account = lookup.accountById[id]
     var reconcile by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -162,11 +185,27 @@ fun AccountDetailScreen(id: String) {
                         val limit = account.creditLimit
                         if (account.type == "credit_card" && limit != null && limit > 0) {
                             val used = (-balance).coerceAtLeast(0)
+                            val credit = balance.coerceAtLeast(0) // paid more than owed: the card holds your money
                             LinearProgressIndicator(progress = { (used.toFloat() / limit).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
                             Text(
-                                "${Money.format(used, account.currency)} used of ${Money.format(limit, account.currency)} · ${Money.format((limit - used).coerceAtLeast(0), account.currency)} available",
+                                if (credit > 0) "In credit by ${Money.format(credit, account.currency)} · ${Money.format(limit + credit, account.currency)} available of ${Money.format(limit, account.currency)} limit"
+                                else "${Money.format(used, account.currency)} used of ${Money.format(limit, account.currency)} · ${Money.format((limit - used).coerceAtLeast(0), account.currency)} available",
                                 style = MaterialTheme.typography.bodySmall,
                             )
+                        } else if ((account.type == "credit_card" || account.type == "loan") && balance > 0) {
+                            Text("Overpaid: ${Money.format(balance, account.currency)} in your favour. It reduces what you owe on your next spends, or ask for a refund.", style = MaterialTheme.typography.bodySmall)
+                        }
+                        CardBilling.due(account, balance, app.kosh.core.Dates.today())?.let { due ->
+                            Text(
+                                "Payment due " + (when (due.daysLeft) { 0L -> "today"; 1L -> "tomorrow"; else -> "in ${due.daysLeft} days" }) + " (${app.kosh.core.Dates.medium(due.date)})",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = if (due.daysLeft <= 3) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        if (Lookup.isLiability(account.type) && balance < 0) {
+                            Button(onClick = { nav.navigate(Routes.editTx(type = "transfer", to = id, amount = Money.toPlain(-balance, account.currency))) }) {
+                                Text(if (account.type == "credit_card") "Pay card bill · ${Money.format(-balance, account.currency)}" else "Make a payment · ${Money.format(-balance, account.currency)}")
+                            }
                         }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { reconcile = true }) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Reconcile") }
@@ -178,6 +217,9 @@ fun AccountDetailScreen(id: String) {
             item { SectionHeader("Transactions") }
             if (txs.isEmpty()) item { Text("No transactions yet.", Modifier.padding(20.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
             items(txs, key = { it.id }) { t -> TransactionRow(t, lookup, onClick = { nav.navigate(Routes.editTx(t.id, t.type)) }, forAccount = id) }
+            if (txs.size >= limit) item {
+                TextButton(onClick = { limit += 200 }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Show older transactions") }
+            }
         }
         if (reconcile) {
             ReconcileDialog(account, balance, onDismiss = { reconcile = false }) { actual ->
@@ -193,7 +235,7 @@ fun AccountDetailScreen(id: String) {
 private fun ReconcileDialog(a: AccountEntity, current: Long, onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
     var text by remember { mutableStateOf(Money.toPlain(current, a.currency)) }
     val parsed = Money.parse(text.removePrefix("-"), a.currency)?.let { if (text.startsWith("-")) -it else it }
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text("Reconcile ${a.name}") },
         text = {
@@ -225,12 +267,15 @@ fun EditAccountScreen(id: String?) {
     var currency by remember { mutableStateOf(c.settings.current.baseCurrency) }
     var opening by remember { mutableStateOf("") }
     var limit by remember { mutableStateOf("") }
+    var statementDay by remember { mutableStateOf("") }
+    var dueDay by remember { mutableStateOf("") }
     var color by remember { mutableStateOf<String?>(null) }
     var icon by remember { mutableStateOf<String?>(null) }
     var inNetWorth by remember { mutableStateOf(true) }
     var archived by remember { mutableStateOf(false) }
     var note by remember { mutableStateOf("") }
     var txCount by remember { mutableIntStateOf(0) }
+    var uses by remember { mutableStateOf<List<String>>(emptyList()) }
     var pickCurrency by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -242,8 +287,10 @@ fun EditAccountScreen(id: String?) {
         val liability = a.type == "credit_card" || a.type == "loan"
         opening = if (a.openingBalance == 0L) "" else Money.toPlain(if (liability) -a.openingBalance else a.openingBalance, a.currency)
         limit = a.creditLimit?.let { Money.toPlain(it, a.currency) }.orEmpty()
+        statementDay = a.statementDay?.toString().orEmpty(); dueDay = a.dueDay?.toString().orEmpty()
         color = a.color; icon = a.icon; inNetWorth = a.includeInNetWorth; archived = a.archived; note = a.note.orEmpty()
         txCount = c.repo.transactionCountForAccount(a.id)
+        uses = c.repo.accountUses(a.id)
         loaded = true
     }
     val liability = type == "credit_card" || type == "loan"
@@ -254,12 +301,18 @@ fun EditAccountScreen(id: String?) {
             ?: run { error = "Check the opening balance"; return }
         val openingMinor = if (liability) -raw else raw
         val limitMinor = if (type == "credit_card" && limit.isNotBlank()) Money.parse(limit, currency) ?: run { error = "Check the credit limit"; return } else null
+        fun day(v: String): Int? = v.trim().toIntOrNull()?.takeIf { it in 1..31 }
+        val isCard = type == "credit_card"
+        if (isCard && statementDay.isNotBlank() && day(statementDay) == null || isCard && dueDay.isNotBlank() && day(dueDay) == null) {
+            error = "Statement and due days should be a day of the month, from 1 to 31"; return
+        }
         val now = System.currentTimeMillis()
         val base = existing ?: AccountEntity(id = Ids.newV7(now), name = name, type = type, currency = currency, createdAt = now)
         scope.launch {
             c.repo.saveAccount(
                 base.copy(
                     name = name.trim(), type = type, currency = currency, openingBalance = openingMinor, creditLimit = limitMinor,
+                    statementDay = if (isCard) day(statementDay) else null, dueDay = if (isCard) day(dueDay) else null,
                     color = color, icon = icon ?: KoshIcons.forAccountType(type), includeInNetWorth = inNetWorth, archived = archived,
                     note = note.trim().ifEmpty { null },
                 ),
@@ -299,7 +352,21 @@ fun EditAccountScreen(id: String?) {
                 allowNegative = !liability,
                 supporting = if (liability) "What you owe on this ${accountTypeLabel(type).lowercase()} today" else "The balance before your first transaction in LekhaMint",
             )
-            if (type == "credit_card") AmountField(limit, { limit = it }, currency, "Credit limit (optional)")
+            if (type == "credit_card") {
+                AmountField(limit, { limit = it }, currency, "Credit limit (optional)", supporting = "Shows how much of the limit you have used")
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(
+                        statementDay, { statementDay = it.filter(Char::isDigit).take(2); error = null }, label = { Text("Statement day") }, singleLine = true,
+                        supportingText = { Text("Day of month, optional") }, keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                    )
+                    OutlinedTextField(
+                        dueDay, { dueDay = it.filter(Char::isDigit).take(2); error = null }, label = { Text("Payment due day") }, singleLine = true,
+                        supportingText = { Text("You get a reminder") }, keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
             Text("Colour", style = MaterialTheme.typography.labelLarge)
             ColorRow(color) { color = it }
             Text("Icon", style = MaterialTheme.typography.labelLarge)
@@ -317,9 +384,13 @@ fun EditAccountScreen(id: String?) {
     }
     if (pickCurrency) CurrencyPickerSheet(onDismiss = { pickCurrency = false }, selected = currency) { currency = it }
     if (confirmDelete && id != null) {
-        if (txCount > 0) {
+        if (txCount > 0 || uses.isNotEmpty()) {
+            val why = buildList {
+                if (txCount > 0) add("$txCount transactions")
+                addAll(uses)
+            }.joinToString(", ")
             ConfirmDialog(
-                "Archive instead?", "This account has $txCount transactions. Archiving hides it but keeps your history and balances correct.",
+                "Archive instead?", "This account has $why, so it can't be deleted without breaking them. Archiving hides it from pickers and keeps your history. An archived account is left out of net worth, so move its money first if it still holds some.",
                 "Archive", onConfirm = { archived = true; save() }, onDismiss = { confirmDelete = false },
             )
         } else {

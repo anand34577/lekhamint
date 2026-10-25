@@ -84,6 +84,9 @@ class MoneyTest {
 
     @Test fun parsesExactly() {
         assertEquals(125050L, Money.parse("1,250.50", "INR"))
+        assertEquals(1250L, Money.parse("12,50", "EUR"))      // decimal comma
+        assertEquals(125000L, Money.parse("1,250", "INR"))    // thousands grouping
+        assertEquals(15000000L, Money.parse("1,50,000", "INR"))
         assertEquals(1L, Money.parse("0.01", "USD"))
         assertEquals(1500L, Money.parse("1500", "JPY"))
         assertEquals(30L, Money.parse("0.1", "USD")?.let { it * 3 }) // no float drift

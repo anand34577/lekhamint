@@ -30,16 +30,19 @@ class Converters {
  *  3. Loans and deposits, and transactions.loan_id / deposit_id / part. Loans
  *     and deposits kept as raw records, and those fields kept in transaction
  *     extras by version 2, are promoted on start.
+ *  4. Indexes for account history, Trash and dirty-row scans, so large ledgers stay fast.
+ *  5. Credit card statement and due days on accounts.
  */
 @Database(
     entities = [
         AccountEntity::class, CategoryEntity::class, TagEntity::class, TransactionEntity::class,
         BudgetEntity::class, RecurringRuleEntity::class, DebtEntity::class, RawRecordEntity::class,
         SplitEntity::class, RuleEntity::class, LoanEntity::class, DepositEntity::class,
+        SyncBaseEntity::class,
     ],
-    version = 3,
+    version = 6,
     exportSchema = true,
-    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3)],
+    autoMigrations = [AutoMigration(from = 1, to = 2), AutoMigration(from = 2, to = 3), AutoMigration(from = 3, to = 4), AutoMigration(from = 4, to = 5), AutoMigration(from = 5, to = 6)],
 )
 @TypeConverters(Converters::class)
 abstract class KoshDatabase : RoomDatabase() {
@@ -55,6 +58,7 @@ abstract class KoshDatabase : RoomDatabase() {
     abstract fun loans(): LoanDao
     abstract fun deposits(): DepositDao
     abstract fun raw(): RawRecordDao
+    abstract fun syncBase(): SyncBaseDao
     abstract fun stats(): StatsDao
 
     companion object {

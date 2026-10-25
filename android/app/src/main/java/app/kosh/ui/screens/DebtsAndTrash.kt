@@ -1,5 +1,6 @@
 package app.kosh.ui.screens
 
+import app.kosh.ui.components.FormSheet
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -50,7 +51,13 @@ import app.kosh.core.Money
 import app.kosh.data.db.DebtEntity
 import app.kosh.domain.Debts
 import app.kosh.ui.LocalNav
+import app.kosh.ui.Routes
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import app.kosh.ui.components.AmountField
+import app.kosh.ui.components.CurrencyPickerSheet
+import app.kosh.ui.components.DateField
 import app.kosh.ui.components.EmptyState
 import app.kosh.ui.components.IconBadge
 import app.kosh.ui.components.KoshTopBar
@@ -61,101 +68,18 @@ import app.kosh.ui.components.TransactionRow
 import app.kosh.ui.components.typeColor
 import kotlinx.coroutines.launch
 
-@Composable
-fun DebtsScreen() {
-    val c = LocalContainer.current
-    val nav = LocalNav.current
-    val debts by c.repo.debts.collectAsStateWithLifecycle(emptyList())
-    val moves by c.repo.debtMoves.collectAsStateWithLifecycle(emptyList())
-    var edit by remember { mutableStateOf<DebtEntity?>(null) }
-    var creating by remember { mutableStateOf(false) }
-    var repaying by remember { mutableStateOf<DebtEntity?>(null) }
-    var showSettled by remember { mutableStateOf(false) }
-    val movesByDebt = moves.groupBy { it.debtId }
-    val left = { d: DebtEntity -> Debts.outstanding(d, movesByDebt[d.id].orEmpty()) }
-    Scaffold(
-        topBar = { KoshTopBar("Lent & borrowed", onBack = { nav.popBackStack() }) },
-        floatingActionButton = { ExtendedFloatingActionButton(onClick = { creating = true }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Add") }) },
-    ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 96.dp)) {
-            if (debts.isEmpty()) item { EmptyState(Icons.Rounded.Handshake, "Nothing owed", "Keep track of money you lent to friends or borrowed, record repayments, and settle up later.") }
-            val open = debts.filter { !it.closed }
-            val owedToYou = open.filter { it.direction == "lent" }.groupBy { it.currency }.mapValues { (_, l) -> l.sumOf(left) }.filterValues { it > 0 }
-            val youOwe = open.filter { it.direction == "borrowed" }.groupBy { it.currency }.mapValues { (_, l) -> l.sumOf(left) }.filterValues { it > 0 }
-            if (open.isNotEmpty()) {
-                item {
-                    Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
-                        Column {
-                            Text("Owed to you", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (owedToYou.isEmpty()) Text("—")
-                            for ((cur, v) in owedToYou) MoneyText(v, cur, color = typeColor("income"), style = MaterialTheme.typography.titleMedium)
-                        }
-                        Column {
-                            Text("You owe", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            if (youOwe.isEmpty()) Text("—")
-                            for ((cur, v) in youOwe) MoneyText(v, cur, color = typeColor("expense"), style = MaterialTheme.typography.titleMedium)
-                        }
-                    }
-                }
-            }
-            val shown = debts.filter { showSettled || !it.closed }.sortedWith(compareBy({ it.closed }, { it.dueDate ?: "9" }))
-            items(shown, key = { it.id }) { d ->
-                val remaining = left(d)
-                val bal = Debts.balance(d, movesByDebt[d.id].orEmpty())
-                ListItem(
-                    headlineContent = { Text(d.person, textDecoration = if (d.closed) TextDecoration.LineThrough else null) },
-                    supportingContent = {
-                        Text(
-                            (if (d.direction == "lent") "Owes you" else "You owe") +
-                                (if (!d.closed && bal < 0) " · overpaid by ${Money.format(-bal, d.currency)}" else if (!d.closed && remaining != d.amount) " · ${Money.format(remaining, d.currency)} of ${Money.format(d.amount, d.currency)} left" else "") +
-                                (d.dueDate?.let { " · due ${Dates.relativeDay(java.time.LocalDate.parse(it))}" }.takeIf { !d.closed } ?: "") +
-                                (if (d.closed) " · settled" else "") + (d.note?.let { " · $it" } ?: ""),
-                        )
-                    },
-                    leadingContent = { IconBadge("family", if (d.direction == "lent") "#2E7D32" else "#C2410C") },
-                    trailingContent = {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (!d.closed && remaining > 0) {
-                                TextButton(onClick = { repaying = d }) { Text(if (d.direction == "lent") "Got paid" else "Paid") }
-                            }
-                            MoneyText(if (d.closed) d.amount else remaining, d.currency, color = if (d.closed) MaterialTheme.colorScheme.onSurfaceVariant else Color.Unspecified)
-                        }
-                    },
-                    modifier = Modifier.clickable { edit = d },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                )
-            }
-            if (debts.any { it.closed }) {
-                item {
-                    TextButton(onClick = { showSettled = !showSettled }, modifier = Modifier.padding(horizontal = 8.dp)) {
-                        Text(if (showSettled) "Hide settled" else "Show settled (${debts.count { it.closed }})")
-                    }
-                }
-            }
-            if (debts.isNotEmpty()) {
-                item {
-                    Text(
-                        "Money you lend stays yours: it counts in net worth as owed to you, never as spending. Borrowed money is owed, never income. Interest you record is real income or cost.",
-                        Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-        }
-    }
-    if (creating || edit != null) DebtDialog(edit, onDismiss = { creating = false; edit = null }, onRepay = { edit = null; repaying = it })
-    repaying?.let { d -> RepayDialog(d, Debts.outstanding(d, movesByDebt[d.id].orEmpty()), onDismiss = { repaying = null }) }
-}
-
 /** Accounts in [currency] to take the money from or put it into. */
 @Composable
-private fun AccountChooser(currency: String, selected: String?, label: String, onPick: (String) -> Unit) {
+internal fun AccountChooser(currency: String, selected: String?, label: String, onPick: (String) -> Unit) {
     val c = LocalContainer.current
     val lookup by c.lookup.collectAsStateWithLifecycle()
     val choices = lookup.activeAccounts.filter { it.currency == currency }
     var open by remember { mutableStateOf(false) }
     LaunchedEffect(choices.map { it.id }) { if (selected == null || choices.none { it.id == selected }) choices.firstOrNull()?.let { onPick(it.id) } }
     if (choices.isEmpty()) {
-        Text("No $currency account, so only the loan is recorded.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        val nav = LocalNav.current
+        Text("You have no $currency account to move this money through.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TextButton(onClick = { nav.navigate(Routes.editAccount()) }) { Text("Add a $currency account") }
         return
     }
     OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) { Text("$label: ${lookup.accountName(selected)}") }
@@ -168,12 +92,18 @@ private fun AccountChooser(currency: String, selected: String?, label: String, o
 }
 
 @Composable
-private fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (DebtEntity) -> Unit) {
+internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (DebtEntity) -> Unit, presetPerson: String? = null, presetDirection: String? = null, presetCurrency: String? = null) {
     val c = LocalContainer.current
+    val nav = LocalNav.current
     val scope = rememberCoroutineScope()
-    var person by remember { mutableStateOf(existing?.person.orEmpty()) }
-    var direction by remember { mutableStateOf(existing?.direction ?: "lent") }
-    val currency = existing?.currency ?: c.settings.current.baseCurrency
+    var person by remember { mutableStateOf(existing?.person ?: presetPerson.orEmpty()) }
+    var direction by remember { mutableStateOf(existing?.direction ?: presetDirection ?: "lent") }
+    var currency by remember { mutableStateOf(existing?.currency ?: presetCurrency ?: c.settings.current.baseCurrency) }
+    var pickCurrency by remember { mutableStateOf(false) }
+    // The day the money changed hands. Older loans can be entered with their real date.
+    var date by remember { mutableStateOf(existing?.createdAt?.let { java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate() } ?: Dates.today()) }
+    val originalDate = remember { date }
+    var due by remember { mutableStateOf(existing?.dueDate?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }) }
     var amount by remember { mutableStateOf(existing?.let { Money.toPlain(it.amount, it.currency) }.orEmpty()) }
     var note by remember { mutableStateOf(existing?.note.orEmpty()) }
     var linkAccount by remember { mutableStateOf(existing == null) }
@@ -185,7 +115,8 @@ private fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (D
     var confirmSettle by remember { mutableStateOf(false) }
     val moves by c.repo.debtMoves.collectAsStateWithLifecycle(emptyList())
     val paidBack = existing?.let { e -> Debts.repaid(e, moves.filter { it.debtId == e.id }) } ?: 0L
-    AlertDialog(
+    if (pickCurrency) CurrencyPickerSheet(onDismiss = { pickCurrency = false }, selected = currency, onPick = { currency = it; accountId = null; pickCurrency = false })
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "Lent or borrowed" else existing.person) },
         text = {
@@ -194,15 +125,26 @@ private fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (D
                     SegmentedButton(direction == "lent", { direction = "lent" }, SegmentedButtonDefaults.itemShape(0, 2)) { Text("I lent") }
                     SegmentedButton(direction == "borrowed", { direction = "borrowed" }, SegmentedButtonDefaults.itemShape(1, 2)) { Text("I borrowed") }
                 }
-                OutlinedTextField(person, { person = it }, label = { Text("Person") }, singleLine = true)
+                OutlinedTextField(person, { person = it }, label = { Text("Person") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 val parsed = Money.parse(amount, currency)
                 AmountField(amount, { amount = it }, currency, "Amount",
                     supporting = when {
                         amount.isNotBlank() && parsed == null -> "Enter a number like 5000 or 5,000.50"
+                        existing != null && parsed != null && parsed != existing.amount && parsed >= paidBack && moves.any { it.debtId == existing.id && !Debts.isRepayment(existing, it) && !Debts.isInterest(it) } -> "The money entry in your account will be updated to match"
                         existing != null && parsed != null && parsed < paidBack -> "${Money.format(paidBack, currency)} is already repaid, so the amount cannot be less"
                         else -> null
                     })
-                OutlinedTextField(note, { note = it }, label = { Text("Note") }, singleLine = true)
+                if (existing == null) OutlinedButton(onClick = { pickCurrency = true }, modifier = Modifier.fillMaxWidth()) { Text("Currency: $currency") }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    DateField(if (direction == "lent") "Lent on" else "Borrowed on", date, { date = it; if (due != null && due!!.isBefore(it)) due = null }, Modifier.weight(1f), max = Dates.today())
+                    Column(Modifier.weight(1f)) {
+                        if (due != null) {
+                            DateField("Due back by", due!!, { due = it }, Modifier.fillMaxWidth())
+                            TextButton(onClick = { due = null }) { Text("Clear due date") }
+                        } else OutlinedButton(onClick = { due = date.plusMonths(1) }, modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) { Text("Add due date") }
+                    }
+                }
+                OutlinedTextField(note, { note = it }, label = { Text("Note") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (existing == null) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { linkAccount = !linkAccount }) {
                         Checkbox(linkAccount, { linkAccount = it })
@@ -212,6 +154,21 @@ private fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (D
                 } else if (!existing.closed) {
                     TextButton(onClick = { onRepay(existing) }) { Text(if (existing.direction == "lent") "Record a repayment" else "Record a payment") }
                 }
+                if (existing != null) {
+                    val history = moves.filter { it.debtId == existing.id }.sortedByDescending { it.localDate }
+                    if (history.isNotEmpty()) {
+                        Text("History (tap to edit the date or amount)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
+                            history.forEach { m ->
+                                val back = Debts.isRepayment(existing, m)
+                                Row(Modifier.fillMaxWidth().clickable { onDismiss(); nav.navigate(Routes.editTx(m.id)) }.padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("${Dates.relativeDay(java.time.LocalDate.parse(m.localDate))} · ${m.note ?: if (back) "Repayment" else if (existing.direction == "lent") "Lent" else "Borrowed"}", style = MaterialTheme.typography.bodyMedium)
+                                    Text(Money.format(m.amount, existing.currency), style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
+                }
             }
         },
         confirmButton = {
@@ -220,9 +177,20 @@ private fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (D
                 saving = true
                 val now = System.currentTimeMillis()
                 val base = existing ?: DebtEntity(id = debtId, person = person, direction = direction, amount = minor!!, currency = currency, createdAt = now)
+                // created_at doubles as the date of the loan (midday, so no time zone moves it to another day).
+                val startMs = date.atTime(12, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
                 val debt = base.copy(person = person.trim(), direction = direction, amount = minor!!, note = note.trim().ifEmpty { null },
+                    createdAt = if (existing == null || date != originalDate) startMs else existing.createdAt,
+                    dueDate = due?.toString(),
                     closed = base.closed || (existing != null && minor == paidBack))
-                val move = accountId?.takeIf { existing == null && linkAccount }?.let { Debts.movement(debt, repayment = false, accountId = it, amount = minor, date = Dates.today(), id = moveId) }
+                // Editing the amount or date of a debt keeps its account entry in step, so balance and debt never disagree.
+                val principal = existing?.let { e -> moves.filter { it.debtId == e.id }.sortedWith(compareBy({ it.localDate }, { it.occurredAt })).firstOrNull { !Debts.isRepayment(e, it) && !Debts.isInterest(it) } }
+                val move = if (existing == null) {
+                    accountId?.takeIf { linkAccount }?.let { Debts.movement(debt, repayment = false, accountId = it, amount = minor, date = date, id = moveId) }
+                } else principal?.takeIf { minor != existing.amount || date != originalDate }?.let { p ->
+                    val moved = if (date != originalDate) Debts.movement(debt, repayment = false, accountId = p.accountId, amount = minor, date = date, id = p.id) else null
+                    moved?.copy(createdAt = p.createdAt, note = p.note, categoryId = p.categoryId, tagIds = p.tagIds) ?: p.copy(amount = minor)
+                }
                 scope.launch {
                     c.repo.saveDebt(debt, move)
                     onDismiss()
@@ -258,11 +226,12 @@ private fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (D
 
 /** Records a (part) repayment, optionally with interest; a full one also marks the debt settled. */
 @Composable
-private fun RepayDialog(debt: DebtEntity, outstanding: Long, onDismiss: () -> Unit) {
+internal fun RepayDialog(debt: DebtEntity, outstanding: Long, onDismiss: () -> Unit) {
     val c = LocalContainer.current
     val scope = rememberCoroutineScope()
     var amount by remember { mutableStateOf(Money.toPlain(outstanding, debt.currency)) }
     var interest by remember { mutableStateOf("") }
+    var date by remember { mutableStateOf(Dates.today()) }
     var accountId by remember { mutableStateOf<String?>(null) }
     val moveId = remember { Ids.newV7() }
     val interestId = remember { Ids.newV7() }
@@ -270,7 +239,7 @@ private fun RepayDialog(debt: DebtEntity, outstanding: Long, onDismiss: () -> Un
     val minor = Money.parse(amount, debt.currency)
     val extra = if (interest.isBlank()) 0L else Money.parse(interest, debt.currency)
     val lent = debt.direction == "lent"
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text(if (lent) "${debt.person} paid you back" else "You paid ${debt.person} back") },
         text = {
@@ -286,13 +255,14 @@ private fun RepayDialog(debt: DebtEntity, outstanding: Long, onDismiss: () -> Un
                 AmountField(interest, { interest = it }, debt.currency, "Interest or extra (optional)",
                     supporting = if (extra == null) "Enter an amount or leave empty" else "Counts as ${if (lent) "income" else "a cost"}, not as repayment")
                 AccountChooser(debt.currency, accountId, if (lent) "Into" else "From") { accountId = it }
+                DateField("Paid on", date, { date = it }, Modifier.fillMaxWidth(), max = Dates.today())
             }
         },
         confirmButton = {
             TextButton(enabled = !saving && minor != null && minor > 0 && minor <= outstanding && extra != null && extra >= 0 && accountId != null, onClick = {
                 saving = true
-                val move = Debts.movement(debt, repayment = true, accountId = accountId!!, amount = minor!!, date = Dates.today(), id = moveId)
-                val moves = listOfNotNull(move, extra?.takeIf { it > 0 }?.let { Debts.movement(debt, repayment = true, accountId = accountId!!, amount = it, date = Dates.today(), id = interestId, interest = true) })
+                val move = Debts.movement(debt, repayment = true, accountId = accountId!!, amount = minor!!, date = date, id = moveId)
+                val moves = listOfNotNull(move, extra?.takeIf { it > 0 }?.let { Debts.movement(debt, repayment = true, accountId = accountId!!, amount = it, date = date, id = interestId, interest = true) })
                 scope.launch {
                     c.repo.saveAll(debts = listOf(if (minor == outstanding) debt.copy(closed = true) else debt), transactions = moves)
                     onDismiss()

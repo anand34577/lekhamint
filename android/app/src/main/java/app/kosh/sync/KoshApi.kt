@@ -63,6 +63,16 @@ class ApiException(val status: Int, val code: String, message: String) : IOExcep
 class KoshApi(baseUrl: String, private val token: () -> String?) {
     private val base = normalize(baseUrl)
 
+    init {
+        // Plain http:// would send the password and the sync token across the
+        // internet unencrypted. Local networks are allowed (a home server on
+        // LAN is a supported setup); anything else must use https.
+        if (base.startsWith("http://") && !isLocalHost(base)) {
+            throw ApiException(0, "insecure_url",
+                "Plain http:// is only allowed for addresses on this device or your local network. Use https:// for this server.")
+        }
+    }
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
@@ -128,12 +138,21 @@ class KoshApi(baseUrl: String, private val token: () -> String?) {
     companion object {
         private val JSON = "application/json".toMediaType()
         private val EMPTY = ByteArray(0).toRequestBody(null)
+        private val PRIVATE_NET = Regex("^172\\.(1[6-9]|2\\d|3[01])\\.")
 
         /** Accepts "kosh.example.com", "192.168.1.5:8080" or a full URL. */
         fun normalize(url: String): String {
             var u = url.trim().trimEnd('/')
             if (!u.startsWith("http://") && !u.startsWith("https://")) u = "https://$u"
             return u
+        }
+
+        /** True for loopback, link-local and RFC1918 addresses, and .local/.lan names. */
+        fun isLocalHost(url: String): Boolean {
+            val host = url.removePrefix("http://").substringBefore('/').substringBefore(':')
+            return host == "localhost" || host.startsWith("127.") || host.startsWith("10.") ||
+                host.startsWith("192.168.") || host.startsWith("169.254.") || host.endsWith(".local") ||
+                host.endsWith(".lan") || PRIVATE_NET.containsMatchIn(host)
         }
     }
 }

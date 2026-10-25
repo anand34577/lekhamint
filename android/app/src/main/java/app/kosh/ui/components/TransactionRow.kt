@@ -1,6 +1,8 @@
 package app.kosh.ui.components
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.Repeat
 import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.Icon
@@ -30,8 +33,12 @@ fun signedAmount(t: TransactionEntity, accountId: String? = null): Long = when (
     else -> if (accountId != null && t.toAccountId == accountId) (t.toAmount ?: t.amount) else -t.amount
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun TransactionRow(t: TransactionEntity, lookup: Lookup, onClick: () -> Unit, forAccount: String? = null) {
+fun TransactionRow(
+    t: TransactionEntity, lookup: Lookup, onClick: () -> Unit, forAccount: String? = null,
+    selected: Boolean = false, onLongClick: (() -> Unit)? = null,
+) {
     val transfer = t.type == "transfer"
     val split = !transfer && t.categoryId == null && lookup.isSplit(t.id)
     val loan = t.debtId != null
@@ -62,11 +69,14 @@ fun TransactionRow(t: TransactionEntity, lookup: Lookup, onClick: () -> Unit, fo
     val currency = if (transfer && forAccount != null && t.toAccountId == forAccount) lookup.currencyOf(t.toAccountId) else lookup.currencyOf(t.accountId)
     val amount = signedAmount(t, forAccount)
     Row(
-        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp),
+        Modifier.fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f) else androidx.compose.ui.graphics.Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(14.dp),
     ) {
-        IconBadge(icon, color)
+        if (selected) Icon(Icons.Rounded.CheckCircle, "Selected", Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary) else IconBadge(icon, color)
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))

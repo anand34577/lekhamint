@@ -14,6 +14,9 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Sell
+import kotlinx.coroutines.launch
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.SearchOff
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -73,6 +76,8 @@ data class TxFilter(
     val accountId: String? = null,
     val categoryId: String? = null,
     val tagId: String? = null,
+    /** How many search hits to load; raised by "Show more" so long histories stay reachable. */
+    val searchLimit: Int = 200,
 )
 
 data class TxListState(
@@ -95,7 +100,7 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
     val filter = MutableStateFlow(TxFilter())
 
     private val source = combine(filter.debounce(150), c.lookup) { f, l -> f to l }.flatMapLatest { (f, _) ->
-        if (f.query.isBlank()) c.repo.transactionsBetween(f.month.atDay(1), f.month.atEndOfMonth()) else c.repo.search(f.query.trim())
+        if (f.query.isBlank()) c.repo.transactionsBetween(f.month.atDay(1), f.month.atEndOfMonth()) else c.repo.search(f.query.trim(), f.searchLimit)
     }
 
     val state: StateFlow<TxListState> = combine(source, filter, c.lookup) { list, f, lookup ->
@@ -122,11 +127,38 @@ fun TransactionsScreen() {
     var searching by remember { mutableStateOf(false) }
     var pick by remember { mutableStateOf<String?>(null) }
     val f = s.filter
+    val c = app.kosh.ui.components.LocalContainer.current
+    val snackbar = app.kosh.ui.LocalSnackbar.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var bulkCategory by remember { mutableStateOf(false) }
+    // Only rows still on screen can stay selected (a filter or month change drops the rest).
+    val chosen = s.items.filter { it.id in selected }
+    // Money lent, borrowed or tied to a loan or deposit is changed from its own screen, never in bulk.
+    val bulkable = chosen.filter { it.debtId == null && it.loanId == null && it.depositId == null }
+    androidx.activity.compose.BackHandler(enabled = selected.isNotEmpty()) { selected = emptySet() }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
         topBar = {
-            TopAppBar(
+            if (selected.isNotEmpty()) TopAppBar(
+                title = { Text("${chosen.size} selected") },
+                navigationIcon = { IconButton(onClick = { selected = emptySet() }) { Icon(Icons.Rounded.Close, "Clear selection") } },
+                actions = {
+                    val kinds = bulkable.filter { it.type != "transfer" && !s.lookup.isSplit(it.id) }.map { it.type }.toSet()
+                    IconButton(onClick = { bulkCategory = true }, enabled = kinds.size == 1) { Icon(Icons.Rounded.Sell, "Change category") }
+                    IconButton(onClick = {
+                        val ids = bulkable.map { it.id }
+                        val skipped = chosen.size - ids.size
+                        selected = emptySet()
+                        scope.launch {
+                            c.repo.deleteTransactions(ids)
+                            val msg = "${ids.size} moved to Trash" + if (skipped > 0) ". $skipped linked to a loan, deposit or debt stayed." else ""
+                            if (snackbar.showSnackbar(msg, actionLabel = "Undo", withDismissAction = true) == androidx.compose.material3.SnackbarResult.ActionPerformed) c.repo.restoreTransactions(ids)
+                        }
+                    }, enabled = bulkable.isNotEmpty()) { Icon(Icons.Rounded.Delete, "Delete selected") }
+                },
+            ) else TopAppBar(
                 title = {
                     if (searching) {
                         TextField(
@@ -193,11 +225,42 @@ fun TransactionsScreen() {
             val byDay = s.items.groupBy { it.localDate }
             for ((day, list) in byDay) {
                 item(key = "d-$day") { DayHeader(LocalDate.parse(day), dayNet(list, s.lookup), s.lookup.baseCurrency) }
-                items(list, key = { it.id }) { t -> TransactionRow(t, s.lookup, onClick = { nav.navigate(Routes.editTx(t.id, t.type)) }) }
+                items(list, key = { it.id }) { t ->
+                    app.kosh.ui.components.SwipeToDeleteRow(
+                        enabled = selected.isEmpty() && t.debtId == null && t.loanId == null && t.depositId == null,
+                        onDelete = {
+                            scope.launch {
+                                c.repo.deleteTransactions(listOf(t.id))
+                                if (snackbar.showSnackbar("Moved to Trash", actionLabel = "Undo", withDismissAction = true) == androidx.compose.material3.SnackbarResult.ActionPerformed) c.repo.restoreTransactions(listOf(t.id))
+                            }
+                        },
+                    ) {
+                        TransactionRow(
+                            t, s.lookup, selected = t.id in selected,
+                            onClick = { if (selected.isNotEmpty()) selected = if (t.id in selected) selected - t.id else selected + t.id else nav.navigate(Routes.editTx(t.id, t.type)) },
+                            onLongClick = { selected = if (t.id in selected) selected - t.id else selected + t.id },
+                        )
+                    }
+                }
+            }
+            if (f.query.isNotBlank() && s.items.size >= f.searchLimit) item {
+                androidx.compose.material3.TextButton(onClick = { vm.update { it.copy(searchLimit = it.searchLimit + 300) } }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Show more results") }
             }
         }
     }
 
+    if (bulkCategory) {
+        val kind = bulkable.firstOrNull { it.type != "transfer" }?.type ?: "expense"
+        CategorySheet(s.lookup, kind, null, onDismiss = { bulkCategory = false }) { id ->
+            val ids = bulkable.filter { it.type != "transfer" && !s.lookup.isSplit(it.id) }.map { it.id }
+            selected = emptySet()
+            scope.launch {
+                val before = c.repo.recategorize(ids, id)
+                val msg = "${ids.size} moved to ${s.lookup.categoryName(id)}"
+                if (snackbar.showSnackbar(msg, actionLabel = "Undo", withDismissAction = true) == androidx.compose.material3.SnackbarResult.ActionPerformed) c.repo.setCategories(before)
+            }
+        }
+    }
     when (pick) {
         "account" -> PickerSheet("Filter by account", s.lookup.accounts, { pick = null }, { a -> vm.update { it.copy(accountId = a.id) } }, searchText = { it.name }) { a -> AccountListItem(a, s.lookup) }
         "category" -> {

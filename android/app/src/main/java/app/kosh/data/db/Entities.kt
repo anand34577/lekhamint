@@ -38,6 +38,9 @@ data class AccountEntity(
     val currency: String,
     @ColumnInfo(name = "opening_balance") val openingBalance: Long = 0,
     @ColumnInfo(name = "credit_limit") val creditLimit: Long? = null,
+    /** Credit cards: day of the month the statement is made and the payment is due (1-31). */
+    @ColumnInfo(name = "statement_day") val statementDay: Int? = null,
+    @ColumnInfo(name = "due_day") val dueDay: Int? = null,
     val color: String? = null,
     val icon: String? = null,
     @ColumnInfo(name = "include_in_net_worth") val includeInNetWorth: Boolean = true,
@@ -93,6 +96,8 @@ data class TagEntity(
     indices = [
         Index("local_date"), Index("account_id"), Index("to_account_id"), Index("category_id"),
         Index("payee"), Index("recurring_rule_id"), Index("loan_id"), Index("deposit_id"),
+        // Account history, the Trash and every sync push/pending count read these without scanning the table.
+        Index("account_id", "local_date"), Index("deleted", "local_date"), Index("dirty"),
     ],
 )
 data class TransactionEntity(
@@ -279,7 +284,7 @@ data class DepositEntity(
 }
 
 /** One line of a split transaction (docs/04). Splits replace the transaction's category in reports when they add up to its amount. */
-@Entity(tableName = "transaction_splits", indices = [Index("transaction_id")])
+@Entity(tableName = "transaction_splits", indices = [Index("transaction_id"), Index("dirty")])
 data class SplitEntity(
     @PrimaryKey override val id: String,
     @ColumnInfo(name = "transaction_id") val transactionId: String,
@@ -337,6 +342,13 @@ data class RawRecordEntity(
 ) : Synced<RawRecordEntity> {
     override fun withMeta(hlc: String, deleted: Boolean, dirty: Int) = copy(hlc = hlc, deleted = deleted, dirty = dirty)
 }
+
+/**
+ * The version of a record as the server last had it. Sent with an edit so that, if another device
+ * changed the same record meanwhile, the server can keep both sets of changes field by field.
+ */
+@Entity(tableName = "sync_base", primaryKeys = ["entity", "id"])
+data class SyncBaseEntity(val entity: String, val id: String, val data: String)
 
 /** Read models returned by aggregate queries. */
 data class AccountBalance(

@@ -1,5 +1,6 @@
 package app.kosh.ui.screens
 
+import app.kosh.ui.components.FormSheet
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -349,11 +350,11 @@ private fun PayEmiDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
         accountId == null -> "Choose the account it was paid from"
         else -> null
     }
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text("Pay EMI · ${l.name}") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 next?.let { Text("Instalment ${it.n}, due ${Dates.relativeDay(it.date)}. Owed now: ${Money.format(s.outstanding, l.currency)}", style = MaterialTheme.typography.bodySmall) }
                 AmountField(amount, { amount = it }, l.currency, "Amount paid")
                 AmountField(interestText, { interestText = it }, l.currency, "Interest part (optional)",
@@ -417,11 +418,11 @@ private fun PrepayDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
         accountId == null -> "Choose the account"
         else -> null
     }
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text("Prepay · ${l.name}") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AmountField(amount, { amount = it }, l.currency, "Prepayment")
                 DateField("On", date, { date = it }, max = Dates.today())
                 AccountPicker("From", choices, accountId, lookup) { accountId = it }
@@ -462,11 +463,11 @@ private fun CloseLoanDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit)
     var saving by remember { mutableStateOf(false) }
     val i = if (interest.isBlank()) 0L else Money.parse(interest, l.currency)
     val ch = if (charge.isBlank()) 0L else Money.parse(charge, l.currency)
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text(if (owed > 0) "Foreclose ${l.name}" else "Close ${l.name}") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (owed > 0) {
                     Text("Pays the remaining ${Money.format(owed, l.currency)} of principal and closes the loan. Use the figures from your lender's foreclosure letter.")
                     AmountField(interest, { interest = it }, l.currency, "Interest to the closing date")
@@ -544,11 +545,11 @@ fun LoanEditor(existing: LoanEntity?, onDismiss: () -> Unit) {
         existing == null && !running && !direct && intoAccount == null -> "Choose the account the money came into"
         else -> null
     }
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text(if (existing == null) "Add a loan" else "Edit ${existing.name}") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(name, { name = it }, label = { Text("Name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(lender, { lender = it }, label = { Text("Lender") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 AssistChip(onClick = { kindPicker = true }, label = { Text(Loans.kindLabel(kind)) })

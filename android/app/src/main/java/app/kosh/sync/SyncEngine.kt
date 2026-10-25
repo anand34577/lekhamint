@@ -7,6 +7,8 @@ import app.kosh.data.SyncTable
 import app.kosh.data.WireRecord
 import app.kosh.data.db.Dirty
 import app.kosh.data.db.Synced
+import app.kosh.data.db.SyncBaseEntity
+import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -72,10 +74,17 @@ class SyncEngine(private val repo: Repository) {
                 for (id in resp.accepted) {
                     val r = byId[id] ?: continue
                     clearDirty(r.entity, r.id, r.hlc)
+                    rememberBase(r)
                 }
                 for (c in resp.conflicts) {
                     repo.clock.observe(c.hlc)
-                    store(c, Dirty.CLEAN)
+                    // The server's row wins the LWW race, but an edit made
+                    // locally after this batch was collected is newer than
+                    // both; leave it dirty so the next push retries it.
+                    val local = localMeta(c.entity, c.id)
+                    if (local == null || local.second == Dirty.CLEAN || local.first < c.hlc) {
+                        store(c, Dirty.CLEAN)
+                    }
                 }
                 for (rej in resp.rejected) {
                     val r = byId[rej.id] ?: continue
@@ -125,7 +134,19 @@ class SyncEngine(private val repo: Repository) {
             out += dirtyOf(t, limit - out.size)
         }
         if (out.size < limit) out += repo.db.raw().dirty(limit - out.size).map(tables.raw::toWire)
-        return out
+        // Tell the server which version each edit started from, so a clash with another device's edit
+        // keeps both sets of changes instead of dropping one.
+        return out.map { r ->
+            if (r.deleted) r else repo.db.syncBase().find(r.entity, r.id)?.let { b ->
+                r.copy(base = runCatching { KoshJson.parseToJsonElement(b.data) as? JsonObject }.getOrNull())
+            } ?: r
+        }
+    }
+
+    /** Remembers [r] as the version the server now holds, for the next edit's three-way merge. */
+    private suspend fun rememberBase(r: WireRecord) {
+        if (r.deleted) repo.db.syncBase().delete(r.entity, r.id)
+        else repo.db.syncBase().upsertAll(listOf(SyncBaseEntity(r.entity, r.id, KoshJson.encodeToString(JsonObject.serializer(), r.data))))
     }
 
     private suspend fun <T : Synced<T>> dirtyOf(t: SyncTable<T>, limit: Int) = t.dirty(limit).map(t::toWire)
@@ -139,6 +160,8 @@ class SyncEngine(private val repo: Repository) {
     suspend fun store(r: WireRecord, dirty: Int) {
         val t = tables.table(r.entity)
         if (t == null) tables.raw.upsert(listOf(tables.raw.fromWire(r, dirty))) else storeTyped(t, r, dirty)
+        // A row that mirrors the server is the starting point of its next edit.
+        if (dirty == Dirty.CLEAN) rememberBase(r)
     }
 
     private suspend fun <T : Synced<T>> storeTyped(t: SyncTable<T>, r: WireRecord, dirty: Int) =

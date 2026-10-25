@@ -119,6 +119,8 @@ class EditTxViewModel(
     initialType: String,
     private val copy: Boolean,
     private val presetAccount: String?,
+    private val presetTo: String? = null,
+    private val presetAmount: String? = null,
 ) : ViewModel() {
     val isEdit = id != null && !copy
     var type by mutableStateOf(if (initialType in listOf("expense", "income", "transfer")) initialType else "expense")
@@ -131,6 +133,8 @@ class EditTxViewModel(
         private set
     private var categoryChosen = false
     var date by mutableStateOf(Dates.today())
+    /** Time of day; null means "now" for a new entry, or the saved time when editing. */
+    var time by mutableStateOf<java.time.LocalTime?>(null)
     var payee by mutableStateOf("")
         private set
     var note by mutableStateOf("")
@@ -150,6 +154,9 @@ class EditTxViewModel(
     var payeeSuggestions by mutableStateOf<List<String>>(emptyList())
         private set
     var loaded by mutableStateOf(false)
+        private set
+    /** Set when this transaction belongs to a debt, loan or deposit: its type is fixed so the books stay consistent. */
+    var linkedTo by mutableStateOf<String?>(null)
         private set
     var done by mutableStateOf(false)
         private set
@@ -174,6 +181,12 @@ class EditTxViewModel(
             val t = id?.let { c.repo.findTransaction(it) }
             if (t != null) {
                 original = if (copy) null else t
+                if (!copy) linkedTo = when {
+                    t.debtId != null -> "a lent or borrowed record"
+                    t.loanId != null -> "a loan"
+                    t.depositId != null -> "a deposit"
+                    else -> null
+                }
                 type = t.type
                 expr = Money.toPlain(t.amount, lookup.currencyOf(t.accountId))
                 t.toAmount?.let { toExpr = Money.toPlain(it, lookup.currencyOf(t.toAccountId)) }
@@ -182,6 +195,7 @@ class EditTxViewModel(
                 categoryId = t.categoryId
                 categoryChosen = true
                 date = if (copy) Dates.today() else LocalDate.parse(t.localDate)
+                time = if (copy) null else Instant.ofEpochMilli(t.occurredAt).atZone(java.time.ZoneId.systemDefault()).toLocalTime().withSecond(0).withNano(0)
                 payee = t.payee.orEmpty()
                 note = t.note.orEmpty()
                 status = t.status
@@ -199,8 +213,15 @@ class EditTxViewModel(
             } else {
                 val active = lookup.activeAccounts
                 val last = c.repo.lastUsedAccountId()?.takeIf { l -> active.any { it.id == l } }
-                accountId = presetAccount ?: last ?: active.firstOrNull()?.id
-                if (type == "transfer") toAccountId = active.firstOrNull { it.id != accountId }?.id
+                // Paying a card or loan: pay from the account used last, else the first one that holds money.
+                val payer = if (presetTo != null) {
+                    val ok = { a: AccountEntity -> !Lookup.isLiability(a.type) && a.id != presetTo }
+                    active.firstOrNull { it.id == presetAccount && ok(it) } ?: active.firstOrNull { it.id == last && ok(it) } ?: active.firstOrNull(ok)
+                } else null
+                accountId = payer?.id ?: presetAccount ?: last ?: active.firstOrNull()?.id
+                if (type == "transfer") toAccountId = presetTo?.takeIf { to -> active.any { it.id == to } } ?: active.firstOrNull { it.id != accountId }?.id
+                presetAmount?.let { expr = it }
+                if (presetTo != null && note.isBlank()) note = if (lookup.accountById[presetTo]?.type == "credit_card") "Credit card bill" else "Loan payment"
             }
             refreshSuggestions()
             loaded = true
@@ -353,7 +374,8 @@ class EditTxViewModel(
             null
         }
         val now = System.currentTimeMillis()
-        val occurredAt = original?.takeIf { LocalDate.parse(it.localDate) == date }?.occurredAt ?: Dates.instantFor(date)
+        val occurredAt = time?.let { date.atTime(it).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli() }
+            ?: original?.takeIf { LocalDate.parse(it.localDate) == date }?.occurredAt ?: Dates.instantFor(date)
         val ruleId = if (!isEdit && repeat != null) Ids.newV7(now) else null
         val txId = when {
             original != null -> original!!.id
@@ -432,8 +454,8 @@ class EditTxViewModel(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class, ExperimentalFoundationApi::class)
 @Composable
-fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, presetAccount: String?) {
-    val vm = koshViewModel(key = "tx-$id-$copy-$initialType") { EditTxViewModel(it, id, initialType, copy, presetAccount) }
+fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, presetAccount: String?, presetTo: String? = null, presetAmount: String? = null) {
+    val vm = koshViewModel(key = "tx-$id-$copy-$initialType-$presetTo") { EditTxViewModel(it, id, initialType, copy, presetAccount, presetTo, presetAmount) }
     val c = LocalContainer.current
     val nav = LocalNav.current
     val snackbar = LocalSnackbar.current
@@ -443,6 +465,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
     var showCategories by remember { mutableStateOf(false) }
     var pickAccount by remember { mutableStateOf<String?>(null) } // "from" | "to"
     var showDate by remember { mutableStateOf(false) }
+    var showTime by remember { mutableStateOf(false) }
     var more by remember { mutableStateOf(false) }
     var showTags by remember { mutableStateOf(false) }
     var splitPick by remember { mutableStateOf<Int?>(null) }
@@ -478,11 +501,19 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                     listOf("expense" to "Expense", "income" to "Income", "transfer" to "Transfer").forEachIndexed { i, (t, label) ->
                         SegmentedButton(
                             selected = vm.type == t, onClick = { vm.changeType(t) },
+                            enabled = vm.linkedTo == null || vm.type == t,
                             shape = SegmentedButtonDefaults.itemShape(i, 3),
                         ) { Text(label) }
                     }
                 }
 
+                vm.linkedTo?.let { what ->
+                    Text(
+                        "Part of $what. You can fix the amount, date or account here, but not the type; use the ${what.substringAfterLast(' ')} screen to change what it means.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(top = 8.dp),
+                    )
+                }
                 AmountDisplay(vm, onTap = { focus.clearFocus() })
                 vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
                 vm.warning?.let { Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
@@ -537,6 +568,10 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                         vm.date != today && vm.date != today.minusDays(1), { showDate = true },
                         { Text(if (vm.date != today && vm.date != today.minusDays(1)) Dates.relativeDay(vm.date) else "Pick date") },
                         leadingIcon = { Icon(Icons.Rounded.CalendarMonth, null, Modifier.size(18.dp)) },
+                    )
+                    FilterChip(
+                        vm.time != null, { showTime = true },
+                        { Text(vm.time?.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a")) ?: "Time") },
                     )
                 }
 
@@ -670,6 +705,17 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
             searchText = { it.name },
             selected = { it.id == (if (which == "to") vm.toAccountId else vm.accountId) },
         ) { a -> AccountListItem(a, lookup) }
+    }
+    if (showTime) {
+        val now = java.time.LocalTime.now()
+        val state = androidx.compose.material3.rememberTimePickerState(vm.time?.hour ?: now.hour, vm.time?.minute ?: now.minute, is24Hour = false)
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showTime = false },
+            title = { Text("Time of day") },
+            text = { androidx.compose.material3.TimePicker(state) },
+            confirmButton = { TextButton(onClick = { vm.time = java.time.LocalTime.of(state.hour, state.minute); showTime = false }) { Text("OK") } },
+            dismissButton = { Row { if (vm.time != null) TextButton(onClick = { vm.time = null; showTime = false }) { Text("Use now") }; TextButton(onClick = { showTime = false }) { Text("Cancel") } } },
+        )
     }
     if (showDate) {
         val state = rememberDatePickerState(initialSelectedDateMillis = vm.date.atStartOfDay().toInstant(ZoneOffset.UTC).toEpochMilli())

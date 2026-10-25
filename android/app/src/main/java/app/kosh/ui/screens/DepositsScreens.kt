@@ -1,5 +1,6 @@
 package app.kosh.ui.screens
 
+import app.kosh.ui.components.FormSheet
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -240,11 +241,11 @@ private fun MatureDialog(e: DepositEntry, lookup: Lookup, early: Boolean, onDism
         !early && diff != null && diff < 0 && -diff > e.balance / 20 -> "That is much less than what is in the deposit. If it closed early with a penalty, use early closure; otherwise check the amount."
         else -> null
     }
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text(if (early) "Close ${d.name} early" else "${d.name} matured") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("In the deposit: ${Money.format(e.balance, d.currency)}. " + if (early) "Banks usually pay a lower rate when closed early; enter what you received." else "Expected about ${Money.format(e.est.maturity, d.currency)}.", style = MaterialTheme.typography.bodySmall)
                 AmountField(received, { received = it }, d.currency, "Amount received")
                 AmountField(tax, { tax = it }, d.currency, "Tax deducted (optional)")
@@ -283,7 +284,7 @@ private fun InterestDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> Uni
     val payout = d.payout != "cumulative"
     var into by remember { mutableStateOf(if (payout) d.payoutAccountId ?: lookup.bankAccounts(d.currency).firstOrNull()?.id else d.accountId) }
     val minor = Money.parse(amount, d.currency)
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text("Interest · ${d.name}") },
         text = {
@@ -315,7 +316,7 @@ private fun InstalmentDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> U
     val due = LocalDate.parse(d.startDate).plusMonths(e.rdPaid.toLong())
     var date by remember { mutableStateOf(minOf(due, Dates.today())) }
     var from by remember { mutableStateOf(lookup.bankAccounts(d.currency).firstOrNull()?.id) }
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text("RD instalment ${e.rdPaid + 1}") },
         text = {
@@ -375,11 +376,11 @@ fun DepositEditor(onDismiss: () -> Unit) {
         fromBank && from == null -> "Choose the account it was paid from"
         else -> null
     }
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text("Add a deposit") },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(kind == "fd", { kind = "fd" }, label = { Text("Fixed") })
                     FilterChip(kind == "rd", { kind = "rd" }, label = { Text("Recurring") })

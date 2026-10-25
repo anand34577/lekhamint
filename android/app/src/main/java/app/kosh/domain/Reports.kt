@@ -102,6 +102,22 @@ object Reports {
         }
     }
 
+    /** Running total of spending at the end of each day 1..[lastDay] of [month], in [currency]. */
+    fun dailyCumulative(
+        rows: List<ReportRow>, categories: Map<String, CategoryEntity>, currency: String, fallbackCurrency: String,
+        month: YearMonth, lastDay: Int,
+    ): List<Long> {
+        val perDay = LongArray(lastDay + 1)
+        for (r in rows) {
+            if ((r.currency ?: fallbackCurrency) != currency) continue
+            val d = LocalDate.parse(r.localDate)
+            if (YearMonth.from(d) != month || d.dayOfMonth > lastDay) continue
+            perDay[d.dayOfMonth] += spending(r, categories)
+        }
+        var run = 0L
+        return (1..lastDay).map { run += perDay[it]; run }
+    }
+
     /** Spending split by category nature (needs / wants / savings), for the 50/30/20 view. */
     fun natureSplit(summary: CurrencySummary?, rows: List<ReportRow>, categories: Map<String, CategoryEntity>, fallback: String): NatureSplit {
         if (summary == null) return NatureSplit(0, 0, 0, 0)

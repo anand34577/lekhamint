@@ -140,7 +140,11 @@ object Money {
 
     /** Parses user input ("1,250.50") into minor units; null if invalid. */
     fun parse(text: String, currency: String): Long? {
-        val clean = text.trim().replace(",", "").replace(" ", "").replace("_", "")
+        var t = text.trim().replace(" ", "").replace("_", "")
+        // "12,50" from a comma-decimal keyboard is twelve and a half, not 1,250. A lone comma followed by one or two
+        // digits (and no dot) can't be thousands grouping, which always has three digits after the comma.
+        if ('.' !in t && t.count { it == ',' } == 1 && t.substringAfter(',').length in 1..2) t = t.replace(',', '.')
+        val clean = t.replace(",", "")
         if (clean.isEmpty()) return null
         val value = clean.toBigDecimalOrNull() ?: return null
         return fromDecimal(value, currency)

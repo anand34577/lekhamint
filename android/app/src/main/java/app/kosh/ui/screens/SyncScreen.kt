@@ -77,10 +77,7 @@ class SyncViewModel(private val c: AppContainer) : ViewModel() {
     val insecure: Boolean get() {
         val u = KoshApi.normalize(url.ifBlank { "x" })
         if (!u.startsWith("http://")) return false
-        val host = u.removePrefix("http://").substringBefore('/').substringBefore(':')
-        val local = host == "localhost" || host.startsWith("10.") || host.startsWith("192.168.") || host.startsWith("127.") ||
-            Regex("^172\\.(1[6-9]|2\\d|3[01])\\.").containsMatchIn(host) || host.endsWith(".local") || host.endsWith(".lan")
-        return !local
+        return !KoshApi.isLocalHost(u)
     }
 
     fun signIn() {

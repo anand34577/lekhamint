@@ -1,5 +1,6 @@
 package app.kosh.ui.screens
 
+import app.kosh.ui.components.FormSheet
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -189,7 +190,7 @@ fun BackupScreen(onRestored: () -> Unit) {
             onDismiss = { askExportPassword = false },
         ) { p ->
             exportPassword = p.ifEmpty { null }
-            exportKosh.launch("kosh-backup-${Dates.today()}.kosh")
+            exportKosh.launch("lekhamint-backup-${Dates.today()}.kosh")
         }
     }
     if (askAutoPassword) {
@@ -253,7 +254,7 @@ private fun PasswordDialog(title: String, body: String, confirm: String, allowEm
     var p by remember { mutableStateOf("") }
     var p2 by remember { mutableStateOf("") }
     val ok = (allowEmpty && p.isEmpty()) || (p.length >= 8 && p == p2)
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text(title) },
         text = {
@@ -273,7 +274,7 @@ private fun RestoreDialog(p: BackupPreview, onDismiss: () -> Unit, onRestore: (R
     var mode by remember { mutableStateOf(RestoreMode.MERGE) }
     var password by remember { mutableStateOf("") }
     var confirmReplace by remember { mutableStateOf(false) }
-    AlertDialog(
+    FormSheet(
         onDismissRequest = onDismiss,
         title = { Text("Restore \"${p.ledgerName}\"?") },
         text = {

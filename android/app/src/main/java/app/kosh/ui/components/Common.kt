@@ -1,6 +1,12 @@
 package app.kosh.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -293,7 +299,7 @@ fun AmountField(
     val valid = value.isBlank() || Money.parse(value.removePrefix("-"), currency) != null
     OutlinedTextField(
         value = value,
-        onValueChange = { v -> onChange(v.filter { it.isDigit() || it == '.' || (allowNegative && it == '-') }) },
+        onValueChange = { v -> onChange(v.filter { it.isDigit() || it == '.' || it == ',' || (allowNegative && it == '-') }) },
         label = { Text(label) },
         prefix = { Text(Currencies.get(currency).symbol) },
         singleLine = true,
@@ -334,5 +340,33 @@ fun ago(ms: Long, now: Long = System.currentTimeMillis()): String {
         s < 3600 -> "${s / 60} min ago"
         s < 86400 -> "${s / 3600} h ago"
         else -> "${s / 86400} days ago"
+    }
+}
+
+/**
+ * A form that slides up from the bottom instead of floating as a dialog: more room for several
+ * fields, scrolls with the keyboard open and keeps Save within thumb reach. Same shape as
+ * AlertDialog so a form can move between the two without being rewritten.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun FormSheet(
+    onDismissRequest: () -> Unit,
+    title: (@Composable () -> Unit)? = null,
+    text: (@Composable () -> Unit)? = null,
+    confirmButton: @Composable () -> Unit,
+    dismissButton: (@Composable () -> Unit)? = null,
+) {
+    ModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(Modifier.imePadding().navigationBarsPadding()) {
+            if (title != null) CompositionLocalProvider(LocalTextStyle provides MaterialTheme.typography.titleLarge) {
+                Box(Modifier.padding(horizontal = 20.dp)) { title() }
+            }
+            if (text != null) Box(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp)) { text() }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                if (dismissButton != null) { dismissButton(); Spacer(Modifier.width(8.dp)) }
+                confirmButton()
+            }
+        }
     }
 }
