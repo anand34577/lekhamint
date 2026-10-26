@@ -58,6 +58,15 @@ func populate(t *testing.T, d *db.DB) (store.User, store.Ledger) {
 func TestDumpRestoreRoundTrip(t *testing.T) {
 	src := testutil.NewDB(t)
 	u, l := populate(t, src)
+	// Per-person settings and notification choices (with their secrets) travel with the dump.
+	if err := store.PutSetting(ctx, src, u.ID, "theme", []byte(`"dark"`)); err != nil {
+		t.Fatal(err)
+	}
+	p := store.DefaultPrefs(u.ID)
+	p.NotifyGotify, p.GotifyToken, p.AiAPIKey = true, "gotify-secret", "ai-secret"
+	if err := store.PutPrefs(ctx, src, p); err != nil {
+		t.Fatal(err)
+	}
 
 	var buf bytes.Buffer
 	if err := backup.Dump(ctx, src, &buf); err != nil {
@@ -83,6 +92,12 @@ func TestDumpRestoreRoundTrip(t *testing.T) {
 	// The password still works (hash was carried over).
 	if _, _, err := auth.NewService(dst, false, 0).Login(ctx, u.Email, "password123", "test"); err != nil {
 		t.Fatalf("login after restore: %v", err)
+	}
+	if m, err := store.GetSettings(ctx, dst, u.ID); err != nil || string(m["theme"]) != `"dark"` {
+		t.Fatalf("settings after restore: %v %v", m, err)
+	}
+	if p2, err := store.GetPrefs(ctx, dst, u.ID); err != nil || !p2.NotifyGotify || p2.GotifyToken != "gotify-secret" || p2.AiAPIKey != "ai-secret" {
+		t.Fatalf("prefs after restore: %+v %v", p2, err)
 	}
 	// Restoring into a non-empty database is refused.
 	if _, err := backup.RestoreDump(ctx, dst, bytes.NewReader(buf.Bytes())); err == nil {

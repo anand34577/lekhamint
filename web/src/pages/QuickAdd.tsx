@@ -10,10 +10,11 @@ import { formatMoney, parseMoney } from '../lib/money'
 import { dayLabel, tagColor, uuidv7 } from '../lib/util'
 import { Kbd, errorText, toast } from '../components'
 import { Icon } from '../icons'
+import { getSetting, setSetting } from '../lib/settings'
 
-const lastAccountKey = (lid: string) => `kosh.lastAccount.${lid}`
-export function rememberAccount(lid: string, id: string) { try { localStorage.setItem(lastAccountKey(lid), id) } catch { /* ignore */ } }
-function lastAccount(lid: string) { try { return localStorage.getItem(lastAccountKey(lid)) } catch { return null } }
+/** The account used last in this book, so the next entry starts there (on every device). */
+export function rememberAccount(lid: string, id: string) { if (getSetting(`last_account.${lid}`, '') !== id) setSetting(`last_account.${lid}`, id) }
+export function lastAccount(lid: string): string | null { return getSetting<string | null>(`last_account.${lid}`, null) }
 
 export interface Resolved {
   draft: QuickDraft

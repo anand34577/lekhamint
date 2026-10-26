@@ -31,7 +31,21 @@ var (
 	ErrTOTPNotSetUp       = errors.New("start two-step sign-in setup first")
 	ErrTOTPAlreadyOn      = errors.New("two-step sign-in is already on; turn it off first to set up a new app")
 	ErrResetInvalid       = errors.New("this reset link is invalid or has expired; ask for a new one")
+	ErrOTPLocked          = errors.New("too many wrong codes; wait 15 minutes, or use a recovery code then")
 )
+
+// Wrong two-step codes at sign-in are limited per account, not only per IP: someone who has
+// the password could otherwise spread guesses of the 6-digit code over many addresses.
+const (
+	otpMaxFailures = 5
+	otpLockout     = 15 * time.Minute
+	otpTrackLimit  = 1 << 14
+)
+
+type otpFailures struct {
+	count int
+	until time.Time // locked until; zero when not locked
+}
 
 // ResetLinkTTL is how long a password reset link works.
 const ResetLinkTTL = time.Hour
@@ -59,6 +73,39 @@ type Service struct {
 	// concurrent sign-ups on a fresh server would otherwise both count zero
 	// users and both become admin.
 	firstUser sync.Mutex
+
+	otpMu    sync.Mutex
+	otpFails map[string]*otpFailures
+}
+
+// otpLocked reports whether this account's code checks are paused after too many wrong codes.
+func (s *Service) otpLocked(userID string) bool {
+	s.otpMu.Lock()
+	defer s.otpMu.Unlock()
+	f := s.otpFails[userID]
+	return f != nil && s.Now().Before(f.until)
+}
+
+// otpResult records the outcome of a code check at sign-in.
+func (s *Service) otpResult(userID string, ok bool) {
+	s.otpMu.Lock()
+	defer s.otpMu.Unlock()
+	if ok {
+		delete(s.otpFails, userID)
+		return
+	}
+	if s.otpFails == nil || len(s.otpFails) >= otpTrackLimit {
+		s.otpFails = map[string]*otpFailures{} // bounded memory; a flood only resets counts
+	}
+	f := s.otpFails[userID]
+	if f == nil || (!f.until.IsZero() && !s.Now().Before(f.until)) {
+		f = &otpFailures{}
+		s.otpFails[userID] = f
+	}
+	f.count++
+	if f.count >= otpMaxFailures {
+		f.until = s.Now().Add(otpLockout)
+	}
 }
 
 // NewService returns an auth service with defaults.
@@ -162,9 +209,16 @@ func (s *Service) LoginOTP(ctx context.Context, email, password, otp, device str
 		if strings.TrimSpace(otp) == "" {
 			return store.User{}, "", ErrOTPRequired
 		}
+		if s.otpLocked(u.ID) {
+			return store.User{}, "", ErrOTPLocked
+		}
 		if err := s.checkSecondFactor(ctx, u, otp); err != nil {
+			if errors.Is(err, ErrInvalidOTP) {
+				s.otpResult(u.ID, false)
+			}
 			return store.User{}, "", err
 		}
+		s.otpResult(u.ID, true)
 	}
 	token, err := s.newSession(ctx, u.ID, device)
 	return u, token, err

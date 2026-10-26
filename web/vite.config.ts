@@ -6,5 +6,9 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: { proxy: { '/api': 'http://localhost:8080', '/healthz': 'http://localhost:8080' } },
-  build: { outDir: 'dist', sourcemap: false, chunkSizeWarningLimit: 600 },
+  build: {
+    outDir: 'dist', sourcemap: false, chunkSizeWarningLimit: 500,
+    // React and the data layer change rarely: a separate file stays cached across app updates.
+    rollupOptions: { output: { manualChunks: { vendor: ['react', 'react-dom', '@tanstack/react-query'] } } },
+  },
 })

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ExchangeRate } from '../lib/api'
+import { setSetting } from '../lib/settings'
 import { useAccounts, useCanWrite, useExchangeRates, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
 import { download, isoDate, shortDate } from '../lib/util'
 import { Card, Confirm, CurrencySelect, Field, Modal, errorText, toast } from '../components'
@@ -126,7 +127,7 @@ function DeleteBook({ onClose }: { onClose: () => void }) {
     <Confirm title={`Delete “${l.name}” for everyone?`} danger confirm="Delete forever" onClose={onClose} disabled={typed.trim() !== l.name}
       onConfirm={async () => {
         await api.deleteLedger(l.id)
-        try { localStorage.removeItem('kosh.ledger') } catch { /* ignore */ }
+        setSetting('ledger', null)
         qc.invalidateQueries({ queryKey: ['ledgers'] })
         toast('Book deleted')
       }}
@@ -143,7 +144,6 @@ function DeleteAccount({ email, onClose, onDeleted }: { email: string; onClose: 
     <Confirm title="Delete your account?" danger confirm="Delete account forever" onClose={onClose} disabled={!password}
       onConfirm={async () => {
         await api.deleteAccount(password)
-        try { localStorage.removeItem('kosh.ledger') } catch { /* ignore */ }
         toast('Your account was deleted')
         onDeleted()
       }}
