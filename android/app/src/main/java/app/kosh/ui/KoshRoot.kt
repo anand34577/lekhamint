@@ -18,7 +18,7 @@ import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Lock
-import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.GridView
 import androidx.compose.material.icons.rounded.PieChart
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -125,6 +125,7 @@ object Routes {
     const val CAT_RULES = "cat_rules"
     const val GOALS = "goals"
     const val YEAR_TAX = "year_tax"
+    const val INSIGHTS = "insights"
     const val EDIT_CAT_RULE = "cat_rule_edit?id={id}"
 
     fun editTx(id: String? = null, type: String = "expense", copy: Boolean = false, account: String? = null, to: String? = null, amount: String? = null) =
@@ -241,6 +242,8 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
                 composable(Routes.CAT_RULES) { CategorizationRulesScreen() }
                 composable(Routes.GOALS) { app.kosh.ui.screens.GoalsScreen() }
                 composable(Routes.YEAR_TAX) { app.kosh.ui.screens.YearTaxScreen() }
+                composable(Routes.INSIGHTS) { app.kosh.ui.screens.InsightsScreen() }
+                composable(app.kosh.ui.screens.FOUND_PAYMENTS_ROUTE) { app.kosh.ui.screens.FoundPaymentsScreen() }
                 composable(Routes.EDIT_CAT_RULE, arguments = listOf(navArgument("id") { type = NavType.StringType; defaultValue = "" })) { e ->
                     EditCategorizationRuleScreen(e.arguments?.getString("id").orEmpty().ifEmpty { null })
                 }
@@ -257,16 +260,22 @@ private fun KoshBottomBar(nav: NavHostController, route: String?) {
         launchSingleTop = true
         restoreState = true
     }
-    NavigationBar {
+    val dark = app.kosh.ui.theme.LocalDarkTheme.current
+    Column {
+    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+    NavigationBar(
+        containerColor = if (dark) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
+        tonalElevation = 0.dp,
+    ) {
         NavigationBarItem(route == Routes.HOME, { go(Routes.HOME) }, { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
         NavigationBarItem(route == Routes.TRANSACTIONS, { go(Routes.TRANSACTIONS) }, { Icon(Icons.AutoMirrored.Rounded.ReceiptLong, null) }, label = { Text("Activity") })
         Box(Modifier.weight(1f).padding(top = 8.dp), contentAlignment = Alignment.Center) {
             Surface(
                 color = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
-                shape = RoundedCornerShape(18.dp),
-                shadowElevation = 3.dp,
-                modifier = Modifier.size(56.dp)
+                shape = androidx.compose.foundation.shape.CircleShape,
+                shadowElevation = 6.dp,
+                modifier = Modifier.size(58.dp)
                     .semantics { contentDescription = "Add transaction. Long press for transfer." }
                     .combinedClickable(
                         onClick = { nav.navigate(Routes.editTx()) },
@@ -277,7 +286,8 @@ private fun KoshBottomBar(nav: NavHostController, route: String?) {
             }
         }
         NavigationBarItem(route == Routes.BUDGETS, { go(Routes.BUDGETS) }, { Icon(Icons.Rounded.PieChart, null) }, label = { Text("Budgets") })
-        NavigationBarItem(route == Routes.MORE, { go(Routes.MORE) }, { Icon(Icons.Rounded.Menu, null) }, label = { Text("More") })
+        NavigationBarItem(route == Routes.MORE, { go(Routes.MORE) }, { Icon(Icons.Rounded.GridView, null) }, label = { Text("More") })
+    }
     }
 }
 

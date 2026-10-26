@@ -110,7 +110,7 @@ fun DepositsScreen() {
                     Column(Modifier.padding(20.dp)) {
                         Text("In active deposits", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         for ((cur, v) in active.groupBy { it.dep.currency }.mapValues { (_, l) -> l.sumOf { it.balance } }) MoneyText(v, cur, style = MaterialTheme.typography.headlineMedium)
-                        for ((cur, v) in active.groupBy { it.dep.currency }.mapValues { (_, l) -> l.sumOf { it.est.maturity } }) Text("About ${Money.format(v, cur)} at maturity (estimate)", style = MaterialTheme.typography.bodySmall)
+                        for ((cur, v) in active.groupBy { it.dep.currency }.mapValues { (_, l) -> l.sumOf { it.est.maturity } }) Text("About ${Money.ui(v, cur)} at maturity (estimate)", style = MaterialTheme.typography.bodySmall)
                         active.minByOrNull { it.dep.maturityDate }?.let { Text("Next: ${it.dep.name}, ${Dates.relativeDay(LocalDate.parse(it.dep.maturityDate))}", style = MaterialTheme.typography.bodySmall) }
                     }
                 }
@@ -131,7 +131,7 @@ fun DepositsScreen() {
                             }
                             Column(horizontalAlignment = Alignment.End) {
                                 MoneyText(e.balance, d.currency, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                                Text("→ ${Money.format(e.est.maturity, d.currency)}${if (e.est.fromBank) "" else " est."}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("→ ${Money.ui(e.est.maturity, d.currency)}${if (e.est.fromBank) "" else " est."}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                         if (d.status == "active") { Spacer(Modifier.height(8.dp)); LinearProgressIndicator(progress = { done.toFloat() / total }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {}) }
@@ -172,7 +172,7 @@ fun DepositDetailScreen(id: String) {
                         Text("In the deposit now", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         MoneyText(e.balance, cur, style = MaterialTheme.typography.headlineMedium)
                         Spacer(Modifier.height(8.dp))
-                        FactRow(if (d.status == "active") "Expected at maturity" else "Maturity value") { Text("${Money.format(e.est.maturity, cur)}${if (e.est.fromBank) "" else " (estimate)"}") }
+                        FactRow(if (d.status == "active") "Expected at maturity" else "Maturity value") { Text("${Money.ui(e.est.maturity, cur)}${if (e.est.fromBank) "" else " (estimate)"}") }
                         FactRow("Matures") { Text(Dates.medium(end)) }
                         FactRow("Interest over the term") { MoneyText(e.est.interest, cur) }
                         if (e.est.tax > 0) FactRow("Estimated tax at ${d.taxPercent}%") { MoneyText(e.est.tax, cur) }
@@ -246,12 +246,12 @@ private fun MatureDialog(e: DepositEntry, lookup: Lookup, early: Boolean, onDism
         title = { Text(if (early) "Close ${d.name} early" else "${d.name} matured") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("In the deposit: ${Money.format(e.balance, d.currency)}. " + if (early) "Banks usually pay a lower rate when closed early; enter what you received." else "Expected about ${Money.format(e.est.maturity, d.currency)}.", style = MaterialTheme.typography.bodySmall)
+                Text("In the deposit: ${Money.ui(e.balance, d.currency)}. " + if (early) "Banks usually pay a lower rate when closed early; enter what you received." else "Expected about ${Money.ui(e.est.maturity, d.currency)}.", style = MaterialTheme.typography.bodySmall)
                 AmountField(received, { received = it }, d.currency, "Amount received")
                 AmountField(tax, { tax = it }, d.currency, "Tax deducted (optional)")
                 DateField("On", date, { date = it }, max = Dates.today())
                 AccountPicker("Into account", lookup.bankAccounts(d.currency), into, lookup) { into = it }
-                if (diff != null && diff != 0L && error == null) Text(if (diff > 0) "Records ${Money.format(diff, d.currency)} as interest income." else "Records ${Money.format(-diff, d.currency)} as a penalty.", style = MaterialTheme.typography.bodySmall)
+                if (diff != null && diff != 0L && error == null) Text(if (diff > 0) "Records ${Money.ui(diff, d.currency)} as interest income." else "Records ${Money.ui(-diff, d.currency)} as a penalty.", style = MaterialTheme.typography.bodySmall)
                 ErrorText(if (received.isNotBlank()) error else null)
             }
         },
@@ -321,7 +321,7 @@ private fun InstalmentDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> U
         title = { Text("RD instalment ${e.rdPaid + 1}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Due ${Dates.relativeDay(due)}. Moves ${Money.format(d.amount, d.currency)} into the deposit; it is saving, not spending.", style = MaterialTheme.typography.bodySmall)
+                Text("Due ${Dates.relativeDay(due)}. Moves ${Money.ui(d.amount, d.currency)} into the deposit; it is saving, not spending.", style = MaterialTheme.typography.bodySmall)
                 DateField("On", date, { date = it }, max = Dates.today())
                 AccountPicker("From", lookup.bankAccounts(d.currency), from, lookup) { from = it }
             }
@@ -408,7 +408,7 @@ fun DepositEditor(onDismiss: () -> Unit) {
                 }
                 if (fromBank) AccountPicker("From", lookup.bankAccounts(cur), from, lookup) { from = it }
                 else Text(if (kind == "rd") "Already running: the instalments due so far are counted as paid." else "Opened before: no account balance goes down.", style = MaterialTheme.typography.bodySmall)
-                preview?.let { Text("Invested ${Money.format(it.invested, cur)} · interest ${Money.format(it.interest, cur)} · ${if (payout == "cumulative" || kind == "rd") "at maturity" else "principal back"} ${Money.format(it.maturity, cur)}${if (it.fromBank) "" else " (estimate)"}", style = MaterialTheme.typography.bodySmall) }
+                preview?.let { Text("Invested ${Money.ui(it.invested, cur)} · interest ${Money.ui(it.interest, cur)} · ${if (payout == "cumulative" || kind == "rd") "at maturity" else "principal back"} ${Money.ui(it.maturity, cur)}${if (it.fromBank) "" else " (estimate)"}", style = MaterialTheme.typography.bodySmall) }
                 ErrorText(if (name.isNotBlank() || amount.isNotBlank()) error else null)
             }
         },

@@ -17,6 +17,9 @@ import javax.crypto.spec.GCMParameterSpec
 
 enum class ThemeMode { SYSTEM, LIGHT, DARK }
 
+/** Colour themes. Mint is the default: calm, high-contrast and easy to read for money. */
+enum class ThemePalette(val label: String) { MINT("Mint"), OCEAN("Ocean"), INDIGO("Indigo"), GRAPHITE("Graphite"), PLUM("Plum"), SUNSET("Sunset") }
+
 /** User-facing preferences, observed by the UI. */
 data class AppSettings(
     val onboarded: Boolean = false,
@@ -24,8 +27,9 @@ data class AppSettings(
     val ledgerName: String = "Personal",
     val baseCurrency: String = "USD",
     val theme: ThemeMode = ThemeMode.SYSTEM,
+    val palette: ThemePalette = ThemePalette.MINT,
     val amoled: Boolean = false,
-    val dynamicColor: Boolean = true,
+    val dynamicColor: Boolean = false,
     val hideAmounts: Boolean = false,
     val appLock: Boolean = false,
     val serverUrl: String? = null,
@@ -36,6 +40,8 @@ data class AppSettings(
     val backupFolderUri: String? = null,
     val lastBackupAt: Long = 0,
     val lastBackupError: String? = null,
+    /** Post a notification when a payment is found in a bank or payment app alert. */
+    val captureNotify: Boolean = true,
 ) {
     val syncEnabled: Boolean get() = serverUrl != null && accountEmail != null
 }
@@ -57,8 +63,9 @@ class Settings(context: Context) {
         ledgerName = prefs.getString(K_LEDGER_NAME, "Personal") ?: "Personal",
         baseCurrency = prefs.getString(K_BASE_CURRENCY, "USD") ?: "USD",
         theme = runCatching { ThemeMode.valueOf(prefs.getString(K_THEME, "SYSTEM")!!) }.getOrDefault(ThemeMode.SYSTEM),
+        palette = runCatching { ThemePalette.valueOf(prefs.getString(K_PALETTE, "MINT")!!) }.getOrDefault(ThemePalette.MINT),
         amoled = prefs.getBoolean(K_AMOLED, false),
-        dynamicColor = prefs.getBoolean(K_DYNAMIC, true),
+        dynamicColor = prefs.getBoolean(K_DYNAMIC, false),
         hideAmounts = prefs.getBoolean(K_HIDE, false),
         appLock = prefs.getBoolean(K_LOCK, false),
         serverUrl = prefs.getString(K_SERVER, null),
@@ -69,10 +76,12 @@ class Settings(context: Context) {
         backupFolderUri = prefs.getString(K_BACKUP_FOLDER, null),
         lastBackupAt = prefs.getLong(K_LAST_BACKUP, 0),
         lastBackupError = prefs.getString(K_BACKUP_ERROR, null),
+        captureNotify = prefs.getBoolean(K_CAPTURE_NOTIFY, true),
     )
 
     fun update(block: SharedPreferences.Editor.() -> Unit) {
-        prefs.edit(commit = true, action = block)
+        // apply(): the in-memory copy changes at once and the disk write happens off the main thread.
+        prefs.edit(commit = false, action = block)
         _state.value = read()
     }
 
@@ -81,10 +90,29 @@ class Settings(context: Context) {
     }
 
     fun setOnboarded() = update { putBoolean(K_ONBOARDED, true) }
-    fun setTheme(mode: ThemeMode) = update { putString(K_THEME, mode.name) }
-    fun setAmoled(on: Boolean) = update { putBoolean(K_AMOLED, on) }
-    fun setDynamicColor(on: Boolean) = update { putBoolean(K_DYNAMIC, on) }
+    fun setTheme(mode: ThemeMode) = update { putString(K_THEME, mode.name); appearanceChanged() }
+    fun setPalette(p: ThemePalette) = update { putString(K_PALETTE, p.name); appearanceChanged() }
+    fun setAmoled(on: Boolean) = update { putBoolean(K_AMOLED, on); appearanceChanged() }
+    fun setDynamicColor(on: Boolean) = update { putBoolean(K_DYNAMIC, on); appearanceChanged() }
+
+    /** The look was changed on this phone: send it to the server on the next sync, so other phones follow. */
+    private fun SharedPreferences.Editor.appearanceChanged() {
+        putBoolean(K_APPEARANCE_DIRTY, true)
+        putLong(K_APPEARANCE_AT, System.currentTimeMillis())
+    }
+
+    val appearanceDirty: Boolean get() = prefs.getBoolean(K_APPEARANCE_DIRTY, false)
+    val appearanceAt: Long get() = prefs.getLong(K_APPEARANCE_AT, 0)
+
+    fun appearanceSent(at: Long) = prefs.edit { if (prefs.getLong(K_APPEARANCE_AT, 0) == at) putBoolean(K_APPEARANCE_DIRTY, false) }
+
+    /** A look chosen on another device (from the server); not sent back. */
+    fun applyAppearance(theme: ThemeMode, palette: ThemePalette, amoled: Boolean, dynamic: Boolean, at: Long) = update {
+        putString(K_THEME, theme.name); putString(K_PALETTE, palette.name); putBoolean(K_AMOLED, amoled); putBoolean(K_DYNAMIC, dynamic)
+        putLong(K_APPEARANCE_AT, at); putBoolean(K_APPEARANCE_DIRTY, false)
+    }
     fun setHideAmounts(on: Boolean) = update { putBoolean(K_HIDE, on) }
+    fun setCaptureNotify(on: Boolean) = update { putBoolean(K_CAPTURE_NOTIFY, on) }
     fun setAppLock(on: Boolean) = update { putBoolean(K_LOCK, on) }
     fun setBaseCurrency(code: String) = update { putString(K_BASE_CURRENCY, code) }
     fun setLedgerName(name: String) = update { putString(K_LEDGER_NAME, name) }
@@ -147,6 +175,7 @@ class Settings(context: Context) {
         const val K_LEDGER_NAME = "ledger_name"
         const val K_BASE_CURRENCY = "base_currency"
         const val K_THEME = "theme"
+        const val K_PALETTE = "palette"
         const val K_AMOLED = "amoled"
         const val K_DYNAMIC = "dynamic_color"
         const val K_HIDE = "hide_amounts"
@@ -162,6 +191,9 @@ class Settings(context: Context) {
         const val K_BACKUP_FOLDER = "backup_folder"
         const val K_LAST_BACKUP = "last_backup_at"
         const val K_BACKUP_ERROR = "last_backup_error"
+        const val K_CAPTURE_NOTIFY = "capture_notify"
+        const val K_APPEARANCE_DIRTY = "appearance_dirty"
+        const val K_APPEARANCE_AT = "appearance_at"
         const val S_TOKEN = "sync_token"
     }
 }

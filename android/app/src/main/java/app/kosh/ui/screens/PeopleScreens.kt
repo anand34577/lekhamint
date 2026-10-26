@@ -223,14 +223,14 @@ fun PersonScreen(key: String) {
                     headlineContent = { Text(r.text.substringBefore(" · ")) },
                     supportingContent = {
                         val note = r.text.substringAfter(" · ", "")
-                        Text(listOf(note, "Balance ${Money.format(kotlin.math.abs(r.balance), person.currency)} ${if (r.balance > 0) "owed to you" else if (r.balance < 0) "you owe" else ""}").filter { it.isNotBlank() }.joinToString(" · ").trim())
+                        Text(listOf(note, "Balance ${Money.ui(kotlin.math.abs(r.balance), person.currency)} ${if (r.balance > 0) "owed to you" else if (r.balance < 0) "you owe" else ""}").filter { it.isNotBlank() }.joinToString(" · ").trim())
                     },
                     trailingContent = {
                         when {
                             // Shown as money in or out of your pocket: lending is money out, being paid back is money in.
                             r.change != 0L && r.text.startsWith("Marked settled") -> MoneyText(-r.change, person.currency, signed = true, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             r.change != 0L -> MoneyText(-r.change, person.currency, signed = true, color = if (r.change < 0) typeColor("income") else typeColor("expense"))
-                            r.interest != 0L -> Text("${Money.format(r.interest, person.currency)} interest", style = MaterialTheme.typography.bodySmall)
+                            r.interest != 0L -> Text("${Money.ui(r.interest, person.currency)} interest", style = MaterialTheme.typography.bodySmall)
                         }
                     },
                     modifier = Modifier.clickable {
@@ -244,14 +244,14 @@ fun PersonScreen(key: String) {
             items(person.debts.sortedBy { it.closed }, key = { it.id }) { d ->
                 val left = Debts.balance(d, byDebt[d.id].orEmpty())
                 ListItem(
-                    headlineContent = { Text((if (d.direction == "lent") "Lent " else "Borrowed ") + Money.format(d.amount, d.currency)) },
+                    headlineContent = { Text((if (d.direction == "lent") "Lent " else "Borrowed ") + Money.ui(d.amount, d.currency)) },
                     supportingContent = {
                         Text(
                             when {
                                 d.closed -> "Settled"
-                                left < 0 -> "Overpaid by ${Money.format(-left, d.currency)}"
+                                left < 0 -> "Overpaid by ${Money.ui(-left, d.currency)}"
                                 left == d.amount -> "Nothing repaid yet"
-                                else -> "${Money.format(left, d.currency)} left"
+                                else -> "${Money.ui(left, d.currency)} left"
                             } + (d.dueDate?.takeIf { !d.closed }?.let { " · due ${Dates.relativeDay(LocalDate.parse(it))}" } ?: "") + (d.note?.let { " · $it" } ?: ""),
                         )
                     },
@@ -293,14 +293,14 @@ private fun PersonRepayDialog(person: Debts.Person, direction: String, open: Lis
         title = { Text(if (lent) "${person.name} paid you back" else "You paid ${person.name} back") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Outstanding: ${Money.format(total, currency)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Outstanding: ${Money.ui(total, currency)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 AmountField(
                     amount, { amount = it }, currency, "Amount repaid",
                     supporting = when {
                         amount.isNotBlank() && minor == null -> "Enter a number like 5000"
-                        minor != null && minor > total -> "Only ${Money.format(total, currency)} is owed. Put anything extra in Interest."
+                        minor != null && minor > total -> "Only ${Money.ui(total, currency)} is owed. Put anything extra in Interest."
                         plan.size > 1 -> "Covers ${plan.size} debts, oldest first"
-                        minor != null && minor in 1 until total -> "Part payment: ${Money.format(total - minor, currency)} will still be owed"
+                        minor != null && minor in 1 until total -> "Part payment: ${Money.ui(total - minor, currency)} will still be owed"
                         else -> null
                     },
                 )

@@ -47,10 +47,16 @@ data class PullResponse(
     val server_time: Long = 0,
 )
 
+/** The assistant the server's admin has set up (LEKHAMINT_AI_BASE_URL); the key never leaves the server. */
 @Serializable
-data class ServerMeta(val version: String = "", val schema_version: Int = 0, val signup_allowed: Boolean = false)
+data class ServerAi(val enabled: Boolean = false, val model: String = "", val host: String = "")
+
+@Serializable
+data class ServerMeta(val version: String = "", val schema_version: Int = 0, val signup_allowed: Boolean = false, val ai: ServerAi = ServerAi())
 
 @Serializable private data class LedgersResponse(val ledgers: List<ApiLedger> = emptyList())
+@Serializable private data class SettingsResponse(val settings: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap())
+@Serializable private data class SettingBody(val value: kotlinx.serialization.json.JsonElement)
 @Serializable private data class LedgerResponse(val ledger: ApiLedger)
 @Serializable private data class LoginBody(val email: String, val password: String, val device_name: String, val name: String? = null, val otp: String? = null)
 @Serializable private data class PasswordBody(val password: String)
@@ -78,6 +84,9 @@ class KoshApi(baseUrl: String, private val token: () -> String?) {
         .readTimeout(60, TimeUnit.SECONDS)
         .writeTimeout(60, TimeUnit.SECONDS)
         .build()
+
+    /** Models can take a while to answer; the server itself gives up after two minutes. */
+    private val aiHttp by lazy { http.newBuilder().readTimeout(150, TimeUnit.SECONDS).build() }
 
     suspend fun meta(): ServerMeta = get("/api/v1/meta", ServerMeta.serializer(), auth = false)
 
@@ -119,6 +128,24 @@ class KoshApi(baseUrl: String, private val token: () -> String?) {
             if (!resp.isSuccessful) throw ApiException(resp.code, "http_${resp.code}", if (resp.code == 404) "The file is not on the server yet" else "Download failed (${resp.code})")
             resp.body?.bytes() ?: ByteArray(0)
         }
+    }
+
+    /**
+     * One chat completion through the server's assistant proxy. Returns the HTTP status and the raw body, so the
+     * caller can read the model service's own error format (it is passed through unchanged).
+     */
+    suspend fun aiChat(body: String): Pair<Int, String> = withContext(Dispatchers.IO) {
+        val b = Request.Builder().url("$base/api/v1/ai/chat/completions").post(body.toRequestBody(JSON)).header("Accept", "application/json")
+        token()?.let { b.header("Authorization", "Bearer $it") }
+        aiHttp.newCall(b.build()).execute().use { it.code to (it.body?.string().orEmpty()) }
+    }
+
+    /** This person's own settings on the server (shared with the web app; never with other members). */
+    suspend fun settings(): Map<String, kotlinx.serialization.json.JsonElement> = get("/api/v1/settings", SettingsResponse.serializer()).settings
+
+    suspend fun putSetting(key: String, value: kotlinx.serialization.json.JsonElement) {
+        val json = KoshJson.encodeToString(SettingBody.serializer(), SettingBody(value))
+        send(Request.Builder().url("$base/api/v1/settings/$key").put(json.toRequestBody(JSON)), auth = true)
     }
 
     suspend fun pull(ledgerId: String, since: Long, limit: Int = 1000): PullResponse =

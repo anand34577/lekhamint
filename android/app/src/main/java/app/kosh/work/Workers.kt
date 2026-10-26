@@ -241,6 +241,10 @@ object Notifications {
             lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
         })
         nm.createNotificationChannel(NotificationChannel(SYNC_CHANNEL, "Sync", NotificationManager.IMPORTANCE_MIN))
+        nm.createNotificationChannel(NotificationChannel(app.kosh.capture.PaymentListener.CHANNEL, "Payments found", NotificationManager.IMPORTANCE_DEFAULT).apply {
+            description = "A payment was read from a bank or payment app alert: tap to add it"
+            lockscreenVisibility = android.app.Notification.VISIBILITY_PRIVATE
+        })
     }
 
     fun show(context: Context, id: Int, title: String, text: String) {

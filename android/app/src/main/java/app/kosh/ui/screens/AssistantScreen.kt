@@ -80,7 +80,16 @@ fun AssistantScreen() {
     val turns = remember { mutableStateListOf<Turn>() }
     var q by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
-    var setup by remember { mutableStateOf(!s.configured) }
+    var setup by remember { mutableStateOf(false) }
+    // A connected server may offer its own assistant; check before deciding whether setup is needed.
+    var checked by remember { mutableStateOf(false) }
+    var serverAi by remember { mutableStateOf(assistant.serverAi) }
+    LaunchedEffect(Unit) {
+        serverAi = assistant.refreshServer()
+        checked = true
+        if (assistant.route(s) == null) setup = true
+    }
+    val route = remember(s, serverAi) { assistant.route(s) }
     var consent by remember { mutableStateOf<String?>(null) }
     var reporting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -90,12 +99,14 @@ fun AssistantScreen() {
     fun send(text: String, agreed: Boolean = false) {
         val t = text.trim()
         if (t.isEmpty() || busy) return
-        if (!s.configured) { setup = true; return }
-        if (!agreed && s.consentFor != s.baseUrl) { consent = t; return }
+        val r = route
+        if (r == null) { setup = true; return }
+        if (!agreed && s.consentFor != r.consentKey) { consent = t; return }
         busy = true; q = ""
         scope.launch {
             val turn = runCatching { assistant.ask(turns.toList(), t) }.getOrElse { Turn(t, "", emptyList(), false, it.message ?: "Something went wrong") }
             turns += turn
+            serverAi = assistant.serverAi
             busy = false
         }
     }
@@ -107,6 +118,15 @@ fun AssistantScreen() {
             LazyColumn(Modifier.weight(1f), state = list, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (turns.isEmpty()) item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        route?.let { r ->
+                            Text(
+                                when (r) {
+                                    is app.kosh.ai.AiRoute.Server -> "Using the assistant on your LekhaMint server" + (r.model.takeIf { it.isNotBlank() }?.let { " ($it)" } ?: "") + "."
+                                    is app.kosh.ai.AiRoute.Custom -> "Using ${r.host}" + (r.model.takeIf { it.isNotBlank() }?.let { " · $it" } ?: "") + "."
+                                },
+                                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
                         Text("Ask about your money in plain words. Answers come from your own records through read-only lookups; the assistant can never change anything.", style = MaterialTheme.typography.bodyMedium)
                         suggestions.forEach { AssistChip(onClick = { send(it) }, label = { Text(it) }) }
                     }
@@ -121,7 +141,7 @@ fun AssistantScreen() {
             AssumptionNote("Answers are written by a language model from your records. Balances and totals come from LekhaMint, not the model.")
         }
     }
-    if (setup) AiSetupDialog(s, store, onDismiss = { setup = false }) { s = it; setup = false }
+    if (setup && checked) AiSetupDialog(s, store, serverAi?.takeIf { it.enabled && c.sync.api() != null }, onDismiss = { setup = false }) { s = it; setup = false }
     if (reporting) {
         AlertDialog(
             onDismissRequest = { reporting = false },
@@ -130,19 +150,21 @@ fun AssistantScreen() {
                 Text(
                     "If an answer was offensive, harmful or badly wrong, tell the LekhaMint developers. The report form opens in your browser. " +
                         "The answer is not attached, because it may contain your financial details; describe the problem in your own words. " +
-                        "Answers come from the model service you chose (${s.host}), so you can also report it to them.",
+                        "Answers come from the model service in use (${route?.host ?: s.host}), so you can also report it to them.",
                 )
             },
-            confirmButton = { TextButton(onClick = { reporting = false; Links.open(context, Links.aiReport(s.host, s.model)) }) { Text("Open report form") } },
+            confirmButton = { TextButton(onClick = { reporting = false; Links.open(context, Links.aiReport(route?.host ?: s.host, route?.model ?: s.model)) }) { Text("Open report form") } },
             dismissButton = { TextButton(onClick = { reporting = false }) { Text("Cancel") } },
         )
     }
     consent?.let { pending ->
+        val r = route ?: return@let
+        val where = if (r is app.kosh.ai.AiRoute.Server) "your LekhaMint server, which passes them to ${r.host}" else r.host
         AlertDialog(
             onDismissRequest = { consent = null },
             title = { Text("Share your records with the model?") },
-            text = { Text("To answer, your question and the records the assistant looks up (totals, balances, loans, deposits${if (s.shareDetails) ", payee names and notes" else ""}) are sent to ${s.host}. ${if (s.host in setOf("localhost", "127.0.0.1")) "That is on this phone." else "Its own privacy terms apply."} The assistant cannot change your data.") },
-            confirmButton = { TextButton(onClick = { s = s.copy(consentFor = s.baseUrl); store.save(s); consent = null; send(pending, agreed = true) }) { Text("Agree and ask") } },
+            text = { Text("To answer, your question and the records the assistant looks up (totals, balances, loans, deposits${if (s.shareDetails) ", payee names and notes" else ""}) are sent to $where. ${if (r.host in setOf("localhost", "127.0.0.1")) "That is on this phone." else "Its own privacy terms apply."} The assistant cannot change your data.") },
+            confirmButton = { TextButton(onClick = { s = s.copy(consentFor = r.consentKey); store.save(s); consent = null; send(pending, agreed = true) }) { Text("Agree and ask") } },
             dismissButton = { TextButton(onClick = { consent = null }) { Text("Not now") } },
         )
     }
@@ -174,7 +196,8 @@ private fun TurnBubble(t: Turn, onReport: () -> Unit) {
 }
 
 @Composable
-private fun AiSetupDialog(current: AiSettings, store: AiStore, onDismiss: () -> Unit, onSave: (AiSettings) -> Unit) {
+private fun AiSetupDialog(current: AiSettings, store: AiStore, server: app.kosh.sync.ServerAi?, onDismiss: () -> Unit, onSave: (AiSettings) -> Unit) {
+    var useServer by remember { mutableStateOf(server != null && (current.useServer || !current.configured)) }
     var url by remember { mutableStateOf(current.baseUrl) }
     var model by remember { mutableStateOf(current.model) }
     var key by remember { mutableStateOf(store.apiKey.orEmpty()) }
@@ -187,6 +210,22 @@ private fun AiSetupDialog(current: AiSettings, store: AiStore, onDismiss: () -> 
         title = { Text("Assistant settings") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (server != null) {
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { useServer = true }) {
+                        androidx.compose.material3.RadioButton(useServer, { useServer = true })
+                        Column {
+                            Text("Use my LekhaMint server", style = MaterialTheme.typography.titleSmall)
+                            Text("Set up by its admin" + (server.model.takeIf { it.isNotBlank() }?.let { ": $it" } ?: "") + ". No key needed on this phone.", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth().clickable { useServer = false }) {
+                        androidx.compose.material3.RadioButton(!useServer, { useServer = false })
+                        Text("My own provider", style = MaterialTheme.typography.titleSmall)
+                    }
+                } else {
+                    Text("When this phone syncs with a LekhaMint server whose admin has set up an assistant, that one is used automatically. Or use your own provider:", style = MaterialTheme.typography.bodySmall)
+                }
+                if (server == null || !useServer) {
                 Text("Any OpenAI-compatible service: cloud, a home server, or a small model on this phone served at a localhost address.", style = MaterialTheme.typography.bodySmall)
                 presets.forEach { (n, u) -> AssistChip(onClick = { url = u }, label = { Text(n) }) }
                 OutlinedTextField(url, { url = it }, label = { Text("Base URL (up to /v1)") }, singleLine = true, isError = !valid, modifier = Modifier.fillMaxWidth(),
@@ -194,15 +233,17 @@ private fun AiSetupDialog(current: AiSettings, store: AiStore, onDismiss: () -> 
                 OutlinedTextField(model, { model = it }, label = { Text("Model") }, placeholder = { Text("gpt-4o-mini, llama3.1:8b…") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(key, { key = it }, label = { Text("API key (if needed)") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(),
                     supportingText = { Text("Stored encrypted on this phone") })
+                Text("Plain http:// works only for addresses on your phone or home network.", style = MaterialTheme.typography.bodySmall)
+                }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { share = !share }) { Checkbox(share, { share = it }); Text("Include payee names, notes and people's names") }
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { tools = !tools }) { Checkbox(tools, { tools = it }); Text("The model can call tools (look things up)") }
-                Text("Untick tools for small models that cannot use them; a short summary is sent instead. Plain http:// works only for addresses on your phone or home network.", style = MaterialTheme.typography.bodySmall)
+                Text("Untick tools for small models that cannot use them; a short summary is sent instead.", style = MaterialTheme.typography.bodySmall)
             }
         },
         confirmButton = {
-            TextButton(enabled = valid, onClick = {
+            TextButton(enabled = valid && (useServer || url.isNotBlank()), onClick = {
                 store.apiKey = key
-                val n = current.copy(baseUrl = url.trim().trimEnd('/'), model = model.trim(), tools = tools, shareDetails = share)
+                val n = current.copy(baseUrl = url.trim().trimEnd('/'), model = model.trim(), tools = tools, shareDetails = share, useServer = useServer)
                 store.save(n)
                 onSave(store.load())
             }) { Text("Save") }

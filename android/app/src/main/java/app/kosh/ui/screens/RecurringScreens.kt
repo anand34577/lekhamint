@@ -19,6 +19,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.NorthEast
+import androidx.compose.material.icons.rounded.SouthWest
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.DatePicker
 import androidx.compose.material3.DatePickerDialog
@@ -65,6 +68,13 @@ import app.kosh.ui.components.KoshTopBar
 import app.kosh.ui.components.LocalContainer
 import app.kosh.ui.components.MoneyText
 import app.kosh.ui.components.PickerSheet
+import app.kosh.ui.components.KoshCard
+import app.kosh.ui.components.SectionCard
+import app.kosh.ui.components.SectionHeader
+import app.kosh.ui.components.StackedBar
+import app.kosh.ui.components.StatTile
+import app.kosh.ui.components.StatusPill
+import app.kosh.ui.theme.LocalMoneyColors
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.LocalDate
@@ -76,45 +86,148 @@ fun RecurringScreen() {
     val nav = LocalNav.current
     val rules by c.repo.recurringRules.collectAsStateWithLifecycle(emptyList())
     val lookup by c.lookup.collectAsStateWithLifecycle()
+    val m = LocalMoneyColors.current
+    val base = lookup.baseCurrency
+    val today = Dates.today()
+    val live = rules.filter { !it.deleted }
+    val active = live.filter { !it.paused && c.recurring.nextDate(it) != null }
+    val inBase = active.filter { lookup.currencyOf(it.accountId) == base }
+    val billsMonthly = inBase.filter { it.type == "expense" }.sumOf { monthlyEquivalent(it) }
+    val incomeMonthly = inBase.filter { it.type == "income" }.sumOf { monthlyEquivalent(it) }
+    // The next 30 days, for the timeline.
+    val due = active.flatMap { r -> c.recurring.dueDates(r, today.plusDays(30)).filter { !it.isBefore(today) }.map { r to it } }.sortedBy { it.second }
     Scaffold(
-        topBar = { KoshTopBar("Recurring & bills", onBack = { nav.popBackStack() }) },
-        floatingActionButton = { ExtendedFloatingActionButton(onClick = { nav.navigate(Routes.editRule()) }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Recurring") }) },
-    ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 96.dp)) {
-            if (rules.isEmpty()) {
-                item { EmptyState(Icons.Rounded.Repeat, "No recurring items", "Add rent, subscriptions, salary or EMIs. LekhaMint reminds you or records them on the due date.") }
+        topBar = {
+            KoshTopBar("Recurring & bills", onBack = { nav.popBackStack() }) {
+                FilledTonalButton(onClick = { nav.navigate(Routes.editRule()) }, modifier = Modifier.padding(end = 8.dp)) {
+                    Icon(Icons.Rounded.Add, null); Text("New", Modifier.padding(start = 4.dp))
+                }
             }
-            val monthly = rules.filter { !it.paused && it.type == "expense" }.groupBy { lookup.currencyOf(it.accountId) }
-                .mapValues { (_, l) -> l.sumOf { r -> monthlyEquivalent(r) } }
-            if (monthly.isNotEmpty()) {
+        },
+    ) { padding ->
+        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+            if (live.isEmpty()) {
                 item {
-                    Column(Modifier.padding(20.dp)) {
-                        Text("About this much goes out every month", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        for ((cur, v) in monthly) MoneyText(v, cur, style = MaterialTheme.typography.headlineSmall)
+                    EmptyState(Icons.Rounded.Repeat, "No recurring items", "Add rent, subscriptions, salary or EMIs. LekhaMint reminds you or records them on the due date.") {
+                        FilledTonalButton(onClick = { nav.navigate(Routes.editRule()) }) { Text("Add a bill or salary") }
+                    }
+                }
+                return@LazyColumn
+            }
+            item {
+                SectionCard("Every month", subtitle = "Regular money in and out, worked out per month") {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatTile("Comes in", Modifier.weight(1f), icon = Icons.Rounded.SouthWest, tint = m.income) { MoneyText(incomeMonthly, base, style = MaterialTheme.typography.titleSmall) }
+                        StatTile("Bills", Modifier.weight(1f), icon = Icons.Rounded.NorthEast, tint = m.expense) { MoneyText(billsMonthly, base, style = MaterialTheme.typography.titleSmall) }
+                        if (incomeMonthly > 0) StatTile("Left", Modifier.weight(1f)) { MoneyText(incomeMonthly - billsMonthly, base, style = MaterialTheme.typography.titleSmall) }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    if (incomeMonthly > 0) {
+                        val f = (billsMonthly.toFloat() / incomeMonthly).coerceIn(0f, 1f)
+                        StackedBar(listOf(f to m.expense, (1f - f) to m.income.copy(alpha = 0.45f)))
+                        Text(
+                            if (billsMonthly <= incomeMonthly) "Bills take ${(f * 100).toInt()}% of your regular income."
+                            else "Bills are more than your regular income.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
+                        )
+                    } else {
+                        Text(
+                            "Add your salary as a recurring income to see what's left after bills.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
-            items(rules, key = { it.id }) { r ->
-                val next = c.recurring.nextDate(r)
-                val (icon, color) = if (r.type == "transfer") "transfer" to null else lookup.categoryLook(r.categoryId)
-                ListItem(
-                    headlineContent = { Text(r.name ?: r.payee ?: lookup.categoryName(r.categoryId)) },
-                    supportingContent = {
-                        Text(
-                            buildString {
-                                append(Recurrence.describe(r.frequency, r.every))
-                                append(" · ")
-                                append(if (r.paused) "Paused" else next?.let { "next ${Dates.relativeDay(it)}" } ?: "Ended")
-                                append(if (r.mode == "auto") " · auto" else " · remind")
-                            },
-                        )
-                    },
-                    leadingContent = { IconBadge(icon, color) },
-                    trailingContent = { MoneyText(if (r.type == "income") r.amount else -r.amount, lookup.currencyOf(r.accountId), signed = r.type != "transfer") },
-                    modifier = Modifier.clickable { nav.navigate(Routes.editRule(r.id)) },
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                )
+            if (due.isNotEmpty()) {
+                item {
+                    SectionCard("Next 30 days", subtitle = "${due.size} ${if (due.size == 1) "payment" else "payments"} due") {
+                        DueTimeline(due.map { (r, d) -> d to if (r.type == "income") m.income else if (r.type == "transfer") m.transfer else m.expense }, today)
+                        Spacer(Modifier.height(10.dp))
+                        for ((r, d) in due.take(5)) {
+                            Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                                StatusPill(Dates.relativeDay(d, today), if (d == today) m.warning else MaterialTheme.colorScheme.primary)
+                                Text(r.name ?: r.payee ?: lookup.categoryName(r.categoryId), Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
+                                MoneyText(if (r.type == "income") r.amount else -r.amount, lookup.currencyOf(r.accountId), style = MaterialTheme.typography.labelLarge, signed = r.type == "income")
+                            }
+                        }
+                    }
+                }
             }
+            val groups = listOf(
+                "Bills & subscriptions" to active.filter { it.type == "expense" },
+                "Income" to active.filter { it.type == "income" },
+                "Transfers & savings" to active.filter { it.type == "transfer" },
+                "Paused or ended" to live.filter { it !in active },
+            )
+            for ((title, list) in groups) {
+                if (list.isEmpty()) continue
+                item(key = "h-$title") { SectionHeader("$title (${list.size})") }
+                item(key = "g-$title") {
+                    KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Column(Modifier.padding(vertical = 4.dp)) {
+                            for (r in list.sortedBy { c.recurring.nextDate(it) ?: LocalDate.MAX }) RuleRow(r, lookup, c.recurring.nextDate(r)) { nav.navigate(Routes.editRule(r.id)) }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RuleRow(r: RecurringRuleEntity, lookup: app.kosh.domain.Lookup, next: LocalDate?, onClick: () -> Unit) {
+    val (icon, color) = if (r.type == "transfer") "transfer" to null else lookup.categoryLook(r.categoryId)
+    val cur = lookup.currencyOf(r.accountId)
+    ListItem(
+        headlineContent = { Text(r.name ?: r.payee ?: lookup.categoryName(r.categoryId), maxLines = 1) },
+        supportingContent = {
+            Text(
+                buildString {
+                    append(Recurrence.describe(r.frequency, r.every))
+                    append(" · ")
+                    append(if (r.paused) "Paused" else next?.let { "next ${Dates.relativeDay(it)}" } ?: "Ended")
+                    append(if (r.mode == "auto") " · adds itself" else " · reminds you")
+                },
+            )
+        },
+        leadingContent = { IconBadge(icon, color) },
+        trailingContent = {
+            Column(horizontalAlignment = Alignment.End) {
+                MoneyText(if (r.type == "income") r.amount else -r.amount, cur, signed = r.type != "transfer", style = MaterialTheme.typography.titleSmall)
+                if (r.frequency != "monthly" || r.every != 1) {
+                    MoneyText(monthlyEquivalent(r), cur, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("a month", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        },
+        modifier = Modifier.clickable(onClick = onClick),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    )
+}
+
+/** The next 30 days as a line, with a dot on each due date (stacked when several fall on one day). */
+@Composable
+private fun DueTimeline(points: List<Pair<LocalDate, Color>>, today: LocalDate) {
+    val track = MaterialTheme.colorScheme.surfaceContainerHighest
+    val label = MaterialTheme.colorScheme.onSurfaceVariant
+    Column {
+        androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(40.dp)) {
+            val y = size.height - 8.dp.toPx()
+            val r = 6.dp.toPx()
+            drawLine(track, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 6f, cap = androidx.compose.ui.graphics.StrokeCap.Round)
+            val perDay = HashMap<Long, Int>()
+            for ((d, col) in points) {
+                val i = java.time.temporal.ChronoUnit.DAYS.between(today, d)
+                val stack = (perDay.merge(i, 1, Int::plus) ?: 1) - 1
+                if (stack > 2) continue
+                val x = (size.width * i / 30f).coerceIn(r, size.width - r)
+                drawCircle(col, r, androidx.compose.ui.geometry.Offset(x, y - stack * 2.6f * r))
+            }
+        }
+        Row(Modifier.fillMaxWidth()) {
+            Text("Today", style = MaterialTheme.typography.labelSmall, color = label, modifier = Modifier.weight(1f))
+            Text(Dates.short(today.plusDays(15)), style = MaterialTheme.typography.labelSmall, color = label, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(Dates.short(today.plusDays(30)), style = MaterialTheme.typography.labelSmall, color = label, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End)
         }
     }
 }

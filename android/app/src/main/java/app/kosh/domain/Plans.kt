@@ -139,31 +139,3 @@ object TaxSections {
 
     fun label(from: LocalDate): String = if (from.monthValue == 1) "${from.year}" else "FY ${from.year}–${(from.year + 1) % 100}"
 }
-
-/**
- * Reads a bank SMS or a payment app's shared text: the amount, whether money
- * went out or came in, and who it was paid to. Only used to fill the form; the
- * person checks it before saving.
- */
-object SmsParser {
-    data class Result(val amount: String?, val type: String, val payee: String?, val note: String)
-
-    private val amountRe = Regex("""(?i)(?:rs\.?|inr|₹|usd|\$|eur|€|amount(?: of)?)\s*:?\s*([0-9][0-9,]*(?:\.[0-9]{1,2})?)""")
-    private val creditRe = Regex("""(?i)\b(credited|received|deposited|refund(?:ed)?|cashback|credit of)\b""")
-    private val debitRe = Regex("""(?i)\b(debited|spent|paid|sent|purchase|withdrawn|debit of|txn of|charged)\b""")
-    private val payeeRes = listOf(
-        Regex("""(?i)\b(?:at|to|towards)\s+(?:vpa\s+)?([A-Za-z][A-Za-z0-9 &.'_@-]{2,40}?)(?=\s+(?:on|via|ref|upi|using|from|for|avl|avbl|is|was)\b|\s*[(.,;]|$)"""),
-        Regex("""(?i)\binfo[:\s]+([A-Za-z][A-Za-z0-9 &.'_-]{2,40}?)(?=[.,;]|\s+(?:avl|avbl|bal)\b|$)"""),
-    )
-
-    fun parse(text: String): Result {
-        val t = text.replace('\n', ' ')
-        val amount = amountRe.find(t)?.groupValues?.get(1)?.replace(",", "")
-        val credit = creditRe.find(t)
-        val debit = debitRe.find(t)
-        val type = if (credit != null && (debit == null || credit.range.first < debit.range.first)) "income" else "expense"
-        val payee = payeeRes.firstNotNullOfOrNull { it.find(t)?.groupValues?.get(1)?.trim() }
-            ?.substringBefore("@")?.replace(Regex("""\s{2,}"""), " ")?.takeIf { it.length >= 3 && !it.matches(Regex("""(?i)(your|a\/c|ac|account|the).*""")) }
-        return Result(amount, type, payee, t.take(200))
-    }
-}

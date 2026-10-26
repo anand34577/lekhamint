@@ -1,6 +1,8 @@
 package app.kosh.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.verticalScroll
@@ -101,10 +103,10 @@ fun MoneyText(
     fontWeight: FontWeight? = null,
 ) {
     val hidden = LocalHideAmounts.current
-    val text = if (hidden) "••••" else Money.format(minor, currency, signed = signed)
+    val text = if (hidden) "••••" else Money.ui(minor, currency, signed = signed)
     val spoken = if (hidden) "Amount hidden" else {
         val name = Currencies.get(currency).name
-        (if (minor < 0) "minus " else "") + Money.format(kotlin.math.abs(minor), currency, showSymbol = false) + " $name"
+        (if (minor < 0) "minus " else "") + Money.ui(kotlin.math.abs(minor), currency, showSymbol = false) + " $name"
     }
     Text(
         text, modifier.semantics { contentDescription = spoken }, style = style, color = color,
@@ -140,33 +142,47 @@ fun KoshTopBar(
 @Composable
 fun SectionHeader(title: String, modifier: Modifier = Modifier, action: String? = null, onAction: (() -> Unit)? = null) {
     Row(
-        modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 20.dp, bottom = 4.dp),
+        modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 18.dp, bottom = 2.dp).heightIn(min = 40.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.primary, modifier = Modifier.weight(1f))
-        if (action != null && onAction != null) TextButton(onClick = onAction) { Text(action) }
+        Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+        if (action != null && onAction != null) {
+            TextButton(onClick = onAction, contentPadding = PaddingValues(horizontal = 12.dp)) {
+                Text(action, style = MaterialTheme.typography.labelLarge)
+                Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, Modifier.size(18.dp))
+            }
+        }
     }
 }
 
+/**
+ * The standard surface for a group of content: white with a hairline edge in light mode, a lifted tone in dark mode.
+ */
 @Composable
 fun KoshCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
-    val colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-    val shape = RoundedCornerShape(20.dp)
+    val dark = app.kosh.ui.theme.LocalDarkTheme.current
+    val colors = CardDefaults.cardColors(containerColor = if (dark) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLowest)
+    val shape = RoundedCornerShape(22.dp)
+    val border = if (dark) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
     if (onClick != null) {
-        Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors) { content() }
+        Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors, border = border) { content() }
     } else {
-        Card(modifier = modifier, shape = shape, colors = colors) { content() }
+        Card(modifier = modifier, shape = shape, colors = colors, border = border) { content() }
     }
 }
 
 @Composable
 fun EmptyState(icon: ImageVector, title: String, body: String, modifier: Modifier = Modifier, action: (@Composable () -> Unit)? = null) {
     Column(
-        modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 48.dp),
+        modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.primary)
+        Box(
+            Modifier.size(88.dp).background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f), androidx.compose.foundation.shape.CircleShape),
+            contentAlignment = Alignment.Center,
+        ) { Icon(icon, contentDescription = null, modifier = Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary) }
+        Spacer(Modifier.height(4.dp))
         Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         if (action != null) {
@@ -316,12 +332,14 @@ fun SettingRow(
     subtitle: String? = null,
     icon: ImageVector? = null,
     onClick: (() -> Unit)? = null,
+    /** Colour of the icon tile; the brand colour when not set. */
+    tint: Color? = null,
     trailing: @Composable (() -> Unit)? = null,
 ) {
     ListItem(
-        headlineContent = { Text(title) },
-        supportingContent = subtitle?.let { { Text(it) } },
-        leadingContent = icon?.let { { Icon(it, null, tint = MaterialTheme.colorScheme.onSurfaceVariant) } },
+        headlineContent = { Text(title, style = MaterialTheme.typography.bodyLarge) },
+        supportingContent = subtitle?.let { { Text(it, maxLines = 2, overflow = TextOverflow.Ellipsis) } },
+        leadingContent = icon?.let { { IconTile(it, tint ?: MaterialTheme.colorScheme.primary) } },
         trailingContent = trailing,
         modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),

@@ -3,6 +3,9 @@ package app.kosh.ui.screens
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -175,6 +178,8 @@ class EditTxViewModel(
         private set
     private var original: TransactionEntity? = null
     private var payeeJob: Job? = null
+    /** Set when the form was opened for a found payment, so it leaves the "found" list once saved. */
+    private var captureId: String? = null
 
     val lookup get() = c.lookup.value
 
@@ -226,6 +231,16 @@ class EditTxViewModel(
                 presetAmount?.let { expr = it }
                 // Something shared into the app (a bank SMS, a receipt photo): fill the form from it.
                 app.kosh.SharedInbox.take()?.let { sh ->
+                    captureId = sh.captureId
+                    // "A/c XX1234": pick the account whose name or note carries those digits.
+                    val byDigits = sh.accountHint?.let { hint -> active.firstOrNull { a -> a.name.contains(hint) || a.note?.contains(hint) == true } }
+                    // A card alert with no matching digits: the only credit card is a safe guess.
+                    val byKind = if (byDigits == null && sh.note?.contains("credit card", ignoreCase = true) == true) active.filter { it.type == "credit_card" }.singleOrNull() else null
+                    (byDigits ?: byKind)?.let { accountId = it.id }
+                    sh.at?.let { at ->
+                        val z = java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault())
+                        date = z.toLocalDate(); time = z.toLocalTime().withSecond(0).withNano(0)
+                    }
                     sh.payee?.let { changePayee(it) }
                     sh.note?.let { note = it }
                     sh.file?.let { files += fileFromStore(it) }
@@ -348,7 +363,7 @@ class EditTxViewModel(
         suggested = (used + roots).distinct().take(8)
     }
 
-    fun save(keepOpen: Boolean) {
+    fun save(keepOpen: Boolean, onSaved: () -> Unit = {}) {
         if (saving) return
         val amount = amountMinor()
         val acc = accountId
@@ -366,7 +381,7 @@ class EditTxViewModel(
                 splitLines.any { (splitAmount(it) ?: 0) <= 0 } -> { error = "Enter an amount for every line"; return }
                 splitRemaining() != 0L -> {
                     val left = splitRemaining() ?: 0
-                    error = if (left > 0) "${Money.format(left, currency)} still to assign" else "Lines add up to ${Money.format(-left, currency)} more than the total"
+                    error = if (left > 0) "${Money.ui(left, currency)} still to assign" else "Lines add up to ${Money.ui(-left, currency)} more than the total"
                     return
                 }
             }
@@ -420,8 +435,8 @@ class EditTxViewModel(
                     val back = original?.takeIf { it.accountId == account.id && it.status != "planned" && it.type != "income" }?.amount ?: 0
                     val after = bal + back - tx.amount
                     if (Lookup.isLiability(account.type)) {
-                        account.creditLimit?.let { lim -> if (-after > lim) lines2 += "This takes ${account.name} past its ${Money.format(lim, account.currency)} limit." }
-                    } else if (after < 0 && bal + back >= 0) lines2 += "${account.name} has ${Money.format(bal + back, account.currency)}; this takes it below zero."
+                        account.creditLimit?.let { lim -> if (-after > lim) lines2 += "This takes ${account.name} past its ${Money.ui(lim, account.currency)} limit." }
+                    } else if (after < 0 && bal + back >= 0) lines2 += "${account.name} has ${Money.ui(bal + back, account.currency)}; this takes it below zero."
                 }
                 if (original == null && tx.type != "transfer") c.repo.likelyDuplicate(tx)?.let { lines2 += "The same amount is already recorded on this account for that day${it.payee?.let { p -> " ($p)" } ?: ""}. Tap Save again if this is a second payment." }
                 if (lines2.isNotEmpty()) { warning = lines2.joinToString("\n"); warnedFor = key; saving = false; return@launch }
@@ -440,9 +455,12 @@ class EditTxViewModel(
                     ),
                 )
             }
+            captureId?.let { c.captures.mark(it, "added") }
+            captureId = null
             newId = Ids.newV7()
             warnedFor = null
             saving = false
+            onSaved()
             if (keepOpen) {
                 expr = ""; payee = ""; note = ""; repeat = null; categoryChosen = false
                 splitMode = false; splitLines.clear(); hadSplits = false; ruleOutcome = null; files.clear()
@@ -507,15 +525,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize().imePadding()) {
             Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    listOf("expense" to "Expense", "income" to "Income", "transfer" to "Transfer").forEachIndexed { i, (t, label) ->
-                        SegmentedButton(
-                            selected = vm.type == t, onClick = { vm.changeType(t) },
-                            enabled = vm.linkedTo == null || vm.type == t,
-                            shape = SegmentedButtonDefaults.itemShape(i, 3),
-                        ) { Text(label) }
-                    }
-                }
+                TypeTabs(vm.type, enabled = { t -> vm.linkedTo == null || vm.type == t }, onPick = vm::changeType)
 
                 vm.linkedTo?.let { what ->
                     Text(
@@ -548,21 +558,33 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                     // Split amounts use the system keyboard, so the calculator pad hides while one is focused.
                     SplitEditor(vm, lookup, onPickCategory = { splitPick = it }, onTextFocus = { textFocused = it })
                 } else if (vm.type != "transfer") {
-                    Text("Category", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp, bottom = 4.dp))
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val shown = vm.suggested.take(8).let { s -> if (vm.categoryId != null && vm.categoryId !in s) s + vm.categoryId!! else s }
-                        for (cid in shown) {
-                            val cat = lookup.categoryById[cid] ?: continue
+                    Row(Modifier.padding(top = 8.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Category", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        vm.categoryId?.let { Text(lookup.categoryPath(it), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary, maxLines = 1) }
+                    }
+                    val shown = vm.suggested.take(8).let { s -> if (vm.categoryId != null && vm.categoryId !in s) listOf(vm.categoryId!!) + s else s }
+                    androidx.compose.foundation.lazy.LazyRow(
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 4.dp),
+                    ) {
+                        items(shown.size) { i ->
+                            val cid = shown[i]
+                            val cat = lookup.categoryById[cid] ?: return@items
                             val (icon, color) = lookup.categoryLook(cid)
-                            FilterChip(
-                                selected = vm.categoryId == cid,
-                                onClick = { vm.pickCategory(if (vm.categoryId == cid) null else cid) },
-                                label = { Text(cat.name, maxLines = 1) },
-                                leadingIcon = { IconBadge(icon, color, size = 22.dp) },
-                            )
+                            CategoryTile(cat.name, selected = vm.categoryId == cid, onClick = { vm.pickCategory(if (vm.categoryId == cid) null else cid) }) {
+                                IconBadge(icon, color, size = 44.dp)
+                            }
                         }
-                        AssistChip(onClick = { showCategories = true }, label = { Text("All") }, leadingIcon = { Icon(Icons.Rounded.MoreHoriz, null) })
-                        AssistChip(onClick = vm::toggleSplit, label = { Text("Split") }, leadingIcon = { Icon(Icons.AutoMirrored.Rounded.CallSplit, null) })
+                        item {
+                            CategoryTile("More", selected = false, onClick = { showCategories = true }) {
+                                app.kosh.ui.components.IconTile(Icons.Rounded.MoreHoriz, MaterialTheme.colorScheme.onSurfaceVariant, size = 44.dp)
+                            }
+                        }
+                        item {
+                            CategoryTile("Split", selected = false, onClick = vm::toggleSplit) {
+                                app.kosh.ui.components.IconTile(Icons.AutoMirrored.Rounded.CallSplit, MaterialTheme.colorScheme.onSurfaceVariant, size = 44.dp)
+                            }
+                        }
                     }
                     if (vm.type == "income" && lookup.categoryById[vm.categoryId]?.kind == "expense") {
                         Text("Income in an expense category counts as a refund and reduces that spending.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -570,7 +592,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                 }
 
                 // Date
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 12.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState())) {
                     val today = Dates.today()
                     FilterChip(vm.date == today, { vm.date = today }, { Text("Today") })
                     FilterChip(vm.date == today.minusDays(1), { vm.date = today.minusDays(1) }, { Text("Yesterday") })
@@ -696,9 +718,9 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                 label = if (vm.warning != null) "Save anyway" else if (vm.isEdit) "Save changes" else "Save",
                 onClick = { vm.save(keepOpen = false) },
                 onLongClick = if (vm.isEdit) null else ({
-                    vm.save(keepOpen = true)
-                    c.appScope.launch(Dispatchers.Main) { snackbar.showSnackbar("Saved. Add the next one.") }
+                    vm.save(keepOpen = true) { c.appScope.launch(Dispatchers.Main) { snackbar.showSnackbar("Saved. Add the next one.") } }
                 }),
+                ready = vm.amountMinor()?.let { it > 0 } == true,
             )
         }
     }
@@ -723,7 +745,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
     }
     if (showTime) {
         val now = java.time.LocalTime.now()
-        val state = androidx.compose.material3.rememberTimePickerState(vm.time?.hour ?: now.hour, vm.time?.minute ?: now.minute, is24Hour = false)
+        val state = androidx.compose.material3.rememberTimePickerState(vm.time?.hour ?: now.hour, vm.time?.minute ?: now.minute, is24Hour = android.text.format.DateFormat.is24HourFormat(androidx.compose.ui.platform.LocalContext.current))
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showTime = false },
             title = { Text("Time of day") },
@@ -754,20 +776,25 @@ private fun AmountDisplay(vm: EditTxViewModel, onTap: () -> Unit) {
     val shown = vm.expr.ifEmpty { "0" }
     val result = if (Calculator.hasOperator(vm.expr)) vm.amountMinor() else null
     Column(
-        Modifier.fillMaxWidth().clickable(onClick = onTap).padding(vertical = 16.dp)
+        Modifier.fillMaxWidth().clickable(onClick = onTap).padding(top = 12.dp, bottom = 8.dp)
             .semantics { contentDescription = "Amount ${vm.expr.ifEmpty { "zero" }} ${info.name}" },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(info.symbol.trim(), fontSize = 30.sp, color = color.copy(alpha = 0.8f), fontWeight = FontWeight.Medium, modifier = Modifier.padding(end = 6.dp))
             Text(
-                if (vm.type == "income") "+" else if (vm.type == "expense") "−" else "",
-                fontSize = 34.sp, color = color, fontWeight = FontWeight.Light,
+                shown, style = MaterialTheme.typography.displayLarge.copy(fontSize = if (shown.length > 9) 44.sp else 56.sp),
+                color = if (vm.expr.isEmpty()) color.copy(alpha = 0.35f) else color, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            Text(info.symbol.trim(), fontSize = 30.sp, color = color, modifier = Modifier.padding(end = 4.dp))
-            Text(shown, style = MaterialTheme.typography.displayMedium, color = color, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        if (result == null) {
+            Text(
+                when (vm.type) { "income" -> "Money in"; "transfer" -> "Moved between your accounts"; else -> "Money out" },
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
         if (result != null) {
-            Text("= ${Money.format(result, vm.currency)}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("= ${Money.ui(result, vm.currency)}", style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -802,11 +829,11 @@ fun AccountListItem(a: AccountEntity, lookup: Lookup) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun SaveButton(label: String, onClick: () -> Unit, onLongClick: (() -> Unit)?) {
+private fun SaveButton(label: String, onClick: () -> Unit, onLongClick: (() -> Unit)?, ready: Boolean = true) {
     Surface(
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
-        shape = RoundedCornerShape(18.dp),
+        color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
+        contentColor = if (ready) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+        shape = RoundedCornerShape(28.dp),
         modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 8.dp).height(56.dp)
             .semantics { contentDescription = if (onLongClick != null) "$label. Long press to save and add another." else label }
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
@@ -921,8 +948,57 @@ private fun SplitEditor(vm: EditTxViewModel, lookup: Lookup, onPickCategory: (In
         when {
             left == null -> Text("Enter the total first", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             left == 0L -> Text("All assigned", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
-            left > 0 -> Text("${Money.format(left, vm.currency)} left", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-            else -> Text("${Money.format(-left, vm.currency)} over", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            left > 0 -> Text("${Money.ui(left, vm.currency)} left", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            else -> Text("${Money.ui(-left, vm.currency)} over", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
         }
+    }
+}
+
+/** Expense / Income / Transfer as one pill switch, each in its own colour so the choice is obvious. */
+@Composable
+private fun TypeTabs(type: String, enabled: (String) -> Boolean, onPick: (String) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.surfaceContainerHigh).padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        for ((t, label) in listOf("expense" to "Expense", "income" to "Income", "transfer" to "Transfer")) {
+            val sel = type == t
+            val color = typeColor(t)
+            Box(
+                Modifier.weight(1f).clip(RoundedCornerShape(50))
+                    .background(if (sel) color else androidx.compose.ui.graphics.Color.Transparent)
+                    .clickable(enabled = enabled(t), role = androidx.compose.ui.semantics.Role.Tab) { onPick(t) }
+                    .padding(vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    label, style = MaterialTheme.typography.labelLarge,
+                    color = when {
+                        sel -> androidx.compose.ui.graphics.Color.White
+                        !enabled(t) -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** A category as an icon with its name underneath; selected tiles get a tinted background. */
+@Composable
+private fun CategoryTile(name: String, selected: Boolean, onClick: () -> Unit, icon: @Composable () -> Unit) {
+    Column(
+        Modifier.width(76.dp).clip(RoundedCornerShape(16.dp))
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else androidx.compose.ui.graphics.Color.Transparent)
+            .clickable(onClick = onClick).padding(vertical = 8.dp, horizontal = 4.dp)
+            .semantics { contentDescription = name + if (selected) ", selected" else "" },
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        icon()
+        Spacer(Modifier.height(4.dp))
+        Text(
+            name, style = MaterialTheme.typography.labelSmall, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
+            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+        )
     }
 }

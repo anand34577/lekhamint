@@ -32,6 +32,8 @@ data class BudgetStatus(
     /** Integer compare: float rounding must not swallow the exact-threshold day. */
     val overAlert: Boolean get() = limit > 0 && spent * 100 >= budget.alertPercent * limit
     val over: Boolean get() = spent > limit
+    /** Spending is running clearly faster than the period is passing (more than 10 points ahead of the pace marker). */
+    val aheadOfPace: Boolean get() = !over && window.contains(today) && paceFraction < 1f && fraction > paceFraction + 0.1f
 }
 
 object Budgets {

@@ -106,6 +106,13 @@ object Money {
         }
     }
 
+    /**
+     * For amounts on screen: like [format], but a whole amount drops its zero fraction ("₹4,000", not "₹4,000.00").
+     * Exports and statements keep [format] so they always show every digit.
+     */
+    fun ui(minor: Long, currency: String, signed: Boolean = false, showSymbol: Boolean = true, locale: Locale = Locale.getDefault()): String =
+        format(minor, currency, signed = signed, showSymbol = showSymbol, trimZeroFraction = true, locale = locale)
+
     /** Short form for chart labels: ₹1.2L, ₹3.4Cr, $12.5K. */
     fun compact(minor: Long, currency: String): String {
         val info = Currencies.get(currency)
@@ -144,6 +151,8 @@ object Money {
         // "12,50" from a comma-decimal keyboard is twelve and a half, not 1,250. A lone comma followed by one or two
         // digits (and no dot) can't be thousands grouping, which always has three digits after the comma.
         if ('.' !in t && t.count { it == ',' } == 1 && t.substringAfter(',').length in 1..2) t = t.replace(',', '.')
+        // Both separators ("1.250,50" or "1,250.50"): whichever comes last is the decimal point.
+        if ('.' in t && ',' in t && t.lastIndexOf(',') > t.lastIndexOf('.')) t = t.replace(".", "").replace(',', '.')
         val clean = t.replace(",", "")
         if (clean.isEmpty()) return null
         val value = clean.toBigDecimalOrNull() ?: return null

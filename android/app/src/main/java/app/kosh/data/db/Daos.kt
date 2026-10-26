@@ -180,8 +180,13 @@ interface TransactionDao : SyncDao<TransactionEntity> {
     suspend fun lastWithPayee(payee: String, type: String): TransactionEntity?
 
     @Query(
-        """SELECT DISTINCT payee FROM transactions WHERE deleted = 0 AND payee LIKE :prefix || '%' ESCAPE '\'
-           ORDER BY local_date DESC LIMIT 6""",
+        // One spelling per payee ignoring case ("Swiggy" and "swiggy" are one): the most recent, most recently used first.
+        // SQLite takes the bare payee column from the row holding the MAX.
+        """SELECT payee FROM (
+             SELECT payee, MAX(local_date) AS last_used FROM transactions
+             WHERE deleted = 0 AND payee LIKE :prefix || '%' ESCAPE '\'
+             GROUP BY lower(trim(payee)))
+           ORDER BY last_used DESC LIMIT 6""",
     )
     suspend fun payees(prefix: String): List<String>
 

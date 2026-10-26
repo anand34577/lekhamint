@@ -75,6 +75,18 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             tools:node="remove" />
 
+        <!-- Optional: reads bank and payment app alerts on the phone to list payments for review.
+             Only runs after the person grants notification access in system settings. -->
+        <service
+            android:name=".capture.PaymentListener"
+            android:exported="true"
+            android:label="@string/capture_label"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
         <receiver
             android:name=".work.SpendWidget"
             android:exported="false"

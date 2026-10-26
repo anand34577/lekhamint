@@ -2,6 +2,7 @@ package app.kosh
 
 import android.app.Application
 import app.kosh.backup.BackupManager
+import app.kosh.capture.CaptureStore
 import app.kosh.core.HlcClock
 import app.kosh.data.Repository
 import app.kosh.data.SecretStore
@@ -43,6 +44,8 @@ class AppContainer(app: Application) {
     val recurring = RecurringEngine(repo)
     val ruleService = RuleService(repo)
     val backups = BackupManager(app, repo, sync, SecretStore(app))
+    /** Payments found in bank and payment app alerts, on this phone only. */
+    val captures = CaptureStore(app)
 
     /** Lives as long as the process; used for shared, always-fresh reference data. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
