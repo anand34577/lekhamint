@@ -60,14 +60,20 @@ This page tracks concrete status.
       transfers/end conditions and "mark paid", auto-recording of due items, exchange-rate editor, book sharing,
       signed-in devices, keyboard shortcuts, mobile tab bar, true-black theme
 
+### Android 1.7 (October 2026)
+- [x] Command-style quick add with voice; everyday words pick categories (shared with the web)
+- [x] On-device receipt reading (PaddleOCR PP-OCRv5 + ncnn, no Play services)
+- [x] Statement import on the phone: PDF (incl. passwords), XLS/XLSX, CSV, OFX/QFX, QIF
+- [x] Actionable notifications (found payments, bills), weekly check-in, balance check, simple mode, sharing a book
+
 ## Next (Phase 3)
 
 1. Web offline writes (SQLite-WASM + the sync protocol), so the PWA can record while offline.
 2. Receipt attachments (blob storage on the server, thumbnails on clients).
-3. Ivy Wallet / other app backup importers; OFX and QIF import.
+3. Ivy Wallet / other app backup importers; OFX and QIF import on the web (Android has them).
 4. Contract test of the Android sync client against a real server in CI (emulator job).
 5. Docker image build in CI and published images.
-6. Android: command-style quick add. (Insights, cash forecast, safe to spend and repeat-payment detection are done.)
+6. Web: simple mode and the weekly check-in, as on Android.
 
 ## Later (Phases 3–4)
 
