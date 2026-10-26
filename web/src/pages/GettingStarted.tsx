@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../lib/api'
 import { useAccounts, useBalances, useBudgets, useCanWrite, useGoals, useLedger, useRules } from '../lib/data'
@@ -6,8 +5,8 @@ import { goalProgress } from '../lib/goals'
 import { Bar, Card, Money } from '../components'
 import { Icon } from '../icons'
 import type { Route } from '../App'
+import { useSetting } from '../lib/settings'
 
-const key = (lid: string) => `kosh.start.hidden.${lid}`
 
 /**
  * A short checklist for a new book. Each step ticks itself when it is done,
@@ -22,7 +21,7 @@ export function GettingStarted({ go, onAdd }: { go: (r: Route, p?: Record<string
   const goals = useGoals()
   const recent = useQuery({ queryKey: [l.id, 'transactions', 'recent'], queryFn: () => api.transactions(l.id, { limit: '8' }) })
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 5 * 60_000 })
-  const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(key(l.id)) === '1' } catch { return false } })
+  const [hidden, setHidden] = useSetting(`getting_started_hidden.${l.id}`, false)
   if (hidden || !can || accounts.isPending || recent.isPending || rules.isPending || budgets.isPending || goals.isPending) return null
   const live = <T extends { deleted: boolean }>(x?: T[]) => (x ?? []).filter((r) => !r.deleted)
   const steps: { done: boolean; title: string; body: string; action: string; run: () => void }[] = [
@@ -36,7 +35,7 @@ export function GettingStarted({ go, onAdd }: { go: (r: Route, p?: Record<string
   const done = steps.filter((s) => s.done).length
   if (done === steps.length) return null
   const next = steps.find((s) => !s.done)!
-  const hide = () => { setHidden(true); try { localStorage.setItem(key(l.id), '1') } catch { /* ignore */ } }
+  const hide = () => setHidden(true)
   return (
     <Card className="mb onboarding" title={<><Icon name="sparkles" size={16} /> Get the most out of LekhaMint</>}
       action={<button className="link small" onClick={hide}>Hide</button>}>

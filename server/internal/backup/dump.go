@@ -19,25 +19,28 @@ import (
 const (
 	DumpFormat = "kosh-dump"
 	// DumpFormatVersion 2 adds "blob" lines (attachment files) and two-step
-	// sign-in secrets on users. Version 1 dumps still restore.
-	DumpFormatVersion = 2
+	// sign-in secrets on users. Version 3 adds "prefs" (notification choices and
+	// the personal assistant key) and "setting" lines (app settings). Older dumps still restore.
+	DumpFormatVersion = 3
 )
 
 // dumpLine is one NDJSON line. Exactly one payload field is set.
 type dumpLine struct {
-	Type string `json:"type"` // header | user | ledger | member | record | blob | footer
+	Type string `json:"type"` // header | user | prefs | setting | ledger | member | record | blob | footer
 
 	Format        string `json:"format,omitempty"`
 	FormatVersion int    `json:"format_version,omitempty"`
 	SchemaVersion int    `json:"schema_version,omitempty"`
 	CreatedAt     int64  `json:"created_at,omitempty"`
 
-	User     *dumpUser     `json:"user,omitempty"`
-	Ledger   *store.Ledger `json:"ledger,omitempty"`
-	Member   *store.Member `json:"member,omitempty"`
-	LedgerID string        `json:"ledger_id,omitempty"`
-	Record   *store.Record `json:"record,omitempty"`
-	Blob     *store.Blob   `json:"blob,omitempty"`
+	User     *dumpUser      `json:"user,omitempty"`
+	Ledger   *store.Ledger  `json:"ledger,omitempty"`
+	Member   *store.Member  `json:"member,omitempty"`
+	LedgerID string         `json:"ledger_id,omitempty"`
+	Record   *store.Record  `json:"record,omitempty"`
+	Blob     *store.Blob    `json:"blob,omitempty"`
+	Prefs    *dumpPrefs     `json:"prefs,omitempty"`
+	Setting  *store.Setting `json:"setting,omitempty"`
 
 	Count int64 `json:"count,omitempty"` // footer: number of lines before it
 }
@@ -50,6 +53,14 @@ type dumpUser struct {
 	SSOSub        string `json:"sso_sub"`
 	TOTPSecret    string `json:"totp_secret,omitempty"`
 	RecoveryCodes string `json:"recovery_codes,omitempty"`
+}
+
+// dumpPrefs includes the fields store.Prefs hides from JSON: whose they are and the secrets.
+type dumpPrefs struct {
+	store.Prefs
+	UserID      string `json:"user_id"`
+	GotifyToken string `json:"gotify_token,omitempty"`
+	AiAPIKey    string `json:"ai_api_key,omitempty"`
 }
 
 // Dump writes the whole server (users, ledgers, members, records) as
@@ -73,6 +84,20 @@ func Dump(ctx context.Context, d *db.DB, w io.Writer) error {
 	if err := store.EachUser(ctx, d, func(u store.User) error {
 		return emit(dumpLine{Type: "user", User: &dumpUser{User: u, PasswordHash: u.PasswordHash, SSOSub: u.SSOSub,
 			TOTPSecret: u.TOTPSecret, RecoveryCodes: u.RecoveryCodes}})
+	}); err != nil {
+		return err
+	}
+	prefs, err := store.AllPrefs(ctx, d)
+	if err != nil {
+		return err
+	}
+	for _, p := range prefs {
+		if err := emit(dumpLine{Type: "prefs", Prefs: &dumpPrefs{Prefs: p, UserID: p.UserID, GotifyToken: p.GotifyToken, AiAPIKey: p.AiAPIKey}}); err != nil {
+			return err
+		}
+	}
+	if err := store.EachSetting(ctx, d, func(st store.Setting) error {
+		return emit(dumpLine{Type: "setting", Setting: &st})
 	}); err != nil {
 		return err
 	}
@@ -171,6 +196,22 @@ func RestoreDump(ctx context.Context, d *db.DB, r io.Reader) (RestoreStats, erro
 					return fmt.Errorf("user %s: %w", u.Email, err)
 				}
 				st.Users++
+			case "prefs":
+				if l.Prefs == nil {
+					return errors.New("prefs line without prefs")
+				}
+				p := l.Prefs.Prefs
+				p.UserID, p.GotifyToken, p.AiAPIKey = l.Prefs.UserID, l.Prefs.GotifyToken, l.Prefs.AiAPIKey
+				if err := store.PutPrefs(ctx, tx, p); err != nil {
+					return fmt.Errorf("preferences of %s: %w", p.UserID, err)
+				}
+			case "setting":
+				if l.Setting == nil || !store.ValidSettingKey(l.Setting.Key) || !json.Valid(l.Setting.Value) {
+					return errors.New("bad setting line")
+				}
+				if err := store.RestoreSetting(ctx, tx, *l.Setting); err != nil {
+					return fmt.Errorf("setting %s: %w", l.Setting.Key, err)
+				}
 			case "ledger":
 				if err := store.CreateLedger(ctx, tx, *l.Ledger); err != nil {
 					return fmt.Errorf("ledger %s: %w", l.Ledger.ID, err)

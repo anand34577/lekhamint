@@ -2,6 +2,8 @@ package app.kosh.ui.screens
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -184,10 +186,24 @@ fun TransactionsScreen() {
             if (f.query.isBlank()) {
                 item { MonthSwitcher(f.month, { m -> vm.update { it.copy(month = m) } }) }
                 item {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Total("Income", s.income, s.lookup.baseCurrency, typeColor("income"))
-                        Total("Spent", -s.expense, s.lookup.baseCurrency, typeColor("expense"))
-                        Total("Net", s.income - s.expense, s.lookup.baseCurrency, MaterialTheme.colorScheme.onSurface)
+                    app.kosh.ui.components.KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                        Column(Modifier.padding(14.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                app.kosh.ui.components.StatTile("Income", Modifier.weight(1f), tint = typeColor("income")) {
+                                    MoneyText(s.income, s.lookup.baseCurrency, color = typeColor("income"), style = MaterialTheme.typography.titleSmall)
+                                }
+                                app.kosh.ui.components.StatTile("Spent", Modifier.weight(1f), tint = typeColor("expense")) {
+                                    MoneyText(s.expense, s.lookup.baseCurrency, color = typeColor("expense"), style = MaterialTheme.typography.titleSmall)
+                                }
+                                app.kosh.ui.components.StatTile("Net", Modifier.weight(1f), tint = MaterialTheme.colorScheme.primary) {
+                                    MoneyText(s.income - s.expense, s.lookup.baseCurrency, signed = true, style = MaterialTheme.typography.titleSmall)
+                                }
+                            }
+                            if (s.expense > 0 && f.type != "income" && f.type != "transfer") {
+                                Spacer(Modifier.height(12.dp))
+                                DailyBars(f.month, s.items, s.lookup)
+                            }
+                        }
                     }
                 }
             }
@@ -276,10 +292,41 @@ fun TransactionsScreen() {
     }
 }
 
+/** One small bar per day of [month]: the shape of the month's spending at a glance. Today is outlined. */
 @Composable
-private fun Total(label: String, amount: Long, currency: String, color: Color) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        MoneyText(amount, currency, signed = label != "Net" || amount != 0L, color = color, style = MaterialTheme.typography.titleSmall)
+private fun DailyBars(month: java.time.YearMonth, items: List<app.kosh.data.db.TransactionEntity>, lookup: app.kosh.domain.Lookup) {
+    val perDay = LongArray(month.lengthOfMonth() + 1)
+    for (t in items) {
+        val r = t.toReportRow(lookup) ?: continue
+        if ((r.currency ?: lookup.baseCurrency) != lookup.baseCurrency) continue
+        val d = LocalDate.parse(r.localDate)
+        if (java.time.YearMonth.from(d) == month) perDay[d.dayOfMonth] += app.kosh.domain.Reports.spending(r, lookup.categoryById).coerceAtLeast(0)
+    }
+    val max = perDay.max().coerceAtLeast(1)
+    val today = LocalDate.now()
+    val color = typeColor("expense")
+    val muted = MaterialTheme.colorScheme.surfaceContainerHighest
+    val peakDay = perDay.indices.maxBy { perDay[it] }
+    Text(
+        "Daily spending · busiest day ${peakDay} ${month.month.getDisplayName(java.time.format.TextStyle.SHORT, java.util.Locale.getDefault())} (${app.kosh.core.Money.compact(perDay[peakDay], lookup.baseCurrency)})",
+        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(6.dp))
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(44.dp)) {
+        val n = month.lengthOfMonth()
+        val slot = size.width / n
+        val w = (slot * 0.62f).coerceAtLeast(2f)
+        for (d in 1..n) {
+            val h = if (perDay[d] > 0) (size.height * perDay[d] / max).coerceAtLeast(3f) else 3f
+            val x = slot * (d - 1) + (slot - w) / 2
+            val isToday = month.atDay(d) == today
+            drawRoundRect(
+                if (perDay[d] > 0) (if (d == peakDay) color else color.copy(alpha = 0.55f)) else muted,
+                topLeft = androidx.compose.ui.geometry.Offset(x, size.height - h),
+                size = androidx.compose.ui.geometry.Size(w, h),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(w / 2, w / 2),
+            )
+            if (isToday) drawCircle(color, 3.5f, androidx.compose.ui.geometry.Offset(x + w / 2, size.height + 0f))
+        }
     }
 }

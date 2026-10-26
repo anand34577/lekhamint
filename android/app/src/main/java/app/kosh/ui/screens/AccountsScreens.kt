@@ -89,37 +89,56 @@ fun AccountsScreen() {
     val nav = LocalNav.current
     val lookup by c.lookup.collectAsStateWithLifecycle()
     Scaffold(
-        topBar = { KoshTopBar("Accounts", onBack = { nav.popBackStack() }) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { nav.navigate(Routes.editAccount()) }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Account") })
+        topBar = {
+            KoshTopBar("Accounts", onBack = { nav.popBackStack() }) {
+                androidx.compose.material3.FilledTonalButton(onClick = { nav.navigate(Routes.editAccount()) }, modifier = Modifier.padding(end = 8.dp)) {
+                    Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Text(" Add")
+                }
+            }
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 96.dp)) {
+        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
-                KoshCard(Modifier.fillMaxWidth().padding(16.dp)) {
-                    Column(Modifier.padding(20.dp)) {
-                        Text("Net worth", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        if (lookup.netWorth.isEmpty()) MoneyText(0, lookup.baseCurrency, style = MaterialTheme.typography.headlineMedium)
-                        for ((cur, v) in lookup.netWorth.entries.sortedByDescending { it.key == lookup.baseCurrency }) {
-                            Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                MoneyText(v, cur, style = if (cur == lookup.baseCurrency) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium)
-                                if (lookup.netWorth.size > 1) Text(cur, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
-                            }
+                app.kosh.ui.components.HeroCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    val on = app.kosh.ui.components.LocalOnHero.current
+                    Text("Net worth", style = MaterialTheme.typography.labelLarge, color = on.copy(alpha = 0.85f))
+                    if (lookup.netWorth.isEmpty()) MoneyText(0, lookup.baseCurrency, style = MaterialTheme.typography.displaySmall, color = on)
+                    for ((cur, v) in lookup.netWorth.entries.sortedByDescending { it.key == lookup.baseCurrency }) {
+                        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            MoneyText(v, cur, style = if (cur == lookup.baseCurrency) MaterialTheme.typography.displaySmall else MaterialTheme.typography.titleMedium, color = on)
+                            if (lookup.netWorth.size > 1) Text(cur, style = MaterialTheme.typography.bodySmall, color = on.copy(alpha = 0.75f), modifier = Modifier.padding(bottom = 3.dp))
                         }
-                        lookup.netWorthInBase(app.kosh.core.Dates.today().toString())?.let { all ->
-                            Text(
-                                "All together: " + Money.format(all.total, lookup.baseCurrency) +
-                                    if (all.missing.isNotEmpty()) " (without ${all.missing.joinToString(", ")}: add an exchange rate)" else "",
-                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Text("Balances are calculated from your transactions, so they are always exact.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                    lookup.netWorthInBase(app.kosh.core.Dates.today().toString())?.let { all ->
+                        Text(
+                            "All together: " + Money.ui(all.total, lookup.baseCurrency) +
+                                if (all.missing.isNotEmpty()) " (without ${all.missing.joinToString(", ")}: add an exchange rate)" else "",
+                            style = MaterialTheme.typography.bodyMedium, color = on.copy(alpha = 0.85f),
+                        )
+                    }
+                    Text("Balances come from your transactions, so they are always exact.", style = MaterialTheme.typography.bodySmall, color = on.copy(alpha = 0.7f), modifier = Modifier.padding(top = 6.dp))
                 }
             }
             val (active, archived) = lookup.accounts.partition { !it.archived }
             if (active.isEmpty()) item { EmptyState(Icons.Rounded.AccountBalanceWallet, "No accounts", "Add cash, bank accounts, cards and wallets.") }
-            items(active, key = { it.id }) { a -> AccountRow(a, lookup.worth(a)) { nav.navigate(Routes.account(a.id)) } }
+            val groups = listOf(
+                "Cash & bank" to active.filter { !app.kosh.domain.Lookup.isLiability(it.type) && !app.kosh.domain.Lookup.isInvestment(it.type) },
+                "Cards & loans" to active.filter { app.kosh.domain.Lookup.isLiability(it.type) },
+                "Savings & investments" to active.filter { app.kosh.domain.Lookup.isInvestment(it.type) },
+            ).filter { it.second.isNotEmpty() }
+            for ((title, list) in groups) {
+                item(key = "g-$title") {
+                    // Subtotal per currency; most books have one.
+                    val totals = list.groupBy { it.currency }.mapValues { (_, l) -> l.sumOf { lookup.worth(it) } }
+                    Row(Modifier.fillMaxWidth().padding(start = 28.dp, end = 28.dp, top = 18.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        for ((cur, v) in totals) MoneyText(v, cur, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp))
+                    }
+                    KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                        Column(Modifier.padding(vertical = 4.dp)) { for (a in list) AccountRow(a, lookup.worth(a)) { nav.navigate(Routes.account(a.id)) } }
+                    }
+                }
+            }
             if (archived.isNotEmpty()) {
                 item { SectionHeader("Archived") }
                 items(archived, key = { it.id }) { a -> AccountRow(a, lookup.balances[a.id] ?: a.openingBalance) { nav.navigate(Routes.account(a.id)) } }
@@ -189,12 +208,12 @@ fun AccountDetailScreen(id: String) {
                             val credit = balance.coerceAtLeast(0) // paid more than owed: the card holds your money
                             LinearProgressIndicator(progress = { (used.toFloat() / limit).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
                             Text(
-                                if (credit > 0) "In credit by ${Money.format(credit, account.currency)} · ${Money.format(limit + credit, account.currency)} available of ${Money.format(limit, account.currency)} limit"
-                                else "${Money.format(used, account.currency)} used of ${Money.format(limit, account.currency)} · ${Money.format((limit - used).coerceAtLeast(0), account.currency)} available",
+                                if (credit > 0) "In credit by ${Money.ui(credit, account.currency)} · ${Money.ui(limit + credit, account.currency)} available of ${Money.ui(limit, account.currency)} limit"
+                                else "${Money.ui(used, account.currency)} used of ${Money.ui(limit, account.currency)} · ${Money.ui((limit - used).coerceAtLeast(0), account.currency)} available",
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         } else if ((account.type == "credit_card" || account.type == "loan") && balance > 0) {
-                            Text("Overpaid: ${Money.format(balance, account.currency)} in your favour. It reduces what you owe on your next spends, or ask for a refund.", style = MaterialTheme.typography.bodySmall)
+                            Text("Overpaid: ${Money.ui(balance, account.currency)} in your favour. It reduces what you owe on your next spends, or ask for a refund.", style = MaterialTheme.typography.bodySmall)
                         }
                         CardBilling.due(account, balance, app.kosh.core.Dates.today())?.let { due ->
                             Text(
@@ -205,13 +224,37 @@ fun AccountDetailScreen(id: String) {
                         }
                         if (Lookup.isLiability(account.type) && balance < 0) {
                             Button(onClick = { nav.navigate(Routes.editTx(type = "transfer", to = id, amount = Money.toPlain(-balance, account.currency))) }) {
-                                Text(if (account.type == "credit_card") "Pay card bill · ${Money.format(-balance, account.currency)}" else "Make a payment · ${Money.format(-balance, account.currency)}")
+                                Text(if (account.type == "credit_card") "Pay card bill · ${Money.ui(-balance, account.currency)}" else "Make a payment · ${Money.ui(-balance, account.currency)}")
                             }
                         }
                         if (isValued(account.type)) ValueSummary(account, lookup, onUpdate = { valuing = true })
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             OutlinedButton(onClick = { reconcile = true }) { Icon(Icons.Rounded.Tune, null, Modifier.size(18.dp)); Spacer(Modifier.size(6.dp)); Text("Reconcile") }
                             OutlinedButton(onClick = { nav.navigate(Routes.editTx(type = "transfer", account = id)) }) { Text("Transfer") }
+                        }
+                    }
+                }
+            }
+            val history = balanceHistory(txs, id, balance, days = 90, complete = txs.size < limit)
+            if (history.size >= 7 && history.distinct().size > 1) item {
+                val lo = history.min(); val hi = history.max()
+                app.kosh.ui.components.SectionCard("Balance trend", subtitle = "End-of-day balance, last ${history.size} days") {
+                    app.kosh.ui.components.Sparkline(
+                        history, if (history.last() >= history.first()) app.kosh.ui.theme.LocalMoneyColors.current.income else app.kosh.ui.theme.LocalMoneyColors.current.expense,
+                        Modifier.fillMaxWidth().height(96.dp),
+                    )
+                    Row(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Lowest", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            MoneyText(lo, account.currency, style = MaterialTheme.typography.labelLarge)
+                        }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Change", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            MoneyText(history.last() - history.first(), account.currency, signed = true, style = MaterialTheme.typography.labelLarge)
+                        }
+                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                            Text("Highest", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            MoneyText(hi, account.currency, style = MaterialTheme.typography.labelLarge)
                         }
                     }
                 }
@@ -246,7 +289,7 @@ private fun ReconcileDialog(a: AccountEntity, current: Long, onDismiss: () -> Un
                 Text("Enter the balance your bank or wallet shows now. LekhaMint records the difference as an adjustment.")
                 AmountField(text, { text = it }, a.currency, "Actual balance", allowNegative = true)
                 if (parsed != null && parsed != current) {
-                    Text("Adjustment: ${Money.format(parsed - current, a.currency, signed = true)}", style = MaterialTheme.typography.bodyMedium)
+                    Text("Adjustment: ${Money.ui(parsed - current, a.currency, signed = true)}", style = MaterialTheme.typography.bodyMedium)
                 }
             }
         },
@@ -447,4 +490,27 @@ fun SwitchRow(title: String, subtitle: String?, checked: Boolean, onChange: (Boo
         }
         Switch(checked, onChange)
     }
+}
+
+/**
+ * End-of-day balances for the last [days] days (oldest first), walking back from today's [current] balance
+ * through [txs] (newest first). Planned entries never moved the balance, so they are skipped. When the list
+ * is only a page of the history ([complete] false), the result stops at the oldest loaded day.
+ */
+internal fun balanceHistory(txs: List<app.kosh.data.db.TransactionEntity>, accountId: String, current: Long, days: Int, complete: Boolean): List<Long> {
+    val today = app.kosh.core.Dates.today()
+    val oldestLoaded = if (complete) null else txs.lastOrNull()?.let { java.time.LocalDate.parse(it.localDate) }
+    val byDay = txs.filter { it.status != "planned" }.groupBy { java.time.LocalDate.parse(it.localDate) }
+    val out = ArrayList<Long>()
+    var bal = current
+    // Future-dated entries already count in the balance; take them off to get today's end-of-day figure.
+    for ((d, list) in byDay) if (d.isAfter(today)) bal -= list.sumOf { app.kosh.ui.components.signedAmount(it, accountId) }
+    var d = today
+    for (i in 0 until days) {
+        if (oldestLoaded != null && d.isBefore(oldestLoaded)) break
+        out += bal
+        bal -= byDay[d].orEmpty().sumOf { app.kosh.ui.components.signedAmount(it, accountId) }
+        d = d.minusDays(1)
+    }
+    return out.reversed()
 }

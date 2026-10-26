@@ -58,6 +58,11 @@ export function Reports({ go }: PageProps) {
     return out
   }, [s, cats])
   const nTotal = nature.need + nature.want + nature.savings + nature.other
+  // The 50/30/20 guide is about shares of income: what was kept counts as saved. Without
+  // income in the period it falls back to shares of spending.
+  const byIncome = (s?.income ?? 0) > 0
+  const nBase = byIncome ? s!.income : nTotal
+  const nShares = { ...nature, savings: byIncome ? Math.max(0, nature.savings + s!.income - s!.expense) : nature.savings }
   const shift = (d: number) => setAnchor(span === 'month' ? monthRange(anchor, d)[0] : `${year + d}-01-01`)
   const tagTotals = useQuery({ queryKey: [l.id, 'tag-totals', from, to], queryFn: () => api.tagTotals(l.id, from, to) })
   const payees = useQuery({ queryKey: [l.id, 'payee-totals', from, to], queryFn: () => api.payeeTotals(l.id, from, to, 50) })
@@ -106,15 +111,16 @@ export function Reports({ go }: PageProps) {
               <Card title={span === 'month' ? 'Last 12 months' : 'Month by month'}><Bars points={points} currency={cur} label="Income and spending per month" /></Card>
               {nTotal > 0 && (
                 <Card title="Needs, wants and savings">
+                  <p className="muted small" style={{ marginTop: 0 }}>{byIncome ? 'Share of income. A common guide: 50% needs, 30% wants, 20% saved.' : 'Share of spending (no income in this period).'}</p>
                   <div className="bar" style={{ display: 'flex', height: 14 }}>
                     {([['need', '#0EA5E9'], ['want', '#F59E0B'], ['savings', '#22C55E'], ['other', '#94A3B8']] as const).map(([k, c]) =>
-                      <div key={k} style={{ width: `${(nature[k] / nTotal) * 100}%`, background: c }} />)}
+                      <div key={k} style={{ width: `${Math.min(100, (nShares[k] / nBase) * 100)}%`, background: c }} />)}
                   </div>
                   <ul className="list">
-                    {([['need', 'Needs', '50%', '#0EA5E9'], ['want', 'Wants', '30%', '#F59E0B'], ['savings', 'Savings & debt', '20%', '#22C55E'], ['other', 'Not set', '', '#94A3B8']] as const)
+                    {([['need', 'Needs', '50%', '#0EA5E9'], ['want', 'Wants', '30%', '#F59E0B'], ['savings', byIncome ? 'Saved' : 'Savings & debt', '20%', '#22C55E'], ['other', 'Not set', '', '#94A3B8']] as const)
                       .filter(([k]) => k !== 'other' || nature.other > 0).map(([k, label, guide, c]) => (
                         <li key={k}><Dot color={c} /><span className="grow">{label} {guide && <span className="muted small">· guideline {guide}</span>}</span>
-                          <strong>{Math.round((nature[k] / nTotal) * 100)}%</strong><Money value={nature[k]} currency={cur} /></li>
+                          <strong>{Math.round((nShares[k] / nBase) * 100)}%</strong><Money value={nShares[k]} currency={cur} /></li>
                       ))}
                   </ul>
                 </Card>

@@ -9,13 +9,13 @@ import { addDays, csvEscape, dayLabel, download, isoDate, monthLabel, monthRange
 import { Card, Check, Empty, Field, Modal, Money, Segmented, Skeleton, errorText, saveErrorText, toast } from '../components'
 import { CatIcon, Icon } from '../icons'
 import { SplitEditor, TagInput, splitMinor, type SplitDraft } from './parts'
-import { rememberAccount, type Resolved } from './QuickAdd'
+import { lastAccount, rememberAccount, type Resolved } from './QuickAdd'
 import type { PageProps } from '../App'
 import { Select, DateField, NumInput } from '../controls'
 import { AttachmentsField, HistoryPanel, attachmentOps, useTxAttachments, type FileDraft } from './TxExtras'
 import { TxCalendar } from './TxCalendar'
+import { useSetting } from '../lib/settings'
 
-const readView = () => { try { return localStorage.getItem('kosh.txview') === 'calendar' ? 'calendar' : 'list' } catch { return 'list' } }
 
 export function Transactions({ params, go }: PageProps) {
   const l = useLedger()
@@ -47,8 +47,8 @@ export function Transactions({ params, go }: PageProps) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkCat, setBulkCat] = useState('')
   const [bulkTag, setBulkTag] = useState('')
-  const [view, setViewRaw] = useState<'list' | 'calendar'>(readView)
-  const setView = (v: 'list' | 'calendar') => { setViewRaw(v); setDay(''); try { localStorage.setItem('kosh.txview', v) } catch { /* ignore */ } }
+  const [view, setViewRaw] = useSetting<'list' | 'calendar'>('tx_view', 'list')
+  const setView = (v: 'list' | 'calendar') => { setViewRaw(v); setDay('') }
   const [day, setDay] = useState('')
   useEffect(() => setDay(''), [month])
 
@@ -295,7 +295,7 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, payCard, cop
   const [warn, setWarn] = useState<{ key: string; lines: string[] } | null>(null)
   const src = tx ?? copyOf
   const live = useMemo(() => (accounts.data ?? []).filter((a) => !a.deleted && !a.archived), [accounts.data])
-  const lastUsed = (() => { try { return localStorage.getItem(`kosh.lastAccount.${l.id}`) } catch { return null } })()
+  const lastUsed = lastAccount(l.id)
   const [type, setType] = useState<Transaction['type']>(src?.type ?? (payCard ? 'transfer' : draft?.draft.type) ?? 'expense')
   const cardCur = payCard ? (accounts.data ?? []).find((a) => a.id === payCard.cardId)?.currency : undefined
   const payer = payCard ? live.find((a) => a.id === lastUsed && a.id !== payCard.cardId && !isLiability(a.type) && a.currency === cardCur) ?? live.find((a) => a.id !== payCard.cardId && !isLiability(a.type) && a.currency === cardCur) : undefined

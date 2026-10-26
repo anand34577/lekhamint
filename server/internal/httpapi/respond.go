@@ -63,6 +63,9 @@ func (s *Server) fail(w http.ResponseWriter, r *http.Request, err error) {
 		writeError(w, http.StatusUnauthorized, "otp_required", err.Error(), nil)
 	case errors.Is(err, auth.ErrInvalidOTP):
 		writeError(w, http.StatusUnauthorized, "invalid_otp", err.Error(), nil)
+	case errors.Is(err, auth.ErrOTPLocked):
+		w.Header().Set("Retry-After", "900")
+		writeError(w, http.StatusTooManyRequests, "otp_locked", err.Error(), nil)
 	case errors.Is(err, auth.ErrResetInvalid):
 		writeError(w, http.StatusBadRequest, "reset_invalid", err.Error(), nil)
 	case errors.Is(err, auth.ErrTOTPNotSetUp), errors.Is(err, auth.ErrTOTPAlreadyOn):

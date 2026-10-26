@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -91,41 +92,44 @@ fun GoalsScreen() {
     val cur = { id: String -> lookup.accountById[id]?.currency }
     val (active, archived) = goals.partition { !it.archived }
     Scaffold(
-        topBar = { KoshTopBar("Goals", onBack = { nav.popBackStack() }) },
-        floatingActionButton = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Goal") }) },
+        topBar = {
+            KoshTopBar("Goals", onBack = { nav.popBackStack() }) {
+                androidx.compose.material3.FilledTonalButton(onClick = { adding = true }, modifier = Modifier.padding(end = 8.dp)) {
+                    Icon(Icons.Rounded.Add, null); Text("New", Modifier.padding(start = 4.dp))
+                }
+            }
+        },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 96.dp)) {
+        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
             if (active.isEmpty()) item {
                 EmptyState(Icons.Rounded.Savings, "Save for what matters",
-                    "Set a target, like an emergency fund or a trip. Link the accounts where you keep the money and see how much to put aside each month.")
+                    "Set a target, like an emergency fund or a trip. Link the accounts where you keep the money and see how much to put aside each month.") {
+                    androidx.compose.material3.FilledTonalButton(onClick = { adding = true }) { Text("Set a goal") }
+                }
             }
-            items(active.sortedBy { it.targetDate ?: "9999" }, key = { it.id }) { g ->
-                val p = Goals.progress(g, worth, cur)
-                KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), onClick = { editing = g }) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(g.name, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-                            Text(p.status.label, style = MaterialTheme.typography.labelMedium,
-                                color = when (p.status) { Goals.Status.BEHIND, Goals.Status.OVERDUE -> MaterialTheme.colorScheme.error; else -> MaterialTheme.colorScheme.primary })
+            // All goals in the main currency together: one ring for the whole picture.
+            val inBase = active.filter { it.currency == lookup.baseCurrency }.map { it to Goals.progress(it, worth, cur) }
+            if (inBase.size > 1) item {
+                val saved = inBase.sumOf { minOf(it.second.saved, it.second.target) }
+                val target = inBase.sumOf { it.second.target }
+                val monthly = inBase.sumOf { it.second.perMonth ?: 0 }
+                app.kosh.ui.components.HeroCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                    val on = app.kosh.ui.components.LocalOnHero.current
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        app.kosh.ui.components.ProgressRing(
+                            if (target > 0) saved.toFloat() / target else 0f, on, size = 84.dp, thickness = 10.dp, track = on.copy(alpha = 0.2f),
+                        ) { Text("${if (target > 0) (saved * 100 / target) else 0}%", style = MaterialTheme.typography.titleMedium, color = on) }
+                        Column(Modifier.weight(1f).padding(start = 16.dp)) {
+                            Text("Saved across ${inBase.size} goals", style = MaterialTheme.typography.labelLarge, color = on.copy(alpha = 0.85f))
+                            MoneyText(saved, lookup.baseCurrency, style = MaterialTheme.typography.headlineSmall, color = on)
+                            Text("of ${Money.ui(target, lookup.baseCurrency)}", style = MaterialTheme.typography.bodySmall, color = on.copy(alpha = 0.8f))
+                            if (monthly > 0) Text("Put aside ${Money.ui(wholeUp(monthly, lookup.baseCurrency), lookup.baseCurrency)} a month to stay on plan", style = MaterialTheme.typography.bodySmall, color = on.copy(alpha = 0.8f), modifier = Modifier.padding(top = 4.dp))
                         }
-                        Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            MoneyText(p.saved, g.currency, style = MaterialTheme.typography.titleLarge)
-                            Text("of ${Money.format(p.target, g.currency)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Spacer(Modifier.weight(1f))
-                            Text("${(p.fraction * 100).toInt()}%", style = MaterialTheme.typography.titleSmall)
-                        }
-                        LinearProgressIndicator(progress = { p.fraction }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
-                        Text(
-                            when {
-                                p.status == Goals.Status.DONE -> "Goal reached. Well done!"
-                                p.perMonth != null -> "Put aside ${Money.format(p.perMonth, g.currency)} a month for ${maxOf(1, Math.round(p.monthsLeft ?: 1.0))} more months" + (g.targetDate?.let { " (by ${Dates.medium(LocalDate.parse(it))})" } ?: "")
-                                p.status == Goals.Status.OVERDUE -> "${Money.format(p.left, g.currency)} still to go and the date has passed."
-                                else -> "${Money.format(p.left, g.currency)} still to go. Add a date to see the monthly amount."
-                            },
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
                     }
                 }
+            }
+            items(active.sortedBy { it.targetDate ?: "9999" }, key = { it.id }) { g ->
+                GoalCard(g, Goals.progress(g, worth, cur), explain = g.id == active.sortedBy { it.targetDate ?: "9999" }.first().id) { editing = g }
             }
             if (archived.isNotEmpty()) {
                 item { SectionHeader("Finished and archived") }
@@ -139,6 +143,69 @@ fun GoalsScreen() {
     }
     if (adding) GoalSheet(null, lookup) { adding = false }
     editing?.let { g -> GoalSheet(g, lookup) { editing = null } }
+}
+
+/** Rounds up to whole currency units: "put aside ₹12,374", not "₹12,373.99". */
+private fun wholeUp(minor: Long, currency: String): Long {
+    var f = 1L
+    repeat(app.kosh.core.Currencies.digits(currency)) { f *= 10 }
+    return (minor + f - 1) / f * f
+}
+
+/** One goal: a ring for how far along it is, a bar that marks where the plan says you should be today, and what to do next. */
+@Composable
+private fun GoalCard(g: Goal, p: Goals.Progress, explain: Boolean, onClick: () -> Unit) {
+    val m = app.kosh.ui.theme.LocalMoneyColors.current
+    val tint = when (p.status) {
+        Goals.Status.DONE, Goals.Status.AHEAD -> m.income
+        Goals.Status.BEHIND, Goals.Status.OVERDUE -> m.warning
+        else -> MaterialTheme.colorScheme.primary
+    }
+    KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), onClick = onClick) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                app.kosh.ui.components.ProgressRing(p.fraction, tint, size = 64.dp, thickness = 8.dp) {
+                    Text("${(p.fraction * 100).toInt()}%", style = MaterialTheme.typography.labelLarge)
+                }
+                Column(Modifier.weight(1f).padding(start = 14.dp)) {
+                    Text(g.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        MoneyText(p.saved, g.currency, style = MaterialTheme.typography.titleLarge)
+                        Text("of ${Money.ui(p.target, g.currency)}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 2.dp))
+                    }
+                    app.kosh.ui.components.StatusPill(p.status.label, tint, modifier = Modifier.padding(top = 4.dp))
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            // Saved so far, with a tick where the plan says you should be by today.
+            val track = MaterialTheme.colorScheme.surfaceContainerHighest
+            val marker = MaterialTheme.colorScheme.onSurface
+            val planned = p.expected?.takeIf { p.target > 0 && p.status != Goals.Status.DONE }?.let { (it.toFloat() / p.target).coerceIn(0f, 1f) }
+            androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(14.dp)) {
+                val h = 10.dp.toPx()
+                val y = (size.height - h) / 2
+                drawRoundRect(track, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Size(size.width, h), androidx.compose.ui.geometry.CornerRadius(h / 2))
+                if (p.fraction > 0f) drawRoundRect(tint, androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Size(size.width * p.fraction, h), androidx.compose.ui.geometry.CornerRadius(h / 2))
+                if (planned != null) {
+                    val x = size.width * planned
+                    drawLine(marker, androidx.compose.ui.geometry.Offset(x, 0f), androidx.compose.ui.geometry.Offset(x, size.height), 3f)
+                }
+            }
+            if (planned != null && explain) {
+                Text("The mark shows where the plan says you'd be today", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                when {
+                    p.status == Goals.Status.DONE -> "Goal reached. Well done!"
+                    p.perMonth != null -> "Put aside ${Money.ui(wholeUp(p.perMonth, g.currency), g.currency)} a month for ${maxOf(1, Math.round(p.monthsLeft ?: 1.0))} more months" + (g.targetDate?.let { " (by ${Dates.medium(LocalDate.parse(it))})" } ?: "")
+                    p.status == Goals.Status.OVERDUE -> "${Money.ui(p.left, g.currency)} still to go and the date has passed."
+                    else -> "${Money.ui(p.left, g.currency)} still to go. Add a date to see the monthly amount."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+    }
 }
 
 @Composable
@@ -220,8 +287,8 @@ fun ValueSummary(a: AccountEntity, lookup: Lookup, onUpdate: () -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (value != null) {
             val gain = value - put
-            Text("Worth now ${Money.format(value, a.currency)} · you put in ${Money.format(put, a.currency)}", style = MaterialTheme.typography.bodyMedium)
-            Text((if (gain >= 0) "Gain " else "Loss ") + Money.format(kotlin.math.abs(gain), a.currency) + if (put > 0) " (%.1f%%)".format(gain * 100.0 / put) else "",
+            Text("Worth now ${Money.ui(value, a.currency)} · you put in ${Money.ui(put, a.currency)}", style = MaterialTheme.typography.bodyMedium)
+            Text((if (gain >= 0) "Gain " else "Loss ") + Money.ui(kotlin.math.abs(gain), a.currency) + if (put > 0) " (%.1f%%)".format(gain * 100.0 / put) else "",
                 color = if (gain >= 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleSmall)
         }
         AssistChip(onClick = onUpdate, label = { Text(if (value == null) "Record what it is worth" else "Update value") })
@@ -251,7 +318,7 @@ fun ValuationSheet(a: AccountEntity, lookup: Lookup, onDismiss: () -> Unit) {
                 DateField("Date", date, { date = it }, Modifier.fillMaxWidth(), max = Dates.today())
                 OutlinedTextField(note, { note = it.take(200) }, label = { Text("Note (optional)") }, placeholder = { Text("NAV × units") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (parsed != null && put > 0) Text(
-                    (if (parsed >= put) "A gain of " else "A loss of ") + Money.format(kotlin.math.abs(parsed - put), a.currency) + " (%.1f%%) on what you put in.".format((parsed - put) * 100.0 / put),
+                    (if (parsed >= put) "A gain of " else "A loss of ") + Money.ui(kotlin.math.abs(parsed - put), a.currency) + " (%.1f%%) on what you put in.".format((parsed - put) * 100.0 / put),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 if (history.isNotEmpty()) Text("Recorded values", style = MaterialTheme.typography.labelLarge)
@@ -345,7 +412,7 @@ fun YearTaxScreen() {
                         val limit = s?.limit
                         if (limit != null && lookup.baseCurrency == "INR") {
                             LinearProgressIndicator(progress = { (total.toFloat() / limit).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), drawStopIndicator = {})
-                            Text(if (total >= limit) "Limit of ${Money.format(limit, "INR")} reached" else "${Money.format(limit - total, "INR")} of room left under ${Money.format(limit, "INR")}",
+                            Text(if (total >= limit) "Limit of ${Money.ui(limit, "INR")} reached" else "${Money.ui(limit - total, "INR")} of room left under ${Money.ui(limit, "INR")}",
                                 style = MaterialTheme.typography.bodySmall)
                         }
                         for ((n, v) in lines) Row { Text(n, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall); MoneyText(v, lookup.baseCurrency, style = MaterialTheme.typography.bodySmall) }

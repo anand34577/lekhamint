@@ -22,7 +22,17 @@ data class LaunchRequest(val addType: String?, val amount: String? = null, val n
  * next new-transaction form to pick it up. The file is already copied into app storage.
  */
 object SharedInbox {
-    data class Shared(val payee: String?, val note: String?, val file: app.kosh.data.BlobStore.Stored?)
+    data class Shared(
+        val payee: String?,
+        val note: String?,
+        val file: app.kosh.data.BlobStore.Stored?,
+        /** A found payment this form was opened for: marked as added once saved. */
+        val captureId: String? = null,
+        /** Last digits of the account or card the message named, to pick the matching account. */
+        val accountHint: String? = null,
+        /** When the payment happened, if known. */
+        val at: Long? = null,
+    )
     @Volatile var pending: Shared? = null
     fun take(): Shared? = pending.also { pending = null }
 }
@@ -54,6 +64,13 @@ class MainActivity : FragmentActivity() {
     private fun handle(intent: Intent?) {
         when (intent?.action) {
             ACTION_ADD -> launch.value = LaunchRequest(intent.getStringExtra("type") ?: "expense")
+            app.kosh.capture.PaymentListener.ACTION_CAPTURE -> {
+                val c = (application as KoshApplication).container.captures.find(intent.getStringExtra(app.kosh.capture.PaymentListener.EXTRA_ID).orEmpty())
+                if (c != null && c.state == "new") {
+                    SharedInbox.pending = SharedInbox.Shared(c.payee, c.text.take(200), null, captureId = c.id, accountHint = c.accountHint, at = c.at)
+                    launch.value = LaunchRequest(c.type, c.amount.toBigDecimalOrNull()?.stripTrailingZeros()?.toPlainString() ?: c.amount)
+                }
+            }
             Intent.ACTION_SEND -> {
                 val text = intent.getStringExtra(Intent.EXTRA_TEXT)
                 @Suppress("DEPRECATION")
@@ -64,7 +81,7 @@ class MainActivity : FragmentActivity() {
                     // Copy the file now, while this app has permission to read it.
                     val file = uri?.let { u -> kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { runCatching { blobs.import(u) }.getOrNull() } }
                     val sms = text?.let(app.kosh.domain.SmsParser::parse)
-                    SharedInbox.pending = SharedInbox.Shared(sms?.payee, text?.takeIf { sms?.amount != null }?.let { sms!!.note }, file)
+                    SharedInbox.pending = SharedInbox.Shared(sms?.payee, text?.takeIf { sms?.amount != null }?.let { sms!!.note }, file, accountHint = sms?.accountHint)
                     launch.value = LaunchRequest(sms?.type ?: "expense", sms?.amount)
                 }
             }

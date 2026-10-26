@@ -1,6 +1,7 @@
 // Income-tax sections a category can count towards, and the financial year.
 // The limits are the commonly quoted Indian old-regime figures, shown only as a
 // guide: LekhaMint adds up what you recorded; it does not give tax advice.
+import { getSetting, setSetting } from './settings'
 
 export interface TaxSection { code: string; label: string; examples: string; /** Yearly limit in minor units of INR, if there is a simple one. */ limit?: number }
 
@@ -25,15 +26,13 @@ export const taxSection = (code: string | null | undefined) => TAX_SECTIONS.find
 
 /** Month the financial year starts (1–12): April for India, else January, unless the person chose otherwise. */
 export function fyStartMonth(ledgerId: string, currency: string): number {
-  try {
-    const v = Number(localStorage.getItem(`kosh.fy.${ledgerId}`))
-    if (v >= 1 && v <= 12) return v
-  } catch { /* ignore */ }
+  const v = Number(getSetting(`fy_start.${ledgerId}`, 0))
+  if (v >= 1 && v <= 12) return v
   return currency === 'INR' ? 4 : 1
 }
 
 export function setFyStartMonth(ledgerId: string, month: number) {
-  try { localStorage.setItem(`kosh.fy.${ledgerId}`, String(month)) } catch { /* ignore */ }
+  setSetting(`fy_start.${ledgerId}`, month)
 }
 
 /** The financial year containing [date]: [from, to, label]. */

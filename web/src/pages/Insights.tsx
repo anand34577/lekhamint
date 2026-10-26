@@ -11,10 +11,9 @@ import { Card, Empty, LineChart, Money, Segmented, Skeleton, errorText, toast } 
 import { Explain, Loading, RankBars, SERIES } from '../charts'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
+import { useSetting } from '../lib/settings'
 
 const CASH_TYPES = new Set(['cash', 'bank', 'wallet'])
-const hiddenKey = (lid: string) => `kosh.subs.hidden.${lid}`
-const readHidden = (lid: string): string[] => { try { return JSON.parse(localStorage.getItem(hiddenKey(lid)) ?? '[]') } catch { return [] } }
 
 /** Looking ahead: a cash-flow forecast, and subscriptions found in past spending. */
 export function Insights({ go }: PageProps) {
@@ -119,7 +118,7 @@ function Subscriptions({ spending, loading }: { spending?: Tx[]; loading: boolea
   const accounts = useAccounts()
   const write = useWrite()
   const can = useCanWrite()
-  const [hidden, setHidden] = useState<string[]>(() => readHidden(l.id))
+  const [hidden, setHidden] = useSetting<string[]>(`subscriptions_hidden.${l.id}`, [])
   const today = isoDate()
   const subs = useMemo(() => {
     if (!spending) return []
@@ -130,7 +129,7 @@ function Subscriptions({ spending, loading }: { spending?: Tx[]; loading: boolea
   const shown = subs.filter((s) => !hidden.includes(s.key))
   const active = shown.filter((s) => !s.stale)
   const yearly = active.reduce((a, s) => a + s.yearly, 0)
-  const hide = (k: string) => { const v = [...hidden, k]; setHidden(v); try { localStorage.setItem(hiddenKey(l.id), JSON.stringify(v)) } catch { /* ignore */ } }
+  const hide = (k: string) => setHidden([...hidden, k])
   const track = async (s: Subscription) => {
     const [frequency, every] = CADENCE_RULE[s.cadence]
     const acc = accounts.data?.find((a) => a.id === s.accountId) as WithId<Account> | undefined

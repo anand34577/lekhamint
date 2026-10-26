@@ -1,9 +1,10 @@
 name: CI
 
+# Runs on pull requests only: a merge to main has already passed here, and
+# tagged releases run their own tests and builds (release.yml).
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read

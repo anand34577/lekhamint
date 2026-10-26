@@ -157,8 +157,9 @@ export function Login({ onDone }: { onDone: () => void }) {
             <button className="primary" disabled={busy}>{busy ? 'Please wait…' : mode === 'login' ? (DEMO ? 'Open the demo' : 'Sign in') : 'Create account'}</button>
             <p className="muted small center" style={{ marginTop: 14 }}>
               {mode === 'login' ? (
-                <>New here? <button type="button" className="link" onClick={() => { setMode('register'); setErr('') }}>Create an account</button>
-                  {signup === false && <><br />(Only the first user can sign up unless the admin enables sign-ups.)</>}</>
+                signup === false
+                  ? <>New here? Ask the person who runs this server to add you.</>
+                  : <>New here? <button type="button" className="link" onClick={() => { setMode('register'); setErr('') }}>Create an account</button></>
               ) : <>Have an account? <button type="button" className="link" onClick={() => { setMode('login'); setErr('') }}>Sign in</button></>}
             </p>
           </>}

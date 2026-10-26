@@ -11,19 +11,19 @@ import { Select } from './controls'
 import { Login, readResetToken } from './pages/Login'
 import { Dashboard } from './pages/Dashboard'
 import { Transactions, TxForm } from './pages/Transactions'
-import { Accounts } from './pages/Accounts'
-import { Budgets } from './pages/Budgets'
-import { Reports } from './pages/Reports'
-import { Categories } from './pages/Categories'
+const Accounts = lazy(() => import('./pages/Accounts').then((m) => ({ default: m.Accounts })))
+const Budgets = lazy(() => import('./pages/Budgets').then((m) => ({ default: m.Budgets })))
+const Reports = lazy(() => import('./pages/Reports').then((m) => ({ default: m.Reports })))
+const Categories = lazy(() => import('./pages/Categories').then((m) => ({ default: m.Categories })))
 import { Recurring, useAutoRecurring } from './pages/Recurring'
-import { Settings } from './pages/Settings'
-import { Tags } from './pages/Tags'
-import { Rules } from './pages/Rules'
-import { Import } from './pages/Import'
-import { Debts } from './pages/Debts'
-import { Loans } from './pages/Loans'
-import { Deposits } from './pages/Deposits'
-import { Goals } from './pages/Goals'
+const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })))
+const Tags = lazy(() => import('./pages/Tags').then((m) => ({ default: m.Tags })))
+const Rules = lazy(() => import('./pages/Rules').then((m) => ({ default: m.Rules })))
+const Import = lazy(() => import('./pages/Import').then((m) => ({ default: m.Import })))
+const Debts = lazy(() => import('./pages/Debts').then((m) => ({ default: m.Debts })))
+const Loans = lazy(() => import('./pages/Loans').then((m) => ({ default: m.Loans })))
+const Deposits = lazy(() => import('./pages/Deposits').then((m) => ({ default: m.Deposits })))
+const Goals = lazy(() => import('./pages/Goals').then((m) => ({ default: m.Goals })))
 const YearTax = lazy(() => import('./pages/YearTax').then((m) => ({ default: m.YearTax })))
 const Insights = lazy(() => import('./pages/Insights').then((m) => ({ default: m.Insights })))
 // Bigger, less used pages load on first visit.
@@ -33,6 +33,7 @@ const Assistant = lazy(() => import('./pages/Assistant').then((m) => ({ default:
 const Print = lazy(() => import('./pages/Print').then((m) => ({ default: m.Print })))
 import { CommandPalette, type Command, type Resolved } from './pages/QuickAdd'
 import { flushOutbox, outbox } from './lib/outbox'
+import { clearSettings, loadSettings, settingsLoaded, useSetting } from './lib/settings'
 
 // [route, label, icon, nav section]
 const ROUTES = [
@@ -95,8 +96,6 @@ function useOnline() {
   return on
 }
 
-function pref(key: string, fallback: string) { try { return localStorage.getItem(key) ?? fallback } catch { return fallback } }
-function setPref(key: string, v: string) { try { localStorage.setItem(key, v) } catch { /* ignore */ } }
 
 export function App() {
   // Unknown until the first /auth/me answers: the session lives in an HttpOnly
@@ -108,24 +107,30 @@ export function App() {
     if (DEMO) { setAuthed(false); return } // the demo shows its own login
     api.me().then(() => { session.start(); setAuthed(true) }).catch(() => setAuthed(false))
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  // Settings live on the server (the same in every browser); they load once per sign-in.
+  const [settingsReady, setSettingsReady] = useState(settingsLoaded)
+  useEffect(() => {
+    if (!authed) return
+    let live = true
+    loadSettings().then(() => { if (live) setSettingsReady(true) })
+    return () => { live = false }
+  }, [authed])
   const [resetLink, setResetLink] = useState(readResetToken)
-  const [theme, setTheme] = useState(() => pref('kosh.theme', 'system'))
-  const [accent, setAccent] = useState(() => pref('kosh.accent', 'teal'))
+  const [theme, setTheme] = useSetting('theme', 'system')
+  const [accent, setAccent] = useSetting('accent', 'teal')
   useEffect(() => {
     if (theme === 'system') document.documentElement.removeAttribute('data-theme')
     else document.documentElement.setAttribute('data-theme', theme)
-    setPref('kosh.theme', theme)
   }, [theme])
   useEffect(() => {
     if (accent === 'teal') document.documentElement.removeAttribute('data-accent')
     else document.documentElement.setAttribute('data-accent', accent)
-    setPref('kosh.accent', accent)
   }, [accent])
 
-  if (authed === null) return <div className="splash"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="splash-logo" /><div className="splash-bar" /><span className="muted">Loading…</span></div>
+  if (authed === null || (authed && !settingsReady && !resetLink)) return <div className="splash"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="splash-logo" /><div className="splash-bar" /><span className="muted">Loading…</span></div>
   // A password reset link opens the reset form even in a browser that is still signed in.
   if (!authed || resetLink) return <><Login onDone={() => { if (resetLink) qc.clear(); setResetLink(''); setAuthed(true) }} /><Toaster /></>
-  return <Signed theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} onSignOut={() => { session.end(); qc.clear(); forgetChats(); outbox.clear(); setAuthed(false) }} />
+  return <Signed theme={theme} setTheme={setTheme} accent={accent} setAccent={setAccent} onSignOut={() => { session.end(); qc.clear(); forgetChats(); outbox.clear(); clearSettings(); setSettingsReady(false); setAuthed(false) }} />
 }
 
 /** Saved assistant conversations hold financial details; they do not outlive the session. */
@@ -179,19 +184,19 @@ function TopProgress() {
 
 function Signed({ theme, setTheme, accent, setAccent, onSignOut }: { theme: string; setTheme: (t: string) => void; accent: string; setAccent: (a: string) => void; onSignOut: () => void }) {
   const ledgers = useQuery({ queryKey: ['ledgers'], queryFn: api.ledgers })
-  const [ledgerId, setLedgerId] = useState(() => pref('kosh.ledger', ''))
-  const [hidden, setHidden] = useState(() => pref('kosh.hide', '0') === '1')
+  const [ledgerId, setLedgerId] = useSetting('ledger', '')
+  const [hidden, setHidden] = useSetting('hide_amounts', false)
   const [creating, setCreating] = useState(false)
   const [route, params, go] = useHashRoute()
 
   if (ledgers.isPending) return <div className="splash"><img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className="splash-logo" /><div className="splash-bar" /><span className="muted">Loading your books…</span></div>
   if (ledgers.isError) return <div className="splash"><p>{errorText(ledgers.error)}</p><button className="primary" onClick={() => ledgers.refetch()}>Retry</button></div>
   const list = ledgers.data
-  const created = (l: Ledger) => { setPref('kosh.ledger', l.id); setLedgerId(l.id); setCreating(false); ledgers.refetch(); go('dashboard') }
+  const created = (l: Ledger) => { setLedgerId(l.id); setCreating(false); ledgers.refetch(); go('dashboard') }
   if (list.length === 0 || creating) return <CreateLedger first={list.length === 0} onCreated={created} onCancel={list.length ? () => setCreating(false) : undefined} />
   const ledger = list.find((l) => l.id === ledgerId) ?? list[0]
-  const pick = (id: string) => { if (id === '__new') { setCreating(true); return } setPref('kosh.ledger', id); setLedgerId(id) }
-  const toggleHidden = () => { const v = !hidden; setHidden(v); setPref('kosh.hide', v ? '1' : '0') }
+  const pick = (id: string) => { if (id === '__new') { setCreating(true); return } setLedgerId(id) }
+  const toggleHidden = () => setHidden(!hidden)
 
   return (
     <LedgerContext.Provider value={ledger}>
@@ -211,8 +216,8 @@ interface ShellProps {
 
 function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden, theme, setTheme, accent, setAccent, onSignOut }: ShellProps) {
   const [menu, setMenu] = useState(false)
-  const [rail, setRail] = useState(() => pref('kosh.rail', '0') === '1')
-  const toggleRail = () => { const v = !rail; setRail(v); setPref('kosh.rail', v ? '1' : '0') }
+  const [rail, setRail] = useSetting('nav_rail', false)
+  const toggleRail = () => setRail(!rail)
   const me = useQuery({ queryKey: ['me'], queryFn: api.me, staleTime: 5 * 60_000 })
   // The toggle shows the mode you would switch to; "system" follows the device until a choice is made.
   const dark = theme === 'dark' || theme === 'black' || (theme === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)

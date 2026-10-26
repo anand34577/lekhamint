@@ -50,6 +50,8 @@ class SyncEngine(private val repo: Repository) {
                 push(api, ledgerId)
             }
             val pulled = pull(api, ledgerId)
+            // The look (theme, colours) follows the person across phones. Never fails a sync.
+            runCatching { syncAppearance(api) }
             val report = SyncReport(pushed.first, pulled, pushed.second, pushed.third)
             settings.setSyncResult(System.currentTimeMillis(), null)
             report
@@ -59,6 +61,42 @@ class SyncEngine(private val repo: Repository) {
         } finally {
             _running.value = false
         }
+    }
+
+    /**
+     * One server setting, "android.appearance", holds the theme, palette and dark-mode choices. A change made on
+     * this phone is sent; otherwise a newer one from another phone is applied.
+     */
+    private suspend fun syncAppearance(api: KoshApi) {
+        val s = settings.current
+        val at = settings.appearanceAt
+        val remote = api.settings()[APPEARANCE_KEY] as? kotlinx.serialization.json.JsonObject
+        val remoteAt = (remote?.get("updated_at") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toLongOrNull() ?: 0L
+        if (settings.appearanceDirty || remote == null) {
+            if (remote != null && remoteAt > at) return applyAppearance(remote, remoteAt)
+            api.putSetting(APPEARANCE_KEY, kotlinx.serialization.json.buildJsonObject {
+                put("theme", kotlinx.serialization.json.JsonPrimitive(s.theme.name))
+                put("palette", kotlinx.serialization.json.JsonPrimitive(s.palette.name))
+                put("amoled", kotlinx.serialization.json.JsonPrimitive(s.amoled))
+                put("dynamic_color", kotlinx.serialization.json.JsonPrimitive(s.dynamicColor))
+                put("updated_at", kotlinx.serialization.json.JsonPrimitive(at.coerceAtLeast(1)))
+            })
+            settings.appearanceSent(at)
+        } else if (remoteAt > at) {
+            applyAppearance(remote, remoteAt)
+        }
+    }
+
+    private fun applyAppearance(o: kotlinx.serialization.json.JsonObject, at: Long) {
+        fun str(k: String) = (o[k] as? kotlinx.serialization.json.JsonPrimitive)?.content
+        val s = settings.current
+        settings.applyAppearance(
+            runCatching { app.kosh.data.ThemeMode.valueOf(str("theme")!!) }.getOrDefault(s.theme),
+            runCatching { app.kosh.data.ThemePalette.valueOf(str("palette")!!) }.getOrDefault(s.palette),
+            str("amoled")?.toBooleanStrictOrNull() ?: s.amoled,
+            str("dynamic_color")?.toBooleanStrictOrNull() ?: s.dynamicColor,
+            at,
+        )
     }
 
     /** Files attached on this phone go up before the records that point at them. */
@@ -218,6 +256,7 @@ class SyncEngine(private val repo: Repository) {
 
     companion object {
         const val SCHEMA_VERSION = 2
+        const val APPEARANCE_KEY = "android.appearance"
         private const val BATCH = 500
         private const val PULL_LIMIT = 1000
         private const val MAX_PUSH_BATCHES = 1000

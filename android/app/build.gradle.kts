@@ -25,7 +25,9 @@ val keystoreProps = Properties().apply {
     System.getenv("ANDROID_KEYSTORE_FILE")?.takeIf { it.isNotBlank() }?.let { setProperty("storeFile", it) }
     System.getenv("ANDROID_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }?.let { setProperty("storePassword", it) }
     System.getenv("ANDROID_KEY_ALIAS")?.takeIf { it.isNotBlank() }?.let { setProperty("keyAlias", it) }
-    System.getenv("ANDROID_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() }?.let { setProperty("keyPassword", it) }
+    // The key's own password (PKCS12 keystores usually use the store password for both, so fall back to it).
+    (System.getenv("ANDROID_KEY_PASSWORD")?.takeIf { it.isNotBlank() } ?: System.getenv("ANDROID_KEYSTORE_PASSWORD")?.takeIf { it.isNotBlank() })
+        ?.let { setProperty("keyPassword", it) }
 }
 val hasReleaseKey = listOf("storeFile", "storePassword", "keyAlias", "keyPassword").all { !keystoreProps.getProperty(it).isNullOrBlank() }
 

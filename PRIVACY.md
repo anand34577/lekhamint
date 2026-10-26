@@ -45,6 +45,12 @@ The app never sends data to the LekhaMint developers.
 - **Internet and network state:** sync and the assistant, only when you set them up.
 - **Notifications:** bill, EMI, deposit and budget reminders. Reminders never show amounts on the lock
   screen.
+- **Notification access (optional):** only if you turn on *Find payments automatically*. The app then
+  reads incoming notifications on your phone to spot bank, card and payment-app alerts. Alerts that look
+  like a payment (amount, payee, the account's last digits and the alert text) are kept in a small list
+  on the phone, which is never synced or backed up; everything else is ignored, and chat apps are
+  skipped. Nothing is sent anywhere, and nothing is recorded until you tap *Add*. Turn it off in
+  Android's *Notification access* settings at any time.
 - **Biometrics:** the optional app lock. Fingerprint and face data stay with Android; the app only
   receives "unlocked" or "not unlocked".
 

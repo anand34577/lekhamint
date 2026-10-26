@@ -67,7 +67,7 @@ This page tracks concrete status.
 3. Ivy Wallet / other app backup importers; OFX and QIF import.
 4. Contract test of the Android sync client against a real server in CI (emulator job).
 5. Docker image build in CI and published images.
-6. Android: command-style quick add and the web's dashboard insights.
+6. Android: command-style quick add. (Insights, cash forecast, safe to spend and repeat-payment detection are done.)
 
 ## Later (Phases 3–4)
 

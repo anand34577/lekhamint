@@ -9,4 +9,5 @@
     <string name="widget_name">Spending this month</string>
     <string name="widget_description">Month-to-date spending, money available, and one tap to add an expense.</string>
     <string name="widget_spent_label">Spent this month</string>
+    <string name="capture_label">LekhaMint: find payments in alerts</string>
 </resources>

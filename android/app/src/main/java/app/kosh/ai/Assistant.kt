@@ -49,9 +49,31 @@ data class AiSettings(
     val tools: Boolean = true,
     val shareDetails: Boolean = true,
     val consentFor: String? = null,
+    /** Prefer the assistant on the LekhaMint server this phone syncs with, when its admin has set one up. */
+    val useServer: Boolean = true,
 ) {
     val configured get() = baseUrl.isNotBlank()
     val host: String get() = runCatching { java.net.URI(baseUrl).host ?: baseUrl }.getOrDefault(baseUrl)
+}
+
+/** Where questions go: the synced server's assistant (its key stays on the server) or a provider set up on this phone. */
+sealed class AiRoute {
+    abstract val host: String
+    abstract val model: String
+    /** What the user agreed to share with; a different destination asks again. */
+    abstract val consentKey: String
+
+    data class Server(val api: app.kosh.sync.KoshApi, val serverUrl: String, val info: app.kosh.sync.ServerAi) : AiRoute() {
+        override val host get() = info.host.ifBlank { "the model your server uses" }
+        override val model get() = info.model
+        override val consentKey get() = "server:$serverUrl"
+    }
+
+    data class Custom(val settings: AiSettings) : AiRoute() {
+        override val host get() = settings.host
+        override val model get() = settings.model
+        override val consentKey get() = settings.baseUrl
+    }
 }
 
 class AiStore(context: Context) {
@@ -60,9 +82,10 @@ class AiStore(context: Context) {
     fun load() = AiSettings(
         baseUrl = prefs.getString("base_url", "") ?: "", model = prefs.getString("model", "") ?: "",
         tools = prefs.getBoolean("tools", true), shareDetails = prefs.getBoolean("share", true), consentFor = prefs.getString("consent", null),
+        useServer = prefs.getBoolean("use_server", true),
     )
     fun save(s: AiSettings) = prefs.edit().putString("base_url", s.baseUrl.trim().trimEnd('/')).putString("model", s.model.trim())
-        .putBoolean("tools", s.tools).putBoolean("share", s.shareDetails).putString("consent", s.consentFor).apply()
+        .putBoolean("tools", s.tools).putBoolean("share", s.shareDetails).putString("consent", s.consentFor).putBoolean("use_server", s.useServer).apply()
     var apiKey: String?
         get() = secrets.get("ai_api_key")
         set(v) { if (v.isNullOrBlank()) secrets.remove("ai_api_key") else secrets.put("ai_api_key", v.trim()) }
@@ -74,6 +97,26 @@ data class ToolRun(val name: String, val args: JsonObject, val result: JsonEleme
 data class Turn(val question: String, val answer: String, val runs: List<ToolRun>, val snapshot: Boolean, val error: String? = null)
 
 class Assistant(private val c: AppContainer, private val store: AiStore) {
+    /** The synced server's assistant, as its /meta last described it; null when not connected or not checked yet. */
+    @Volatile var serverAi: app.kosh.sync.ServerAi? = null
+        private set
+
+    /** Asks the synced server whether its admin has set up an assistant. Quietly gives up when offline. */
+    suspend fun refreshServer(): app.kosh.sync.ServerAi? {
+        val api = c.sync.api() ?: return null.also { serverAi = null }
+        serverAi = runCatching { api.meta().ai }.getOrNull() ?: serverAi
+        return serverAi
+    }
+
+    /** Where the next question goes, or null when no assistant is available yet. */
+    fun route(s: AiSettings = store.load()): AiRoute? {
+        val server = serverAi?.takeIf { it.enabled }
+        val api = c.sync.api()
+        val url = c.settings.current.serverUrl
+        if (server != null && api != null && url != null && (s.useServer || !s.configured)) return AiRoute.Server(api, url, server)
+        return if (s.configured) AiRoute.Custom(s) else null
+    }
+
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false }
     private val http = OkHttpClient.Builder().connectTimeout(15, TimeUnit.SECONDS).readTimeout(180, TimeUnit.SECONDS).build()
 
@@ -226,7 +269,39 @@ class Assistant(private val c: AppContainer, private val store: AiStore) {
         Label suggestions as suggestions. You cannot change records. Be brief.
     """.trimIndent()
 
-    private suspend fun complete(s: AiSettings, messages: JsonArray, withTools: Boolean): JsonObject = withContext(Dispatchers.IO) {
+    private suspend fun complete(route: AiRoute, messages: JsonArray, withTools: Boolean): JsonObject = when (route) {
+        is AiRoute.Custom -> completeCustom(route.settings, messages, withTools)
+        is AiRoute.Server -> completeServer(route, messages, withTools)
+    }
+
+    /** Through the LekhaMint server's proxy: the server adds its model and key. */
+    private suspend fun completeServer(route: AiRoute.Server, messages: JsonArray, withTools: Boolean): JsonObject {
+        val body = buildJsonObject {
+            put("messages", messages); put("temperature", 0.2)
+            if (withTools) { put("tools", toolSpecs); put("tool_choice", "auto") }
+        }
+        val (code, text) = try { route.api.aiChat(body.toString()) } catch (e: IOException) {
+            throw AiException("Couldn't reach your LekhaMint server. Check your connection.")
+        }
+        if (code !in 200..299) {
+            val err = runCatching { json.parseToJsonElement(text).jsonObject["error"] }.getOrNull()
+            val errCode = (err as? JsonObject)?.get("code")?.jsonPrimitive?.contentOrNull
+            val msg = (err as? JsonObject)?.get("message")?.jsonPrimitive?.contentOrNull ?: (err as? JsonPrimitive)?.contentOrNull ?: "HTTP $code"
+            throw when {
+                code == 401 -> AiException("Your server session has expired. Sign in again under More → Sync.")
+                errCode == "ai_disabled" -> { serverAi = app.kosh.sync.ServerAi(); AiException("Your server no longer has an assistant set up. Ask its admin, or add your own provider in settings.") }
+                errCode == "rate_limited" -> AiException("Too many questions in a minute. Wait a moment and try again.")
+                errCode == "ai_upstream_auth" -> AiException("The model service refused your server's API key. Ask the server's admin to check it.")
+                errCode == "ai_upstream" -> AiException("Your server couldn't get an answer from its model: $msg")
+                withTools && code == 400 && Regex("tool|function", RegexOption.IGNORE_CASE).containsMatchIn(msg) -> AiException(msg, toolsUnsupported = true)
+                else -> AiException("The model returned an error: $msg")
+            }
+        }
+        return runCatching { json.parseToJsonElement(text).jsonObject["choices"]?.jsonArray?.firstOrNull()?.jsonObject?.get("message")?.jsonObject }.getOrNull()
+            ?: throw AiException("The model sent an empty answer")
+    }
+
+    private suspend fun completeCustom(s: AiSettings, messages: JsonArray, withTools: Boolean): JsonObject = withContext(Dispatchers.IO) {
         val body = buildJsonObject {
             if (s.model.isNotBlank()) put("model", s.model)
             put("messages", messages); put("temperature", 0.2)
@@ -256,6 +331,7 @@ class Assistant(private val c: AppContainer, private val store: AiStore) {
 
     suspend fun ask(history: List<Turn>, question: String): Turn {
         val s = store.load()
+        val route = route(s) ?: throw AiException("Set up the assistant first.")
         val base = c.lookup.value.baseCurrency
         val runs = ArrayList<ToolRun>()
         val msgs = ArrayList<JsonElement>()
@@ -265,13 +341,13 @@ class Assistant(private val c: AppContainer, private val store: AiStore) {
             val parts = listOf("overview" to JsonObject(emptyMap()), "loans" to JsonObject(emptyMap()), "deposits" to JsonObject(emptyMap()), "people_debts" to JsonObject(emptyMap()),
                 "upcoming" to buildJsonObject { put("days", 30) }).map { (n, a) -> "## $n\n" + runTool(n, a, s.shareDetails) }
             val m = msgs.toMutableList().apply { add(1, msg("system", "This model cannot look things up; answer only from this summary and say when a question needs more.\n\n" + parts.joinToString("\n\n"))); add(msg("user", question)) }
-            val r = complete(s, JsonArray(m), false)
+            val r = complete(route, JsonArray(m), false)
             return Turn(question, r["content"]?.jsonPrimitive?.contentOrNull.orEmpty(), runs, snapshot = true)
         }
         if (!s.tools) return snapshotAnswer()
         msgs += msg("user", question)
         repeat(6) {
-            val m = try { complete(s, JsonArray(msgs), true) } catch (e: AiException) { if (e.toolsUnsupported) return snapshotAnswer() else throw e }
+            val m = try { complete(route, JsonArray(msgs), true) } catch (e: AiException) { if (e.toolsUnsupported) return snapshotAnswer() else throw e }
             val calls = m["tool_calls"] as? JsonArray
             if (calls.isNullOrEmpty()) return Turn(question, m["content"]?.jsonPrimitive?.contentOrNull.orEmpty(), runs, snapshot = false)
             msgs += m

@@ -14,6 +14,7 @@ import { allTransactions, presets } from './reports'
 import { addDays, isoDate, monthRange } from './util'
 import { people, type Move } from './debts'
 import { STATUS_TEXT, goalProgress } from './goals'
+import { getSetting, setSetting } from './settings'
 
 // --- Settings (per browser; the API key never syncs) ---------------------------------------
 
@@ -42,21 +43,20 @@ export const PROVIDERS: { id: string; name: string; url: string; key: boolean; n
   { id: 'custom', name: 'Other OpenAI-compatible', url: '', key: true, note: 'Enter the base URL that ends before /chat/completions.' },
 ]
 
-const KEY = 'kosh.ai'
 const DEFAULTS: AiSettings = { mode: 'off', baseUrl: '', apiKey: '', model: '', shareDetails: true, consentFor: null, tools: true }
 
-// The API key never goes into localStorage (any script on the page could read
-// it). It lives in memory for this tab, and its durable copy is the person's
-// own LekhaMint server, which returns it only to its owner.
+// The settings live with the person's other settings on the server (lib/settings), so they are
+// the same in every browser. The API key is never among them: it lives in memory for this tab,
+// and its durable copy is the server's own key store, which returns it only to its owner.
 let memKey = ''
 let serverKey: string | null = null
 
 function readStored(): AiSettings {
-  try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) ?? '{}') } } catch { return { ...DEFAULTS } }
+  return { ...DEFAULTS, ...getSetting<Partial<AiSettings>>('assistant', {}) }
 }
 function writeStored(s: AiSettings) {
   const { apiKey: _drop, ...rest } = s
-  try { localStorage.setItem(KEY, JSON.stringify(rest)) } catch { /* private mode: lasts this session only */ }
+  setSetting('assistant', rest)
 }
 
 /** Settings for this tab. The key comes from memory; call [hydrateKey] to load

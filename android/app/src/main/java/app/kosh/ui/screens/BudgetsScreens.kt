@@ -2,6 +2,9 @@ package app.kosh.ui.screens
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import app.kosh.ui.components.StatusPill
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -79,13 +82,20 @@ fun BudgetsScreen() {
     val lookup by c.lookup.collectAsStateWithLifecycle()
     Scaffold(
         contentWindowInsets = WindowInsets(0),
-        topBar = { TopAppBar(title = { Text("Budgets") }) },
-        floatingActionButton = {
-            ExtendedFloatingActionButton(onClick = { nav.navigate(Routes.editBudget()) }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Budget") })
+        topBar = {
+            TopAppBar(
+                title = { Text("Budgets") },
+                actions = {
+                    androidx.compose.material3.FilledTonalButton(onClick = { nav.navigate(Routes.editBudget()) }, modifier = Modifier.padding(end = 8.dp)) {
+                        Icon(Icons.Rounded.Add, null, Modifier.size(18.dp)); Spacer(Modifier.width(6.dp)); Text("New budget")
+                    }
+                },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background),
+            )
         },
     ) { padding ->
         val list = statuses
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 96.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             if (list != null && list.isEmpty()) {
                 item {
                     EmptyState(
@@ -94,7 +104,65 @@ fun BudgetsScreen() {
                     ) { Button(onClick = { nav.navigate(Routes.editBudget()) }) { Text("Create a monthly budget") } }
                 }
             }
-            items(list.orEmpty(), key = { it.budget.id }) { b -> BudgetCard(b, lookup) { nav.navigate(Routes.editBudget(b.budget.id)) } }
+            if (!list.isNullOrEmpty()) item { BudgetOverview(list, lookup.baseCurrency) }
+            items(list.orEmpty().sortedWith(compareByDescending<BudgetStatus> { it.over }.thenByDescending { it.fraction }), key = { it.budget.id }) { b ->
+                BudgetCard(b, lookup) { nav.navigate(Routes.editBudget(b.budget.id)) }
+            }
+            if (!list.isNullOrEmpty()) item {
+                Text(
+                    "The thin line on each bar marks where spending would be if spread evenly over the period. Left of it: you're on pace.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp),
+                )
+            }
+        }
+    }
+}
+
+/** All budgets in the main currency at a glance: one ring for how much of the total is used, and the counts by state. */
+@Composable
+private fun BudgetOverview(list: List<BudgetStatus>, base: String) {
+    val inBase = list.filter { it.budget.currency == base }
+    // A budget with no categories already covers everything; adding the others to it would count spending twice.
+    val overall = inBase.firstOrNull { it.budget.categoryIds.isEmpty() }
+    val limit = overall?.limit ?: inBase.sumOf { it.limit }
+    val spent = overall?.spent ?: inBase.sumOf { it.spent }
+    val m = app.kosh.ui.theme.LocalMoneyColors.current
+    val over = list.count { it.over }
+    val close = list.count { !it.over && (it.overAlert || it.aheadOfPace) }
+    val fine = list.size - over - close
+    val fraction = if (limit > 0) spent.toFloat() / limit else 0f
+    val ringColor = when {
+        fraction > 1f -> MaterialTheme.colorScheme.error
+        fraction >= 0.8f -> m.warning
+        else -> MaterialTheme.colorScheme.primary
+    }
+    app.kosh.ui.components.KoshCard(Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(18.dp), verticalAlignment = Alignment.CenterVertically) {
+            app.kosh.ui.components.ProgressRing(
+                fraction, ringColor, size = 96.dp, thickness = 11.dp,
+                description = "${(fraction * 100).toInt()} percent of your budgets used",
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("${(fraction * 100).toInt()}%", style = MaterialTheme.typography.titleLarge)
+                    Text("used", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            Spacer(Modifier.width(18.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(if (overall != null) overall.budget.name else "All budgets", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                MoneyText(limit - spent, base, style = MaterialTheme.typography.headlineSmall, color = if (spent > limit) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                Row {
+                    Text(if (spent > limit) "over · spent " else "left · spent ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    MoneyText(spent, base, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(" of ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    MoneyText(limit, base, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(top = 4.dp)) {
+                    if (fine > 0) StatusPill("$fine on track", m.income)
+                    if (close > 0) StatusPill("$close watch", m.warning)
+                    if (over > 0) StatusPill("$over over", MaterialTheme.colorScheme.error)
+                }
+            }
         }
     }
 }
@@ -103,39 +171,46 @@ fun BudgetsScreen() {
 private fun BudgetCard(b: BudgetStatus, lookup: Lookup, onClick: () -> Unit) {
     val hidden = LocalHideAmounts.current
     val cur = b.budget.currency
+    val (label, color) = budgetState(b)
     KoshCard(Modifier.fillMaxWidth(), onClick = onClick) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                val first = b.budget.categoryIds.firstOrNull()
+                if (first != null) { val (icon, col) = lookup.categoryLook(first); IconBadge(icon, col, size = 42.dp) }
+                else app.kosh.ui.components.IconTile(Icons.Rounded.PieChart, MaterialTheme.colorScheme.primary, size = 42.dp)
+                Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(b.budget.name, style = MaterialTheme.typography.titleMedium)
-                    Text("${Dates.short(b.window.start)} – ${Dates.short(b.window.end)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(b.budget.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
+                    Text(
+                        "${Dates.short(b.window.start)} – ${Dates.short(b.window.end)}" + if (b.daysLeft > 0) " · ${b.daysLeft} days left" else "",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    MoneyText(b.spent, cur, style = MaterialTheme.typography.titleMedium)
-                    Row {
-                        Text("of ", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        MoneyText(b.limit, cur, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+                StatusPill(label, color)
             }
-            BudgetBar(b.fraction, b.paceFraction, over = b.over, warn = b.overAlert)
+            Row(verticalAlignment = Alignment.Bottom) {
+                MoneyText(b.spent, cur, style = MaterialTheme.typography.titleLarge)
+                Text("  of ", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 2.dp))
+                MoneyText(b.limit, cur, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 2.dp))
+            }
+            BudgetBar(b.fraction, b.paceFraction, over = b.over, warn = b.overAlert || b.aheadOfPace)
             Text(
                 if (hidden) "${(b.fraction * 100).toInt()}% used" else budgetLine(b),
                 style = MaterialTheme.typography.bodyMedium,
                 color = if (b.over) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (b.budget.categoryIds.isNotEmpty()) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (b.budget.categoryIds.size > 1) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     for (id in b.budget.categoryIds.take(6)) {
-                        val (icon, color) = lookup.categoryLook(id)
-                        IconBadge(icon, color, size = 24.dp)
+                        val (icon, col) = lookup.categoryLook(id)
+                        IconBadge(icon, col, size = 24.dp)
                     }
                     if (b.budget.categoryIds.size > 6) Text("+${b.budget.categoryIds.size - 6}", style = MaterialTheme.typography.labelSmall)
                 }
             }
             if (b.budget.rollover && b.limit != b.budget.amount) {
                 Text(
-                    if (hidden) "Includes rollover" else "Includes ${Money.format(b.limit - b.budget.amount, cur, signed = true)} rolled over",
+                    if (hidden) "Includes rollover" else "Includes ${Money.ui(b.limit - b.budget.amount, cur, signed = true)} rolled over",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }

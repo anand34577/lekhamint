@@ -116,6 +116,10 @@ func (s *Server) Handler() http.Handler {
 	private("PUT /api/v1/notifications", s.putPrefs)
 	private("POST /api/v1/notifications/test", s.limited(s.testNotification))
 
+	private("GET /api/v1/settings", s.getSettings)
+	private("PUT /api/v1/settings/{key}", s.putSetting)
+	private("DELETE /api/v1/settings/{key}", s.deleteSetting)
+
 	private("GET /api/v1/ai/key", s.getAiKey)
 	private("PUT /api/v1/ai/key", s.putAiKey)
 	private("DELETE /api/v1/ai/key", s.deleteAiKey)

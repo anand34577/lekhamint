@@ -4,6 +4,21 @@ import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.rounded.Bolt
+import androidx.compose.material.icons.rounded.Insights
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material3.Surface
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import app.kosh.ui.components.IconTile
+import app.kosh.ui.components.KoshCard
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -54,41 +69,90 @@ fun OnboardingScreen(onDone: () -> Unit) {
     val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onDone() }
 
     Column(
-        Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Spacer(Modifier.height(32.dp))
-        Icon(Icons.Rounded.AccountBalanceWallet, null, Modifier.size(72.dp), tint = MaterialTheme.colorScheme.primary)
-        Text("LekhaMint", style = MaterialTheme.typography.displaySmall)
-        Text(
-            "Your money, on your phone. Works offline, no account needed. Sync with your own server if you want.",
-            style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(24.dp))
-        val info = Currencies.get(currency)
-        OutlinedButton(onClick = { pick = true }, modifier = Modifier.fillMaxWidth()) {
-            Text("Currency: ${info.name} (${info.symbol.trim()})")
-        }
-        OutlinedTextField(name, { name = it }, label = { Text("Book name") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Button(
-            enabled = !busy && name.isNotBlank(),
-            onClick = {
-                busy = true
-                scope.launch {
-                    c.repo.createLedger(name.trim(), currency)
-                    if (Build.VERSION.SDK_INT >= 33) notify.launch(Manifest.permission.POST_NOTIFICATIONS) else onDone()
+        // Brand header.
+        Box(
+            Modifier.fillMaxWidth()
+                .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primary, androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.primary, Color.Black, 0.3f))))
+                .safeDrawingPadding().padding(horizontal = 24.dp, vertical = 32.dp),
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                Box(Modifier.size(84.dp).clip(RoundedCornerShape(26.dp)).background(Color.White.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
+                    Icon(Icons.Rounded.AccountBalanceWallet, null, Modifier.size(48.dp), tint = Color.White)
                 }
-            },
-            modifier = Modifier.fillMaxWidth().height(52.dp),
-        ) { Text("Get started") }
-        Text(
-            "We'll add a Cash account and common categories. You can change everything later.",
-            style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Spacer(Modifier.height(16.dp))
-        TextButton(onClick = { nav.navigate(Routes.BACKUP) }) { Text("Restore from a backup") }
-        TextButton(onClick = { nav.navigate(Routes.SYNC) }) { Text("I already use LekhaMint on a server") }
+                Spacer(Modifier.height(16.dp))
+                Text("LekhaMint", style = MaterialTheme.typography.displaySmall, color = Color.White)
+                Text(
+                    "A clear, private record of your money.",
+                    style = MaterialTheme.typography.bodyLarge, textAlign = TextAlign.Center, color = Color.White.copy(alpha = 0.85f),
+                )
+            }
+        }
+        Column(Modifier.padding(horizontal = 20.dp).padding(top = 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Promise(Icons.Rounded.Bolt, "Add an expense in seconds", "A calculator keypad, your usual categories first, and it learns your payees.")
+            Promise(Icons.Rounded.Insights, "See where it goes", "Budgets, charts and a monthly pace that show what you can still spend.")
+            Promise(Icons.Rounded.Lock, "Yours alone", "Works offline with no account. Sync with your own server only if you want to.")
+
+            KoshCard(Modifier.fillMaxWidth().padding(top = 6.dp)) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("Set up your book", style = MaterialTheme.typography.titleMedium)
+                    val info = Currencies.get(currency)
+                    Surface(
+                        onClick = { pick = true }, shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(40.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
+                                Text(info.symbol.trim(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            }
+                            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                                Text("Main currency", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("${info.name} (${info.code})", style = MaterialTheme.typography.bodyLarge)
+                            }
+                            Text("Change", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                        }
+                    }
+                    OutlinedTextField(
+                        name, { name = it }, label = { Text("Book name") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
+                        supportingText = { Text("For example Personal, Household or Business") },
+                    )
+                    Button(
+                        enabled = !busy && name.isNotBlank(),
+                        onClick = {
+                            busy = true
+                            scope.launch {
+                                c.repo.createLedger(name.trim(), currency)
+                                if (Build.VERSION.SDK_INT >= 33) notify.launch(Manifest.permission.POST_NOTIFICATIONS) else onDone()
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().height(54.dp),
+                    ) { Text("Get started", style = MaterialTheme.typography.titleSmall) }
+                    Text(
+                        "We'll add a Cash account and common categories. You can change everything later.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Text("Already have your data somewhere?", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedButton(onClick = { nav.navigate(Routes.SYNC) }, modifier = Modifier.weight(1f)) { Text("Sign in to server") }
+                OutlinedButton(onClick = { nav.navigate(Routes.BACKUP) }, modifier = Modifier.weight(1f)) { Text("Restore backup") }
+            }
+            Spacer(Modifier.navigationBarsPadding().height(24.dp))
+        }
     }
     if (pick) CurrencyPickerSheet({ pick = false }, currency) { currency = it }
+}
+
+@Composable
+private fun Promise(icon: androidx.compose.ui.graphics.vector.ImageVector, title: String, body: String) {
+    Row(verticalAlignment = Alignment.Top) {
+        IconTile(icon, MaterialTheme.colorScheme.primary, size = 42.dp)
+        Column(Modifier.padding(start = 14.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall)
+            Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
 }

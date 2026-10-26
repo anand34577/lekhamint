@@ -121,11 +121,11 @@ fun AccountPicker(label: String, choices: List<AccountEntity>, selected: String?
     Column {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth()) {
-            Text(lookup.accountName(selected) + (selected?.let { lookup.balances[it] }?.let { " · ${Money.format(it, lookup.currencyOf(selected))}" } ?: ""))
+            Text(lookup.accountName(selected) + (selected?.let { lookup.balances[it] }?.let { " · ${Money.ui(it, lookup.currencyOf(selected))}" } ?: ""))
         }
     }
     if (open) PickerSheet(title = label, items = choices, onDismiss = { open = false }, onPick = { onPick(it.id) }, selected = { it.id == selected }) { a ->
-        ListItem(headlineContent = { Text(a.name) }, supportingContent = { lookup.balances[a.id]?.let { Text("Balance ${Money.format(it, a.currency)}") } },
+        ListItem(headlineContent = { Text(a.name) }, supportingContent = { lookup.balances[a.id]?.let { Text("Balance ${Money.ui(it, a.currency)}") } },
             colors = ListItemDefaults.colors(containerColor = Color.Transparent))
     }
 }
@@ -171,7 +171,7 @@ fun LoansScreen() {
                             Text("Still owed", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             for ((cur, v) in owed) MoneyText(v, cur, style = MaterialTheme.typography.headlineMedium)
                             Spacer(Modifier.height(4.dp))
-                            for ((cur, v) in emis) Text("EMIs ${Money.format(v, cur)} a month across ${active.size} ${if (active.size == 1) "loan" else "loans"}", style = MaterialTheme.typography.bodySmall)
+                            for ((cur, v) in emis) Text("EMIs ${Money.ui(v, cur)} a month across ${active.size} ${if (active.size == 1) "loan" else "loans"}", style = MaterialTheme.typography.bodySmall)
                         }
                     }
                 }
@@ -209,7 +209,7 @@ private fun LoanCard(e: LoanEntry, onClick: () -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     listOfNotNull(
-                        "EMI ${Money.format(s.emi, l.currency)}",
+                        "EMI ${Money.ui(s.emi, l.currency)}",
                         s.nextDue?.let { (if (s.overdue > 0) "Overdue since " else "Next ") + Dates.relativeDay(it) },
                         "Paid ${s.paidInstalments} of ${s.paidInstalments + s.remainingInstalments}",
                     ).joinToString(" · "),
@@ -251,12 +251,12 @@ fun LoanDetailScreen(id: String) {
                         Spacer(Modifier.height(8.dp))
                         FactRow("EMI") { MoneyText(s.emi, cur) }
                         s.nextDue?.let { d -> FactRow(if (s.overdue > 0) "Overdue since" else "Next due") { Text(Dates.relativeDay(d), color = if (s.overdue > 0) MaterialTheme.colorScheme.error else Color.Unspecified) } }
-                        if (s.nextDue != null) FactRow("Next split") { Text("${Money.format(s.nextInterest, cur)} interest + ${Money.format(s.nextPrincipal, cur)} principal", style = MaterialTheme.typography.bodySmall) }
+                        if (s.nextDue != null) FactRow("Next split") { Text("${Money.ui(s.nextInterest, cur)} interest + ${Money.ui(s.nextPrincipal, cur)} principal", style = MaterialTheme.typography.bodySmall) }
                         FactRow("Instalments") { Text("${s.paidInstalments} paid · ${s.remainingInstalments} left") }
                         FactRow("Interest paid") { MoneyText(s.interestPaid, cur) }
                         FactRow("Interest still to pay") { MoneyText(s.projectedInterest, cur) }
                         s.endDate?.let { FactRow("Last EMI") { Text(Dates.medium(it)) } }
-                        if (s.overpaid > 0) Text("More was paid than owed (${Money.format(s.overpaid, cur)}). Check for a payment recorded twice.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                        if (s.overpaid > 0) Text("More was paid than owed (${Money.ui(s.overpaid, cur)}). Check for a payment recorded twice.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         if (s.projection.neverRepaid) Text("The EMI does not cover the monthly interest, so this loan would never be repaid. Check the EMI and rate.", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                         if (!l.closed) Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (s.outstanding > 0) OutlinedButton(onClick = { action = "pay" }) { Text("Pay EMI") }
@@ -276,7 +276,7 @@ fun LoanDetailScreen(id: String) {
                 items(s.projection.rows.take(120), key = { "r${it.n}" }) { r ->
                     ListItem(
                         headlineContent = { Text("#${r.n} · ${Dates.medium(r.date)}", color = if (r.date.isBefore(Dates.today())) MaterialTheme.colorScheme.error else Color.Unspecified) },
-                        supportingContent = { Text("${Money.format(r.principal, cur)} principal · ${Money.format(r.interest, cur)} interest · ${Money.format(r.closing, cur)} left") },
+                        supportingContent = { Text("${Money.ui(r.principal, cur)} principal · ${Money.ui(r.interest, cur)} interest · ${Money.ui(r.closing, cur)} left") },
                         trailingContent = { MoneyText(r.payment, cur) },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     )
@@ -292,7 +292,7 @@ fun LoanDetailScreen(id: String) {
                     val fee = list.filter { it.part == "fee" }.sumOf { it.amount }
                     ListItem(
                         headlineContent = { Text(Dates.medium(LocalDate.parse(date))) },
-                        supportingContent = { Text(listOfNotNull("${Money.format(principal, cur)} principal", "${Money.format(interest, cur)} interest", fee.takeIf { it > 0 }?.let { "${Money.format(it, cur)} fees" }).joinToString(" · ")) },
+                        supportingContent = { Text(listOfNotNull("${Money.ui(principal, cur)} principal", "${Money.ui(interest, cur)} interest", fee.takeIf { it > 0 }?.let { "${Money.ui(it, cur)} fees" }).joinToString(" · ")) },
                         trailingContent = { MoneyText(-(principal + interest + fee), cur, signed = true, color = typeColor("expense")) },
                         modifier = Modifier.clickable { list.firstOrNull()?.let { nav.navigate(Routes.editTx(it.id, it.type)) } },
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -345,7 +345,7 @@ private fun PayEmiDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
         minor == null || minor <= 0 -> "Enter the amount paid"
         interest == null || interest < 0 -> "Enter the interest part as an amount, or leave it empty"
         interest > minor -> "The interest cannot be more than the payment"
-        principal != null && principal > s.outstanding -> "That repays more than the ${Money.format(s.outstanding, l.currency)} owed. Use Foreclose to close the loan."
+        principal != null && principal > s.outstanding -> "That repays more than the ${Money.ui(s.outstanding, l.currency)} owed. Use Foreclose to close the loan."
         feeMinor == null || feeMinor < 0 -> "Enter the charges as an amount, or leave them empty"
         accountId == null -> "Choose the account it was paid from"
         else -> null
@@ -355,15 +355,15 @@ private fun PayEmiDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
         title = { Text("Pay EMI · ${l.name}") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                next?.let { Text("Instalment ${it.n}, due ${Dates.relativeDay(it.date)}. Owed now: ${Money.format(s.outstanding, l.currency)}", style = MaterialTheme.typography.bodySmall) }
+                next?.let { Text("Instalment ${it.n}, due ${Dates.relativeDay(it.date)}. Owed now: ${Money.ui(s.outstanding, l.currency)}", style = MaterialTheme.typography.bodySmall) }
                 AmountField(amount, { amount = it }, l.currency, "Amount paid")
                 AmountField(interestText, { interestText = it }, l.currency, "Interest part (optional)",
-                    supporting = "Calculated ${Money.format(auto?.first ?: 0, l.currency)}; type your statement's figure if different")
+                    supporting = "Calculated ${Money.ui(auto?.first ?: 0, l.currency)}; type your statement's figure if different")
                 AmountField(fee, { fee = it }, l.currency, "Late fee or charges (optional)")
                 DateField("Paid on", date, { date = it }, max = today)
                 AccountPicker("Paid from", choices, accountId, lookup) { accountId = it }
                 if (principal != null && interest != null && error == null) {
-                    Text("Split: ${Money.format(principal, l.currency)} principal + ${Money.format(interest, l.currency)} interest" +
+                    Text("Split: ${Money.ui(principal, l.currency)} principal + ${Money.ui(interest, l.currency)} interest" +
                         if (principal == s.outstanding) ". This pays off the loan." else "", style = MaterialTheme.typography.bodySmall)
                 }
                 ErrorText(if (amount.isNotBlank()) error else null)
@@ -414,7 +414,7 @@ private fun PrepayDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
     val keepTenureSched = if (left != null && left > 0 && newEmi != null) Loans.schedule(left, l.annualRate, newEmi, anchor, s.paidInstalments + 1) else null
     val error = when {
         minor == null || minor <= 0 -> "Enter the amount you are prepaying"
-        minor >= s.outstanding -> "That is all of the ${Money.format(s.outstanding, l.currency)} owed. Use Foreclose instead."
+        minor >= s.outstanding -> "That is all of the ${Money.ui(s.outstanding, l.currency)} owed. Use Foreclose instead."
         accountId == null -> "Choose the account"
         else -> null
     }
@@ -427,8 +427,8 @@ private fun PrepayDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
                 DateField("On", date, { date = it }, max = Dates.today())
                 AccountPicker("From", choices, accountId, lookup) { accountId = it }
                 if (keepEmiSched != null && keepTenureSched != null && newEmi != null) {
-                    FilterChip(keepEmi, { keepEmi = true }, label = { Text("Keep EMI: ${keepEmiSched.rows.size} left (saves ${Money.format(before.totalInterest - keepEmiSched.totalInterest, l.currency)})") })
-                    FilterChip(!keepEmi, { keepEmi = false }, label = { Text("Lower EMI to ${Money.format(newEmi, l.currency)} (saves ${Money.format(before.totalInterest - keepTenureSched.totalInterest, l.currency)})") })
+                    FilterChip(keepEmi, { keepEmi = true }, label = { Text("Keep EMI: ${keepEmiSched.rows.size} left (saves ${Money.ui(before.totalInterest - keepEmiSched.totalInterest, l.currency)})") })
+                    FilterChip(!keepEmi, { keepEmi = false }, label = { Text("Lower EMI to ${Money.ui(newEmi, l.currency)} (saves ${Money.ui(before.totalInterest - keepTenureSched.totalInterest, l.currency)})") })
                     Text("Tell your lender which option you chose.", style = MaterialTheme.typography.bodySmall)
                 }
                 ErrorText(if (amount.isNotBlank()) error else null)
@@ -469,7 +469,7 @@ private fun CloseLoanDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit)
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (owed > 0) {
-                    Text("Pays the remaining ${Money.format(owed, l.currency)} of principal and closes the loan. Use the figures from your lender's foreclosure letter.")
+                    Text("Pays the remaining ${Money.ui(owed, l.currency)} of principal and closes the loan. Use the figures from your lender's foreclosure letter.")
                     AmountField(interest, { interest = it }, l.currency, "Interest to the closing date")
                     AmountField(charge, { charge = it }, l.currency, "Foreclosure charge")
                     DateField("On", date, { date = it }, max = Dates.today())
@@ -561,19 +561,19 @@ fun LoanEditor(existing: LoanEntity?, onDismiss: () -> Unit) {
                     supportingText = { n?.let { Text("${it / 12} years ${it % 12} months") } })
                 DateField("Loan started on", start, { start = it; if (existing == null) firstDue = it.plusMonths(1) })
                 DateField("First EMI date", firstDue, { firstDue = it })
-                AmountField(customEmi, { customEmi = it }, cur, "EMI as per lender (optional)", supporting = calc?.let { "Calculated: ${Money.format(it, cur)}" })
+                AmountField(customEmi, { customEmi = it }, cur, "EMI as per lender (optional)", supporting = calc?.let { "Calculated: ${Money.ui(it, cur)}" })
                 if (existing == null) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { running = !running }) { Checkbox(running, { running = it }); Text("Already running; I've paid some EMIs") }
                     if (running) {
                         OutlinedTextField(paidBefore, { paidBefore = it.filter(Char::isDigit) }, label = { Text("EMIs already paid") }, placeholder = { Text("$dueSoFar") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        AmountField(owedNow, { owedNow = it }, cur, "Still owed today", supporting = "About ${Money.format(projectedLeft, cur)} by our schedule; use your statement's figure")
+                        AmountField(owedNow, { owedNow = it }, cur, "Still owed today", supporting = "About ${Money.ui(projectedLeft, cur)} by our schedule; use your statement's figure")
                     } else {
                         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { direct = !direct }) { Checkbox(direct, { direct = it }); Text("Paid directly to the seller (not into my account)") }
                         if (!direct) AccountPicker("Money came into", lookup.payAccounts(cur), intoAccount, lookup) { intoAccount = it }
                     }
                 }
                 AccountPicker("EMIs are paid from", lookup.payAccounts(cur), payFrom, lookup) { payFrom = it }
-                if (projected != null && existing == null && error == null) Text("EMI ${Money.format(emi!!, cur)} · total interest ${Money.format(projected.totalInterest, cur)} · last EMI ${projected.rows.lastOrNull()?.date?.let { Dates.medium(it) } ?: "—"}", style = MaterialTheme.typography.bodySmall)
+                if (projected != null && existing == null && error == null) Text("EMI ${Money.ui(emi!!, cur)} · total interest ${Money.ui(projected.totalInterest, cur)} · last EMI ${projected.rows.lastOrNull()?.date?.let { Dates.medium(it) } ?: "—"}", style = MaterialTheme.typography.bodySmall)
                 ErrorText(if (name.isNotBlank() || principal.isNotBlank()) error else null)
             }
         },
@@ -592,7 +592,7 @@ fun LoanEditor(existing: LoanEntity?, onDismiss: () -> Unit) {
                 val disbursal = if (existing == null && !running && !direct) linkedTx(ids[2], "transfer", ids[1], p, start, null, "${name.trim()} · loan disbursed", lender.trim().ifEmpty { name.trim() }, toAccountId = intoAccount, loanId = ids[0]) else null
                 scope.launch {
                     c.repo.saveAll(accounts = listOfNotNull(account), loans = listOf(loan), transactions = listOfNotNull(disbursal))
-                    snackbar.showSnackbar(if (existing == null) "${loan.name} added · EMI ${Money.format(emi ?: 0, cur)}" else "Loan updated")
+                    snackbar.showSnackbar(if (existing == null) "${loan.name} added · EMI ${Money.ui(emi ?: 0, cur)}" else "Loan updated")
                     onDismiss()
                 }
             }) { Text(if (saving) "Saving…" else "Save") }

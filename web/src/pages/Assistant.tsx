@@ -11,6 +11,7 @@ import type { PageProps, Route } from '../App'
 import { Select, PasswordInput } from '../controls'
 import { formatMoney } from '../lib/money'
 import { uuidv7 } from '../lib/util'
+import { getSetting, useSetting } from '../lib/settings'
 
 /**
  * Ask questions about your own money (docs/11-assistant.md). Answers come from
@@ -106,8 +107,6 @@ function chatGroup(t: number): string {
 
 // --- Page ----------------------------------------------------------------------------------
 
-function readPref(k: string, d: string) { try { return localStorage.getItem(k) ?? d } catch { return d } }
-function writePref(k: string, v: string) { try { localStorage.setItem(k, v) } catch { /* ignore */ } }
 
 export function Assistant({ go }: PageProps) {
   const l = useLedger()
@@ -123,7 +122,7 @@ export function Assistant({ go }: PageProps) {
   const [editing, setEditing] = useState<number | null>(null)
   /** The question being answered right now: its lookups so far and the answer as it streams. */
   const [pending, setPending] = useState<{ q: string; runs: string[]; text: string } | null>(null)
-  const [listOpen, setListOpen] = useState(() => readPref('kosh.chatlist', '1') === '1')
+  const [listOpen, setListOpen] = useSetting('assistant_chat_list', true)
   const [away, setAway] = useState(false)
   const abort = useRef<AbortController | null>(null)
   const partial = useRef('')
@@ -134,6 +133,11 @@ export function Assistant({ go }: PageProps) {
   const chat = chats.find((c) => c.id === chatId) ?? null
   const turns = chat?.turns ?? []
 
+  // Nobody has chosen yet and the admin has set up an assistant on this server: use it, no setup
+  // needed. Not saved, so if the admin later removes it the page simply asks again. "Turn off" is kept.
+  useEffect(() => {
+    if (server.data?.enabled && s.mode === 'off' && !('mode' in getSetting<Record<string, unknown>>('assistant', {}))) setS({ ...s, mode: 'server' })
+  }, [server.data?.enabled]) // eslint-disable-line react-hooks/exhaustive-deps
   // A key saved on the server (its durable home) is loaded into memory once.
   useEffect(() => { if (s.mode === 'direct' && !s.apiKey) hydrateKey().then((k) => { if (k) setS(loadAi()) }) }, []) // eslint-disable-line
   // Ready to type on a computer; on a phone the keyboard would cover the page.
@@ -180,7 +184,7 @@ export function Assistant({ go }: PageProps) {
     if (chatId === id) setChatId(null)
     if (gone) toast('Conversation deleted', { label: 'Undo', run: () => store((list) => [gone, ...list]) })
   }
-  const toggleList = () => { const v = !listOpen; setListOpen(v); writePref('kosh.chatlist', v ? '1' : '0') }
+  const toggleList = () => setListOpen(!listOpen)
 
   const send = async (question: string, agreed = false, cut: number | null = editing) => {
     const text = question.trim()

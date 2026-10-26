@@ -131,7 +131,7 @@ internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (
                     supporting = when {
                         amount.isNotBlank() && parsed == null -> "Enter a number like 5000 or 5,000.50"
                         existing != null && parsed != null && parsed != existing.amount && parsed >= paidBack && moves.any { it.debtId == existing.id && !Debts.isRepayment(existing, it) && !Debts.isInterest(it) } -> "The money entry in your account will be updated to match"
-                        existing != null && parsed != null && parsed < paidBack -> "${Money.format(paidBack, currency)} is already repaid, so the amount cannot be less"
+                        existing != null && parsed != null && parsed < paidBack -> "${Money.ui(paidBack, currency)} is already repaid, so the amount cannot be less"
                         else -> null
                     })
                 if (existing == null) OutlinedButton(onClick = { pickCurrency = true }, modifier = Modifier.fillMaxWidth()) { Text("Currency: $currency") }
@@ -163,7 +163,7 @@ internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (
                                 val back = Debts.isRepayment(existing, m)
                                 Row(Modifier.fillMaxWidth().clickable { onDismiss(); nav.navigate(Routes.editTx(m.id)) }.padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
                                     Text("${Dates.relativeDay(java.time.LocalDate.parse(m.localDate))} · ${m.note ?: if (back) "Repayment" else if (existing.direction == "lent") "Lent" else "Borrowed"}", style = MaterialTheme.typography.bodyMedium)
-                                    Text(Money.format(m.amount, existing.currency), style = MaterialTheme.typography.bodyMedium)
+                                    Text(Money.ui(m.amount, existing.currency), style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
                         }
@@ -217,7 +217,7 @@ internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (
         AlertDialog(
             onDismissRequest = { confirmSettle = false },
             title = { Text("Mark as settled?") },
-            text = { Text("${Money.format(existing.amount - paidBack, existing.currency)} is still outstanding. Marking it settled writes that off: it stops counting ${if (existing.direction == "lent") "as owed to you" else "as what you owe"}, and no money moves. If money was paid, record the repayment instead.") },
+            text = { Text("${Money.ui(existing.amount - paidBack, existing.currency)} is still outstanding. Marking it settled writes that off: it stops counting ${if (existing.direction == "lent") "as owed to you" else "as what you owe"}, and no money moves. If money was paid, record the repayment instead.") },
             confirmButton = { TextButton(onClick = { scope.launch { c.repo.saveDebt(existing.copy(closed = true)); confirmSettle = false; onDismiss() } }) { Text("Mark settled") } },
             dismissButton = { TextButton(onClick = { confirmSettle = false }) { Text("Cancel") } },
         )
@@ -244,12 +244,12 @@ internal fun RepayDialog(debt: DebtEntity, outstanding: Long, onDismiss: () -> U
         title = { Text(if (lent) "${debt.person} paid you back" else "You paid ${debt.person} back") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("Outstanding: ${Money.format(outstanding, debt.currency)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("Outstanding: ${Money.ui(outstanding, debt.currency)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 AmountField(amount, { amount = it }, debt.currency, "Amount repaid",
                     supporting = when {
                         amount.isNotBlank() && minor == null -> "Enter a number like 5000"
-                        minor != null && minor > outstanding -> "Only ${Money.format(outstanding, debt.currency)} is owed. Put anything extra in Interest."
-                        minor != null && minor in 1 until outstanding -> "Part repayment: ${Money.format(outstanding - minor, debt.currency)} will still be owed"
+                        minor != null && minor > outstanding -> "Only ${Money.ui(outstanding, debt.currency)} is owed. Put anything extra in Interest."
+                        minor != null && minor in 1 until outstanding -> "Part repayment: ${Money.ui(outstanding - minor, debt.currency)} will still be owed"
                         else -> null
                     })
                 AmountField(interest, { interest = it }, debt.currency, "Interest or extra (optional)",

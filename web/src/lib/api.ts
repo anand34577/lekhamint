@@ -197,6 +197,10 @@ export const api = {
     call<{ user: User; token: string }>('POST', '/auth/register', { email, password, name, device_name: 'Web browser' }),
   logout: () => call<void>('POST', '/auth/logout'),
   me: () => call<{ user: User }>('GET', '/auth/me'),
+  /** The signed-in person's settings (theme, chosen book...), the same in every browser. */
+  settings: () => call<{ settings: Record<string, unknown> }>('GET', '/settings').then((r) => r.settings ?? {}),
+  putSetting: (key: string, value: unknown) => call<unknown>('PUT', `/settings/${encodeURIComponent(key)}`, { value }),
+  deleteSetting: (key: string) => call<void>('DELETE', `/settings/${encodeURIComponent(key)}`),
   aiKey: () => call<{ key: string; key_set: boolean }>('GET', '/ai/key'),
   saveAiKey: (key: string) => call<{ key_set: boolean }>('PUT', '/ai/key', { key }),
   clearAiKey: () => call<void>('DELETE', '/ai/key'),

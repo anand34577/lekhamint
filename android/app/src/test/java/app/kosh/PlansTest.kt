@@ -38,7 +38,7 @@ class PlansTest {
 
     @Test fun readsBankMessages() {
         val a = SmsParser.parse("Rs.450.00 debited from A/c XX1234 on 24-Oct-26 to VPA swiggy@icici (UPI Ref 1234). Not you? Call 1800")
-        assertEquals("450.00", a.amount); assertEquals("expense", a.type); assertEquals("swiggy", a.payee)
+        assertEquals("450.00", a.amount); assertEquals("expense", a.type); assertEquals("Swiggy", a.payee)
         val b = SmsParser.parse("INR 85,000.00 credited to your A/c XX9876 on 01-Oct by NEFT from ACME TECHNOLOGIES. Avl Bal INR 1,20,000")
         assertEquals("85000.00", b.amount); assertEquals("income", b.type)
         val c = SmsParser.parse("You spent ₹1,299 at DECATHLON on your HDFC Credit Card ending 4521.")
