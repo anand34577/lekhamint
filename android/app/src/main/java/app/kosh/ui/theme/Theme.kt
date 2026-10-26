@@ -80,6 +80,7 @@ private val Palettes = mapOf(
 
 private fun lightScheme(p: Palette) = lightColorScheme(
     primary = p.primary, onPrimary = Color.White, primaryContainer = p.primaryContainer, onPrimaryContainer = p.onPrimaryContainer,
+    inversePrimary = p.darkPrimary, // snackbar actions such as Undo
     secondary = p.secondary, onSecondary = Color.White, secondaryContainer = p.secondaryContainer, onSecondaryContainer = p.onSecondaryContainer,
     tertiary = Color(0xFFB45309), onTertiary = Color.White, tertiaryContainer = Color(0xFFFFE2C2), onTertiaryContainer = Color(0xFF2E1500),
     background = p.lightBg, onBackground = Color(0xFF161B1A), surface = p.lightBg, onSurface = Color(0xFF161B1A),
@@ -92,6 +93,7 @@ private fun lightScheme(p: Palette) = lightColorScheme(
 
 private fun darkScheme(p: Palette) = darkColorScheme(
     primary = p.darkPrimary, onPrimary = p.darkOnPrimary, primaryContainer = p.darkPrimaryContainer, onPrimaryContainer = p.darkOnPrimaryContainer,
+    inversePrimary = p.primary,
     secondary = p.darkSecondary, secondaryContainer = p.darkSecondaryContainer, onSecondaryContainer = Color(0xFFE2E6E5),
     tertiary = Color(0xFFFFB870), onTertiary = Color(0xFF4A2800), tertiaryContainer = Color(0xFF6A3B00),
     background = p.darkBg, onBackground = Color(0xFFDDE3E1), surface = p.darkBg, onSurface = Color(0xFFDDE3E1),
@@ -129,10 +131,33 @@ val LocalDarkTheme = staticCompositionLocalOf { false }
 private val LightMoney = MoneyColors(Color(0xFF15803D), Color(0xFFD9480F), Color(0xFF2563EB), Color(0xFFD97706))
 private val DarkMoney = MoneyColors(Color(0xFF4ADE80), Color(0xFFFF8A5B), Color(0xFF60A5FA), Color(0xFFFBBF24))
 
+/**
+ * Inter (SIL Open Font License, see assets/licenses/Inter-OFL.txt), bundled as one variable font
+ * trimmed to Latin, currency and maths signs. Letters it lacks, such as Devanagari payee names,
+ * fall back to the system font.
+ */
+@OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
+private fun inter(weight: Int) = androidx.compose.ui.text.font.Font(
+    app.kosh.R.font.inter, FontWeight(weight),
+    variationSettings = androidx.compose.ui.text.font.FontVariation.Settings(androidx.compose.ui.text.font.FontVariation.weight(weight)),
+)
+
+val Inter = androidx.compose.ui.text.font.FontFamily(inter(300), inter(400), inter(500), inter(600), inter(700), inter(800))
+
 /** Tabular figures so amounts line up in lists. */
 private val Tabular = TextStyle(fontFeatureSettings = "tnum")
 
 private val KoshTypography = Typography().run {
+    // Every style uses Inter; the Material defaults keep their sizes and line heights.
+    val base = TextStyle(fontFamily = Inter)
+    Typography(
+        displayLarge = displayLarge.merge(base), displayMedium = displayMedium.merge(base), displaySmall = displaySmall.merge(base),
+        headlineLarge = headlineLarge.merge(base), headlineMedium = headlineMedium.merge(base), headlineSmall = headlineSmall.merge(base),
+        titleLarge = titleLarge.merge(base), titleMedium = titleMedium.merge(base), titleSmall = titleSmall.merge(base),
+        bodyLarge = bodyLarge.merge(base), bodyMedium = bodyMedium.merge(base), bodySmall = bodySmall.merge(base),
+        labelLarge = labelLarge.merge(base), labelMedium = labelMedium.merge(base), labelSmall = labelSmall.merge(base),
+    )
+}.run {
     copy(
         displayLarge = displayLarge.merge(Tabular).copy(fontWeight = FontWeight.Bold, letterSpacing = (-1).sp),
         displayMedium = displayMedium.merge(Tabular).copy(fontWeight = FontWeight.Bold, letterSpacing = (-0.8).sp),

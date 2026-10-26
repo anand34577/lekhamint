@@ -38,7 +38,7 @@ Base path is `/api/v1`. The API speaks JSON only. Authenticated endpoints need
 | `GET /auth/sessions` | Devices signed in: `{sessions:[{id, device_name, last_used_at, current}]}` |
 | `DELETE /auth/sessions/{id}` | Sign out that device |
 | `POST /auth/password` | `{current_password, new_password}`. Also signs out all other devices. |
-| `DELETE /auth/me` | `{password}` → `{deleted_ledgers}`. Permanently deletes the account and every ledger it alone owns; removes it from ledgers with another owner. Wrong password: 401 `invalid_credentials` (the session stays valid). |
+| `DELETE /auth/me` | `{password}` → `{deleted_ledgers}`. Permanently deletes the account. A ledger it alone owns passes to its longest-standing other member (editors before viewers); one with no other members is deleted. It is removed from every other ledger. Wrong password: 401 `invalid_credentials` (the session stays valid). |
 
 ## Per-person settings
 
@@ -100,7 +100,7 @@ so phones pick them up on their next pull.
 | `tag_id`, `type`, `status` | Exact match |
 | `debt_id` | Loans and repayments of one debt; `any` lists every debt movement |
 | `min_amount`, `max_amount` | Amount range in minor units, inclusive |
-| `q` | Case-insensitive search in payee and note |
+| `q` | Case-insensitive search in payee, note and category name; a number such as `486` or `1,299.50` also matches that exact amount (in the book's main currency) |
 | `deleted=true` | List the Trash |
 | `limit` (≤ 500), `cursor` | Paging. Pass back `next_cursor`. |
 

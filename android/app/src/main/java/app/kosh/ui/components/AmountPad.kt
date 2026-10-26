@@ -41,9 +41,9 @@ fun AmountPad(onKey: (Char) -> Unit, onClear: () -> Unit, modifier: Modifier = M
         listOf('1', '2', '3', '−'),
         listOf('.', '0', '⌫', '+'),
     )
-    Column(modifier.padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier.padding(horizontal = 10.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
         for (row in rows) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 for (key in row) {
                     val isOp = key in "÷×−+"
                     val label = when (key) {
@@ -59,7 +59,7 @@ fun AmountPad(onKey: (Char) -> Unit, onClear: () -> Unit, modifier: Modifier = M
                         color = if (isOp) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f) else if (app.kosh.ui.theme.LocalDarkTheme.current) MaterialTheme.colorScheme.surfaceContainerHigh else MaterialTheme.colorScheme.surfaceContainerLowest,
                         contentColor = if (isOp) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
                         shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.weight(1f).height(52.dp).clip(RoundedCornerShape(16.dp))
+                        modifier = Modifier.weight(1f).height(46.dp).clip(RoundedCornerShape(16.dp))
                             .semantics { contentDescription = label }
                             .combinedClickable(
                                 onClick = {

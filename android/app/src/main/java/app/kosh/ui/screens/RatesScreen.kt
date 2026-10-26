@@ -33,7 +33,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -59,7 +58,7 @@ fun RatesScreen() {
     val c = LocalContainer.current
     val nav = LocalNav.current
     val snackbar = LocalSnackbar.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val rates by c.repo.exchangeRates.collectAsStateWithLifecycle(emptyList())
     val base = c.settings.current.baseCurrency
     var editing by remember { mutableStateOf<Fx.Rate?>(null) }
@@ -103,7 +102,7 @@ fun RatesScreen() {
 @Composable
 internal fun RateSheet(existing: Fx.Rate?, base: String, onDismiss: () -> Unit, presetFrom: String? = null) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     var from by remember { mutableStateOf(existing?.base ?: presetFrom ?: if (base == "USD") "EUR" else "USD") }
     var to by remember { mutableStateOf(existing?.quote ?: base) }
     var rate by remember { mutableStateOf(existing?.rate?.stripTrailingZeros()?.toPlainString().orEmpty()) }

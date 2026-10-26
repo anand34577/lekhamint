@@ -1,6 +1,7 @@
 package app.kosh.ui.components
 
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.LocalTextStyle
@@ -156,18 +157,22 @@ fun SectionHeader(title: String, modifier: Modifier = Modifier, action: String? 
 }
 
 /**
- * The standard surface for a group of content: white with a hairline edge in light mode, a lifted tone in dark mode.
+ * The standard surface for a group of content: white on the tinted background with a soft,
+ * diffuse shadow in light mode (no hairline box), a lifted tone in dark mode.
  */
 @Composable
 fun KoshCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, content: @Composable () -> Unit) {
     val dark = app.kosh.ui.theme.LocalDarkTheme.current
     val colors = CardDefaults.cardColors(containerColor = if (dark) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLowest)
-    val shape = RoundedCornerShape(22.dp)
-    val border = if (dark) null else androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f))
+    val shape = RoundedCornerShape(24.dp)
+    val lifted = if (dark) modifier else modifier.shadow(
+        elevation = 10.dp, shape = shape,
+        ambientColor = Color.Black.copy(alpha = 0.05f), spotColor = Color(0xFF0B3D36).copy(alpha = 0.10f),
+    )
     if (onClick != null) {
-        Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors, border = border) { content() }
+        Card(onClick = onClick, modifier = lifted, shape = shape, colors = colors) { content() }
     } else {
-        Card(modifier = modifier, shape = shape, colors = colors, border = border) { content() }
+        Card(modifier = lifted, shape = shape, colors = colors) { content() }
     }
 }
 

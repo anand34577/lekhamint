@@ -10,7 +10,8 @@ the steps that must be done by hand in the Play Console.
 | App Bundle upload | `./gradlew bundleRelease` makes `app-release.aab`; the release workflow publishes it as `LekhaMint-play.aab`. |
 | Target API level (API 36 from 31 August 2026) | `targetSdk = 36`, `compileSdk = 36`. Raise both each year when Play raises the bar. |
 | Release signing | The release workflow refuses to publish a debug-signed APK or bundle. |
-| 16 KB memory pages | The only native code is AndroidX's `libandroidx.graphics.path.so`; it is 16 KB aligned in the ZIP and in its ELF segments (checked with `zipalign -c -P 16`). |
+| 16 KB memory pages | Native code: AndroidX's `libandroidx.graphics.path.so` and the receipt reader `libkoshocr.so` (ncnn, built with NDK 27). Both have 16 KB-aligned ELF segments (`llvm-readelf -lW`, `Align 0x4000`); they are stored compressed (`useLegacyPackaging`), so `zipalign -c -P 16` reports them as "OK - compressed". |
+| Receipt reading and voice | Receipts are read on the phone (PaddleOCR models with ncnn, no Play services). Photos come from the camera app (`TakePicture`) or the photo picker and speech from `RecognizerIntent`, so the app holds no camera, microphone or storage permission. |
 | In-app account deletion | *More → Sync → Delete account* (and *Settings → Your account* on the web) calls `DELETE /api/v1/auth/me`. |
 | Privacy policy | [`PRIVACY.md`](../PRIVACY.md), linked from *More → Privacy policy*. |
 | Generative AI content | Each assistant answer has a *Report* action; the answer is never attached automatically. |

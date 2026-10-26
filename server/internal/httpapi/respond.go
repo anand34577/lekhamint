@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -192,4 +193,31 @@ func (l *rateLimiter) allow(key string) bool {
 	}
 	l.counts[key]++
 	return l.counts[key] <= l.limit
+}
+
+// minorFromText reads a search box entry such as "486", "1,299" or "₹ 486.50" as an
+// amount in minor units with the given number of decimals. It reports false for
+// anything that is not just a number, so ordinary words are never read as amounts.
+// Money never passes through floating point.
+func minorFromText(text string, digits int) (int64, bool) {
+	var b strings.Builder
+	for _, c := range strings.TrimSpace(text) {
+		switch {
+		case c >= '0' && c <= '9', c == '.':
+			b.WriteRune(c)
+		case c == ',' || c == ' ' || strings.ContainsRune("₹$€£¥", c):
+		default:
+			return 0, false
+		}
+	}
+	whole, frac, _ := strings.Cut(b.String(), ".")
+	if whole == "" && frac == "" || strings.Contains(frac, ".") || len(frac) > digits || len(whole) > 15 {
+		return 0, false
+	}
+	frac += strings.Repeat("0", digits-len(frac))
+	n, err := strconv.ParseInt(whole+frac, 10, 64)
+	if err != nil || n <= 0 {
+		return 0, false
+	}
+	return n, true
 }

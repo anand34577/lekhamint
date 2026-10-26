@@ -4,6 +4,8 @@ import android.app.Application
 import app.kosh.backup.BackupManager
 import app.kosh.capture.CaptureStore
 import app.kosh.core.HlcClock
+import app.kosh.data.AutoFill
+import app.kosh.ocr.ReceiptReader
 import app.kosh.data.Repository
 import app.kosh.data.SecretStore
 import app.kosh.data.Settings
@@ -46,6 +48,8 @@ class AppContainer(app: Application) {
     val backups = BackupManager(app, repo, sync, SecretStore(app))
     /** Payments found in bank and payment app alerts, on this phone only. */
     val captures = CaptureStore(app)
+    /** Reads receipt photos on the phone (no Google services, nothing uploaded). */
+    val receipts = ReceiptReader(app)
 
     /** Lives as long as the process; used for shared, always-fresh reference data. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -65,6 +69,9 @@ class AppContainer(app: Application) {
 
     /** Categorisation rules, always fresh (used while typing a payee). */
     val rules: StateFlow<List<RuleEntity>> = repo.rules.stateIn(appScope, SharingStarted.Eagerly, emptyList())
+
+    /** Guesses account, category and payee for entries saved without the full form. */
+    val autoFill = AutoFill(repo, { lookup.value }, { rules.value })
 }
 
 class KoshApplication : Application() {
@@ -83,6 +90,7 @@ class KoshApplication : Application() {
         }
         Notifications.createChannels(this)
         container.scheduler.schedulePeriodic()
+        container.scheduler.scheduleTimed()
         container.scheduler.schedulePeriodicSync(container.settings.current.syncEnabled)
     }
 }

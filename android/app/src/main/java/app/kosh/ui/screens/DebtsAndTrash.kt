@@ -37,7 +37,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -95,7 +94,7 @@ internal fun AccountChooser(currency: String, selected: String?, label: String, 
 internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (DebtEntity) -> Unit, presetPerson: String? = null, presetDirection: String? = null, presetCurrency: String? = null) {
     val c = LocalContainer.current
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     var person by remember { mutableStateOf(existing?.person ?: presetPerson.orEmpty()) }
     var direction by remember { mutableStateOf(existing?.direction ?: presetDirection ?: "lent") }
     var currency by remember { mutableStateOf(existing?.currency ?: presetCurrency ?: c.settings.current.baseCurrency) }
@@ -228,7 +227,7 @@ internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (
 @Composable
 internal fun RepayDialog(debt: DebtEntity, outstanding: Long, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     var amount by remember { mutableStateOf(Money.toPlain(outstanding, debt.currency)) }
     var interest by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(Dates.today()) }
@@ -277,7 +276,7 @@ internal fun RepayDialog(debt: DebtEntity, outstanding: Long, onDismiss: () -> U
 fun TrashScreen() {
     val c = LocalContainer.current
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val lookup by c.lookup.collectAsStateWithLifecycle()
     val txs by c.repo.deletedTransactions.collectAsStateWithLifecycle(emptyList())
     val accounts by c.repo.deletedAccounts.collectAsStateWithLifecycle(emptyList())

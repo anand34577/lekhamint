@@ -24,10 +24,13 @@ type TxFilter struct {
 	MaxAmount  int64  // inclusive, 0 = no bound
 	Type       string
 	Status     string
-	Query      string // case-insensitive match on payee or note
-	Deleted    bool   // true lists the Trash (tombstones) instead
-	Cursor     string // opaque cursor from a previous page
-	Limit      int
+	Query      string // case-insensitive match on payee, note or category name
+	// QueryAmount, when positive, also matches transactions of exactly this amount (minor
+	// units): Query was a number such as "486" typed from a bank statement.
+	QueryAmount int64
+	Deleted     bool   // true lists the Trash (tombstones) instead
+	Cursor      string // opaque cursor from a previous page
+	Limit       int
 }
 
 // UncategorisedFilter as TxFilter.CategoryID lists transactions that still need a category.
@@ -95,7 +98,14 @@ func ListTransactions(ctx context.Context, q db.Querier, ledgerID string, f TxFi
 	}
 	if f.Query != "" {
 		pat := "%" + escapeLike(strings.ToLower(f.Query)) + "%"
-		add(`(LOWER(t.payee) LIKE ? ESCAPE '\' OR LOWER(t.note) LIKE ? ESCAPE '\')`, pat, pat)
+		cond := `(LOWER(t.payee) LIKE ? ESCAPE '\' OR LOWER(t.note) LIKE ? ESCAPE '\'` +
+			` OR t.category_id IN (SELECT c.id FROM categories c WHERE c.ledger_id = t.ledger_id AND c.deleted = 0 AND LOWER(c.name) LIKE ? ESCAPE '\')`
+		qa := []any{pat, pat, pat}
+		if f.QueryAmount > 0 {
+			cond += " OR t.amount = ? OR t.to_amount = ?"
+			qa = append(qa, f.QueryAmount, f.QueryAmount)
+		}
+		add(cond+")", qa...)
 	}
 	if f.Cursor != "" {
 		date, at, id, err := decodeCursor(f.Cursor)

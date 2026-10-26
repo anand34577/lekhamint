@@ -43,7 +43,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -182,7 +181,7 @@ private fun BudgetCard(b: BudgetStatus, lookup: Lookup, onClick: () -> Unit) {
                 Column(Modifier.weight(1f)) {
                     Text(b.budget.name, style = MaterialTheme.typography.titleMedium, maxLines = 1)
                     Text(
-                        "${Dates.short(b.window.start)} – ${Dates.short(b.window.end)}" + if (b.daysLeft > 0) " · ${b.daysLeft} days left" else "",
+                        "${Dates.short(b.window.start)} – ${Dates.short(b.window.end)}" + if (b.daysLeft > 0) " · ${app.kosh.core.plural(b.daysLeft, "day")} left" else "",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
@@ -225,7 +224,7 @@ private val periods = listOf("weekly" to "Weekly", "monthly" to "Monthly", "quar
 fun EditBudgetScreen(id: String?) {
     val c = LocalContainer.current
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val lookup by c.lookup.collectAsStateWithLifecycle()
     var existing by remember { mutableStateOf<BudgetEntity?>(null) }
     var name by remember { mutableStateOf("Monthly spending") }

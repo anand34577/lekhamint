@@ -556,8 +556,10 @@ func (s *Service) SetPassword(ctx context.Context, userID, keepSessionID, passwo
 }
 
 // DeleteAccount permanently deletes a user after checking their password.
-// Ledgers they alone own are deleted with all their data; they are removed
-// from ledgers that have another owner. Returns the IDs of deleted ledgers.
+// A ledger they alone own passes to its longest-standing other member (so a
+// family's shared book survives one person leaving); one nobody else uses is
+// deleted with all its data. They are removed from every other ledger.
+// Returns the IDs of deleted ledgers.
 func (s *Service) DeleteAccount(ctx context.Context, u store.User, password string) ([]string, error) {
 	// Single sign-on accounts have no password; typing their email confirms the deletion.
 	if err := s.confirmIdentity(u, password); err != nil {
@@ -570,12 +572,20 @@ func (s *Service) DeleteAccount(ctx context.Context, u store.User, password stri
 		if err != nil {
 			return err
 		}
+		deleted = []string{}
 		for _, id := range ids {
+			kept, err := store.HandOverLedger(ctx, tx, id, u.ID)
+			if err != nil {
+				return err
+			}
+			if kept {
+				continue
+			}
 			if err := store.DeleteLedger(ctx, tx, id); err != nil {
 				return err
 			}
+			deleted = append(deleted, id)
 		}
-		deleted = ids
 		return store.DeleteUser(ctx, tx, u.ID)
 	})
 	return deleted, err

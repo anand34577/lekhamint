@@ -6,6 +6,12 @@
  */
 
 /* ---- Tokens ------------------------------------------------------------------------------------ */
+/* Inter (SIL Open Font License, /fonts/Inter-OFL.txt), bundled and trimmed to Latin, currency and
+   maths signs so every visitor sees the same type without a call to a font service. */
+@font-face {
+  font-family: "LekhaMint Inter"; src: url("./fonts/inter.woff2") format("woff2");
+  font-weight: 300 800; font-style: normal; font-display: swap;
+}
 :root {
   --h: 182; /* accent hue; data-accent changes it */
   --brand: oklch(0.54 0.115 var(--h));
@@ -49,7 +55,7 @@
   --side-w: 268px;
   --topbar-h: 60px;
   color-scheme: light;
-  font-family: "Inter var", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
+  font-family: "LekhaMint Inter", "Inter var", Inter, "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
   font-feature-settings: "tnum", "cv11", "ss01";
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -401,6 +407,8 @@ input.has-prefix { padding-left: 30px; } input.has-suffix { padding-right: 34px;
     padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); background: var(--glass); backdrop-filter: saturate(1.7) blur(16px); -webkit-backdrop-filter: saturate(1.7) blur(16px);
     border-top: 1px solid var(--line);
   }
+  .tabbar .tab-more { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 0.68rem; color: var(--muted); background: none; border: 0; box-shadow: none; padding: 5px 0; border-radius: 10px; font-weight: 520; min-height: 0; }
+  .tabbar .tab-more.active { color: var(--brand); font-weight: 700; background: var(--brand-soft); }
   .tabbar a { display: flex; flex-direction: column; align-items: center; gap: 2px; font-size: 0.68rem; color: var(--muted); text-decoration: none; padding: 5px 0; border-radius: 10px; font-weight: 520; position: relative; transition: color 0.15s, background 0.15s; }
   .tabbar a .icon { transition: transform 0.18s var(--ease-spring); }
   .tabbar a:hover .icon { transform: translateY(-1px) scale(1.1); }
@@ -447,6 +455,9 @@ input.has-prefix { padding-left: 30px; } input.has-suffix { padding-right: 34px;
 .money { white-space: nowrap; font-variant-numeric: tabular-nums; }
 .money.pos { color: var(--pos); }
 .money.neg { color: var(--neg); }
+/* In transaction lists spending stays in the text colour and income stands out, so a month of
+   everyday purchases reads calmly; the sign still says which way money went. */
+table.tx .money.neg, .recent-list .money.neg { color: var(--ink); }
 .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .avatar { --c: var(--brand); width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; font-weight: 720; flex-shrink: 0; color: var(--c); background: color-mix(in srgb, var(--c), transparent 86%); }
 .acc-icon { --c: var(--brand); width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex-shrink: 0; color: var(--c); background: color-mix(in srgb, var(--c), transparent 85%); }
@@ -494,6 +505,11 @@ input.has-prefix { padding-left: 30px; } input.has-suffix { padding-right: 34px;
 .clickable:hover { background: var(--surface-2); }
 .muted-row { opacity: 0.6; }
 .table-wrap { overflow-x: auto; }
+/* A sticky header needs no scrolling box between it and the page, or it sticks inside that box
+   (60px down, over the first rows). The transaction table never needs sideways scrolling (phones
+   hide the wide columns), so clip instead. */
+.card.flush:has(> .table-wrap > table.tx) { overflow: clip; }
+.table-wrap:has(> table.tx) { overflow-x: clip; }
 table.tx { width: 100%; border-collapse: collapse; }
 table.tx th { text-align: left; font-weight: 700; color: var(--muted); font-size: 0.73rem; padding: 11px 14px; border-bottom: 1px solid var(--line); text-transform: uppercase; letter-spacing: 0.07em; white-space: nowrap; background: var(--surface); position: sticky; top: var(--topbar-h); z-index: 2; }
 table.tx td { padding: 12px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
@@ -532,7 +548,18 @@ table.tx tbody tr.clickable:focus-visible { outline: 2px solid var(--brand); out
 .bulkbar { position: sticky; top: calc(var(--topbar-h) + 8px); z-index: 6; background: var(--brand-soft); border: 1px solid color-mix(in srgb, var(--brand), transparent 70%); border-radius: var(--radius-sm); padding: 8px 12px; margin-bottom: 10px; box-shadow: var(--shadow); }
 .bulkbar .select-wrap { width: auto; }
 
+.filters-toggle { display: none; }
+.more-filters { display: contents; }
 @media (max-width: 640px) {
+  .filters-toggle { display: inline-flex; }
+  .filters-toggle.on { border-color: var(--brand); color: var(--brand); }
+  .more-filters { display: none; }
+  .more-filters.open { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; }
+  .more-filters.open > .select-wrap { flex: 1 1 140px; min-width: 0; max-width: none; }
+  .filters .month-nav { flex: 1 1 100%; flex-wrap: nowrap; }
+  .filters .month-nav .seg { flex-wrap: nowrap; flex-shrink: 0; margin-bottom: 0; }
+  .filters .month-nav .seg button { white-space: nowrap; padding: 6px 10px; }
+  .filters .month-nav .month-label { flex: 1; text-align: center; }
   .hide-sm { display: none; }
   .show-sm { display: inline; }
   table.tx td { padding: 10px 8px; }
@@ -1231,3 +1258,13 @@ button.used-line:hover:not(:disabled) { background: var(--surface-3); border-col
   .doc { padding: 16px; margin: 0; font-size: 10pt; }
   .doc-table { font-size: 8.5pt; display: block; overflow-x: auto; }
 }
+
+/* Set-up steps, nearly done: one line with a progress ring. */
+.start-compact { display: flex; align-items: center; gap: 14px; padding: 14px 16px; }
+.start-ring { --p: 0; width: 44px; height: 44px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+  background: conic-gradient(var(--brand) calc(var(--p) * 360deg), var(--surface-2) 0); }
+.start-ring > span { width: 34px; height: 34px; border-radius: 50%; background: var(--surface); display: grid; place-items: center; font-size: 0.72rem; font-weight: 700; }
+@media (max-width: 560px) { .start-compact { flex-wrap: wrap; } .start-compact .grow { flex: 1 1 calc(100% - 120px); } .start-compact .primary { margin-left: 58px; } }
+
+/* A picker next to a button (Category + Split) takes the remaining width. */
+.field .row.nowrap > .select-wrap { flex: 1 1 auto; min-width: 0; }

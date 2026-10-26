@@ -42,7 +42,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -307,7 +306,7 @@ fun LoanDetailScreen(id: String) {
         "close" -> CloseLoanDialog(e, lookup) { action = null }
         "edit" -> LoanEditor(l) { action = null }
         "delete" -> {
-            val scope = rememberCoroutineScope()
+            val scope = app.kosh.ui.rememberSafeScope()
             AlertDialog(
                 onDismissRequest = { action = null },
                 title = { Text("Delete ${l.name}?") },
@@ -323,7 +322,7 @@ fun LoanDetailScreen(id: String) {
 private fun PayEmiDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
     val c = LocalContainer.current
     val snackbar = LocalSnackbar.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val l = e.loan
     val s = e.status
     val next = s.projection.rows.firstOrNull()
@@ -395,7 +394,7 @@ private fun PayEmiDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
 @Composable
 private fun PrepayDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val l = e.loan
     val s = e.status
     val id = remember { Ids.newV7() }
@@ -451,7 +450,7 @@ private fun PrepayDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
 @Composable
 private fun CloseLoanDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val l = e.loan
     val owed = e.status.outstanding
     val ids = remember { Triple(Ids.newV7(), Ids.newV7(), Ids.newV7()) }
@@ -498,7 +497,7 @@ private fun CloseLoanDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit)
 fun LoanEditor(existing: LoanEntity?, onDismiss: () -> Unit) {
     val c = LocalContainer.current
     val lookup by c.lookup.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val snackbar = LocalSnackbar.current
     val today = Dates.today()
     val ids = remember { listOf(existing?.id ?: Ids.newV7(), existing?.accountId ?: Ids.newV7(), Ids.newV7(), Ids.newV7()) }

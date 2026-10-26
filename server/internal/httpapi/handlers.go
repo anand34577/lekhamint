@@ -14,6 +14,7 @@ import (
 	"github.com/anand34577/lekhamint/server/internal/entity"
 	"github.com/anand34577/lekhamint/server/internal/ids"
 	"github.com/anand34577/lekhamint/server/internal/ledger"
+	"github.com/anand34577/lekhamint/server/internal/report"
 	"github.com/anand34577/lekhamint/server/internal/store"
 	"github.com/anand34577/lekhamint/server/internal/syncer"
 )
@@ -121,7 +122,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	clearSessionCookie(w, r)
+	s.clearSessionCookie(w, r)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -144,6 +145,7 @@ func (s *Server) deleteMe(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	s.clearSessionCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]any{"deleted_ledgers": deleted})
 }
 
@@ -555,8 +557,15 @@ func (s *Server) listTransactions(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
+	var queryAmount int64
+	if q.Get("q") != "" {
+		if l, err := store.GetLedger(r.Context(), s.DB, lid); err == nil {
+			queryAmount, _ = minorFromText(q.Get("q"), report.Digits(l.BaseCurrency))
+		}
+	}
 	list, next, err := store.ListTransactions(r.Context(), s.DB, lid, store.TxFilter{
-		From: from, To: to, AccountID: q.Get("account_id"), CategoryID: q.Get("category_id"),
+		QueryAmount: queryAmount,
+		From:        from, To: to, AccountID: q.Get("account_id"), CategoryID: q.Get("category_id"),
 		TagID: q.Get("tag_id"), DebtID: q.Get("debt_id"),
 		LoanID: q.Get("loan_id"), DepositID: q.Get("deposit_id"), MinAmount: minAmount, MaxAmount: maxAmount,
 		Type: q.Get("type"), Status: q.Get("status"), Query: q.Get("q"),

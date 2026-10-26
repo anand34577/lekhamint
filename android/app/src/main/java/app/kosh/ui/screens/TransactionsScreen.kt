@@ -1,5 +1,6 @@
 package app.kosh.ui.screens
 
+import app.kosh.ui.rememberSafeScope
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.height
@@ -131,7 +132,7 @@ fun TransactionsScreen() {
     val f = s.filter
     val c = app.kosh.ui.components.LocalContainer.current
     val snackbar = app.kosh.ui.LocalSnackbar.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val scope = rememberSafeScope()
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var bulkCategory by remember { mutableStateOf(false) }
     // Only rows still on screen can stay selected (a filter or month change drops the rest).
@@ -165,7 +166,7 @@ fun TransactionsScreen() {
                     if (searching) {
                         TextField(
                             f.query, { q -> vm.update { it.copy(query = q) } },
-                            placeholder = { Text("Search payee or note") }, singleLine = true,
+                            placeholder = { Text("Payee, note, category or amount") }, singleLine = true,
                             colors = TextFieldDefaults.colors(focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent),
                             modifier = Modifier.fillMaxWidth(),
                         )

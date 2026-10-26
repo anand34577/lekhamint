@@ -50,7 +50,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -156,7 +155,7 @@ private fun AccountRow(a: AccountEntity, balance: Long, onClick: () -> Unit) {
             val soon = due != null && due.daysLeft <= 3
             Text(
                 accountTypeLabel(a.type) + (if (!a.includeInNetWorth) " · not in net worth" else "") +
-                    (due?.let { " · due " + if (it.daysLeft == 0L) "today" else if (it.daysLeft == 1L) "tomorrow" else "in ${it.daysLeft} days" } ?: ""),
+                    (due?.let { " · due " + if (it.daysLeft == 0L) "today" else if (it.daysLeft == 1L) "tomorrow" else "in ${app.kosh.core.plural(it.daysLeft, "day")}" } ?: ""),
                 color = if (soon) MaterialTheme.colorScheme.error else Color.Unspecified,
             )
         },
@@ -178,7 +177,7 @@ fun AccountDetailScreen(id: String) {
     val account = lookup.accountById[id]
     var reconcile by remember { mutableStateOf(false) }
     var valuing by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val snackbar = LocalSnackbar.current
 
     Scaffold(
@@ -217,7 +216,7 @@ fun AccountDetailScreen(id: String) {
                         }
                         CardBilling.due(account, balance, app.kosh.core.Dates.today())?.let { due ->
                             Text(
-                                "Payment due " + (when (due.daysLeft) { 0L -> "today"; 1L -> "tomorrow"; else -> "in ${due.daysLeft} days" }) + " (${app.kosh.core.Dates.medium(due.date)})",
+                                "Payment due " + (when (due.daysLeft) { 0L -> "today"; 1L -> "tomorrow"; else -> "in ${app.kosh.core.plural(due.daysLeft, "day")}" }) + " (${app.kosh.core.Dates.medium(due.date)})",
                                 style = MaterialTheme.typography.bodyMedium,
                                 color = if (due.daysLeft <= 3) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -238,7 +237,7 @@ fun AccountDetailScreen(id: String) {
             val history = balanceHistory(txs, id, balance, days = 90, complete = txs.size < limit)
             if (history.size >= 7 && history.distinct().size > 1) item {
                 val lo = history.min(); val hi = history.max()
-                app.kosh.ui.components.SectionCard("Balance trend", subtitle = "End-of-day balance, last ${history.size} days") {
+                app.kosh.ui.components.SectionCard("Balance trend", subtitle = "End-of-day balance, last ${app.kosh.core.plural(history.size, "day")}") {
                     app.kosh.ui.components.Sparkline(
                         history, if (history.last() >= history.first()) app.kosh.ui.theme.LocalMoneyColors.current.income else app.kosh.ui.theme.LocalMoneyColors.current.expense,
                         Modifier.fillMaxWidth().height(96.dp),
@@ -278,7 +277,7 @@ fun AccountDetailScreen(id: String) {
 }
 
 @Composable
-private fun ReconcileDialog(a: AccountEntity, current: Long, onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
+internal fun ReconcileDialog(a: AccountEntity, current: Long, onDismiss: () -> Unit, onConfirm: (Long) -> Unit) {
     var text by remember { mutableStateOf(Money.toPlain(current, a.currency)) }
     val parsed = Money.parse(text.removePrefix("-"), a.currency)?.let { if (text.startsWith("-")) -it else it }
     FormSheet(
@@ -305,7 +304,7 @@ private val accountTypes = listOf("cash", "bank", "wallet", "credit_card", "savi
 fun EditAccountScreen(id: String?) {
     val c = LocalContainer.current
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val existing by remember(id) { if (id != null) c.repo.account(id) else flowOf(null) }.collectAsStateWithLifecycle(null)
     var loaded by remember { mutableStateOf(id == null) }
     var name by remember { mutableStateOf("") }
@@ -432,7 +431,7 @@ fun EditAccountScreen(id: String?) {
     if (confirmDelete && id != null) {
         if (txCount > 0 || uses.isNotEmpty()) {
             val why = buildList {
-                if (txCount > 0) add("$txCount transactions")
+                if (txCount > 0) add("${app.kosh.core.plural(txCount, "transaction")}")
                 addAll(uses)
             }.joinToString(", ")
             ConfirmDialog(

@@ -80,7 +80,7 @@ app.kosh.core               Money, currencies, calculator, HLC, UUIDv7/v5, dates
 - **Unknown fields survive.** Each row keeps an `extras` JSON of fields a newer client added, and entities this version has no screen for live in `raw_records`. Nothing a newer device writes is lost by an older one.
 - **Reference data** (accounts, balances, categories) is one shared, always-fresh `StateFlow` (`Lookup`), so screens never re-query it.
 - **WorkManager jobs:** sync (5 s after edits, every 15 min with network), daily job (auto recurring entries, bill reminders, budget alerts, automatic backup).
-- **Search** uses indexed `LIKE` over payee and note today; FTS is a drop-in later if needed.
+- **Search** uses `LIKE` over payee, note and category name, plus an exact match on the amount when the text is a number; FTS is a drop-in later if needed.
 - **Testing:** JVM unit tests for all core and domain logic, the sync codec and backup encryption; instrumented and screenshot tests are on the roadmap.
 
 ## Web (React + TypeScript)

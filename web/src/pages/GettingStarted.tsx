@@ -36,6 +36,18 @@ export function GettingStarted({ go, onAdd }: { go: (r: Route, p?: Record<string
   if (done === steps.length) return null
   const next = steps.find((s) => !s.done)!
   const hide = () => setHidden(true)
+  // Once most of the way there, the list would push the money figures off the first screen:
+  // show just the next step on one line.
+  if (done >= steps.length - 2) {
+    return (
+      <section className="card mb start-compact">
+        <span className="start-ring" style={{ ['--p' as string]: done / steps.length }} aria-label={`${done} of ${steps.length} set-up steps done`}><span>{done}/{steps.length}</span></span>
+        <div className="grow"><strong>{next.title}</strong><div className="muted small">{next.body}</div></div>
+        <button className="primary" onClick={next.run}>{next.action}</button>
+        <button className="icon-btn" onClick={hide} aria-label="Hide set-up steps" title="Hide"><Icon name="x" size={18} /></button>
+      </section>
+    )
+  }
   return (
     <Card className="mb onboarding" title={<><Icon name="sparkles" size={16} /> Get the most out of LekhaMint</>}
       action={<button className="link small" onClick={hide}>Hide</button>}>

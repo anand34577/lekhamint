@@ -73,4 +73,11 @@ class UiLogicTest {
         // Over the limit is "over", not "ahead of pace".
         assertFalse(BudgetStatus(b, window, 3100, 4000, LocalDate.of(2026, 10, 10)).aheadOfPace)
     }
+
+    @Test
+    fun pluralUsesSingularOnlyForOne() {
+        assertEquals("1 day", app.kosh.core.plural(1, "day"))
+        assertEquals("0 days", app.kosh.core.plural(0, "day"))
+        assertEquals("2 entries", app.kosh.core.plural(2L, "entry", "entries"))
+    }
 }

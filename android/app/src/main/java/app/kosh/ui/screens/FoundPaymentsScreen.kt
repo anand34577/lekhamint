@@ -43,6 +43,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.launch
 import app.kosh.SharedInbox
 import app.kosh.capture.CaptureStore
 import app.kosh.capture.Captured
@@ -98,6 +99,8 @@ fun FoundPaymentsScreen() {
         else c.settings.setCaptureNotify(on)
     }
     val cur = settings.baseCurrency
+    val scope = app.kosh.ui.rememberSafeScope()
+    val snackbar = app.kosh.ui.LocalSnackbar.current
     val fresh = items.filter { it.state == "new" }
     val done = items.filter { it.state != "new" }.take(10)
 
@@ -131,7 +134,12 @@ fun FoundPaymentsScreen() {
             if (fresh.isNotEmpty()) {
                 item { SectionHeader("To review (${fresh.size})") }
                 items(fresh, key = { it.id }) { x ->
-                    FoundCard(x, cur, onAdd = { openFound(nav, x, cur) }, onIgnore = { c.captures.mark(x.id, "ignored") })
+                    FoundCard(x, cur, onAdd = { openFound(nav, x, cur) }, onIgnore = { c.captures.mark(x.id, "ignored") }, onSaved = { plan ->
+                        scope.launch {
+                            val r = snackbar.showSnackbar("Saved ${Money.ui(plan.tx.amount, plan.currency)} · ${plan.summary}", "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                            if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) app.kosh.capture.CaptureSaver.undo(c, x.id)
+                        }
+                    })
                 }
             } else if (access) {
                 item {
@@ -193,8 +201,12 @@ private fun SetupCard(onTurnOn: () -> Unit) {
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun FoundCard(x: Captured, cur: String, onAdd: () -> Unit, onIgnore: () -> Unit) {
+private fun FoundCard(x: Captured, cur: String, onAdd: () -> Unit, onIgnore: () -> Unit, onSaved: (app.kosh.capture.CaptureSaver.Plan) -> Unit) {
     val c = LocalContainer.current
+    val scope = app.kosh.ui.rememberSafeScope()
+    // What one tap on Save would record: the guessed category and account, and whether it looks recorded already.
+    var plan by remember(x.id) { mutableStateOf<app.kosh.capture.CaptureSaver.Plan?>(null) }
+    LaunchedEffect(x.id) { plan = runCatching { app.kosh.capture.CaptureSaver.plan(c, x) }.getOrNull() }
     val lookup by c.lookup.collectAsStateWithLifecycle()
     val m = LocalMoneyColors.current
     val income = x.type == "income"
@@ -221,9 +233,26 @@ private fun FoundCard(x: Captured, cur: String, onAdd: () -> Unit, onIgnore: () 
                 x.text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = if (expanded) 12 else 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp),
             )
+            val p = plan
+            if (p != null) {
+                Text(
+                    if (p.duplicate != null) "Looks already recorded${p.duplicate.payee?.let { " ($it)" } ?: ""}"
+                    else if (p.hasCategory) "Saves as ${p.summary}" else "Saves to ${p.summary} · pick a category with Edit",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (p.duplicate != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             Row(Modifier.fillMaxWidth().padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
-                OutlinedButton(onClick = onIgnore) { Text("Ignore") }
-                FilledTonalButton(onClick = onAdd) { Text("Add") }
+                TextButton(onClick = onIgnore) { Text(if (p?.duplicate != null) "Already added" else "Ignore") }
+                OutlinedButton(onClick = onAdd) { Text("Edit") }
+                if (p != null && p.duplicate == null) {
+                    Button(onClick = {
+                        scope.launch { app.kosh.capture.CaptureSaver.save(c, x)?.let(onSaved) }
+                    }) { Text("Save") }
+                } else if (p == null) {
+                    FilledTonalButton(onClick = onAdd) { Text("Add") }
+                }
             }
         }
     }

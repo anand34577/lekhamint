@@ -1,7 +1,7 @@
 import { createContext, useContext, useMemo, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type Account, type Attachment, type BatchOp, type Budget, type Category, type Debt, type Deposit, type ExchangeRate, type Goal, type Loan, type Ledger, type Rec, type RecurringRule, type Rule, type Split, type Tag, type Transaction, type Valuation } from './api'
-import { isoDate, uuidv7 } from './util'
+import { isoDate, plural, uuidv7 } from './util'
 import { isOffline, outbox } from './outbox'
 
 export const LedgerContext = createContext<Ledger | null>(null)
@@ -200,7 +200,7 @@ export function useWrite() {
     batch: useMutation({
       mutationFn: (ops: BatchOp[]) => orQueue(l.id, ops, ops.length === 1 || ops.every((o) => o.entity === ops[0].entity && o.op === ops[0].op)
         ? `${ops[0].op === 'create_if_missing' || ops[0].op === 'create' ? 'New' : ops[0].op === 'delete' ? 'Deleted' : ops[0].op === 'restore' ? 'Restored' : 'Edited'} ${ops.length > 1 ? `${ops.length} ` : ''}${what(ops[0].entity)}${ops.length > 1 ? 's' : ''}`
-        : `${ops.length} changes`, () => api.batch(l.id, ops), []),
+        : plural(ops.length, 'change'), () => api.batch(l.id, ops), []),
       onSuccess: invalidate,
     }),
   }

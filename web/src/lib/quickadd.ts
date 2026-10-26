@@ -113,9 +113,44 @@ export function withoutWords(text: string, name: string): string {
   return text.split(/\s+/).filter((w) => !drop.has(w.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''))).join(' ').trim()
 }
 
-/** A category whose name appears as a word in [text] (longest name wins). */
+/** Everyday words for the default categories: "450 lunch" files under Dining out. Names the person changed fall through. */
+const WORDS: Record<string, string> = Object.fromEntries(Object.entries({
+  'Dining out': 'lunch dinner breakfast brunch restaurant meal biryani pizza burger',
+  'Food delivery': 'swiggy zomato',
+  'Coffee & snacks': 'coffee tea chai snack snacks starbucks',
+  'Groceries': 'grocery vegetables veggies milk fruits bigbasket blinkit zepto dmart kirana',
+  'Fuel': 'petrol diesel cng',
+  'Taxi & ride-hailing': 'uber ola cab taxi auto rickshaw rapido',
+  'Public transport': 'metro bus',
+  'Parking & tolls': 'parking toll fastag',
+  'Flights & trains': 'flight flights train irctc',
+  'Hotels': 'hotel',
+  'Movies & events': 'movie movies cinema concert',
+  'Subscriptions': 'netflix spotify hotstar subscription',
+  'Pharmacy': 'medicine medicines chemist',
+  'Doctor': 'clinic consultation',
+  'Fitness': 'gym',
+  'Salon & grooming': 'haircut salon barber',
+  'Internet': 'wifi broadband',
+  'Mobile': 'recharge',
+  'Clothing': 'clothes shirt shoes',
+  'Gifts': 'gift',
+  'Charity': 'donation',
+  'Books': 'book',
+}).flatMap(([cat, words]) => words.split(' ').map((w) => [w, cat])))
+
+const norm = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+
+/** A category whose name appears as a word in [text] (longest name wins), else one an everyday word points to. */
 export function categoryFromText<T extends { name: string }>(cats: T[], text: string): T | undefined {
-  const words = ' ' + text.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ') + ' '
-  return [...cats].sort((a, b) => b.name.length - a.name.length)
-    .find((c) => c.name.length > 2 && words.includes(' ' + c.name.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim() + ' '))
+  const words = ' ' + norm(text) + ' '
+  const byName = [...cats].sort((a, b) => b.name.length - a.name.length)
+    .find((c) => c.name.length > 2 && words.includes(' ' + norm(c.name) + ' '))
+  if (byName) return byName
+  for (const w of norm(text).split(' ')) {
+    const cat = WORDS[w]
+    const hit = cat ? cats.find((c) => norm(c.name) === norm(cat)) : undefined
+    if (hit) return hit
+  }
+  return undefined
 }

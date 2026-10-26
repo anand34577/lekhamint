@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { compactMoney, formatMoney, parseMoney, toPlain } from './money'
 import { budgetSpent, budgetWindow, evaluate } from './finance'
-import { addMonths, uuidv7 } from './util'
+import { addMonths, plural, uuidv7 } from './util'
 import type { Budget } from './api'
 
 describe('money', () => {
@@ -75,5 +75,13 @@ describe('card due dates', () => {
     expect(nextDayOfMonth('2026-02-10', 31)).toBe('2026-02-28')
     expect(nextDayOfMonth('2026-12-30', 5)).toBe('2027-01-05')
     expect(daysBetween('2026-10-25', '2026-10-28')).toBe(3)
+  })
+})
+
+describe('plural', () => {
+  it('uses the singular only for one', () => {
+    expect(plural(1, 'day')).toBe('1 day')
+    expect(plural(0, 'day')).toBe('0 days')
+    expect(plural(3, 'entry', 'entries')).toBe('3 entries')
   })
 })

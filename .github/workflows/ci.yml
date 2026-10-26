@@ -68,6 +68,9 @@ jobs:
       - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with: { distribution: temurin, java-version: 17 }
       - uses: gradle/actions/setup-gradle@48b5f213c81028ace310571dc5ec0fbbca0b2947 # v4
+      # The receipt reader is native code (ncnn): the build needs this NDK and CMake.
+      - name: Install the NDK and CMake
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
       # Signed with the real key when the secrets are available (pushes, PRs from this repo);
       # otherwise the release build falls back to the debug key.
       - name: Decode release keystore

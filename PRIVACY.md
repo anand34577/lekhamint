@@ -1,6 +1,6 @@
 # Privacy policy
 
-Last updated: 25 October 2026
+Last updated: 26 October 2026
 
 LekhaMint is a free, open-source money manager. This policy covers the LekhaMint Android app
 (package `app.kosh`), the web app and the self-hosted LekhaMint server. The source code is public at
@@ -20,6 +20,18 @@ and settings are stored in the app's private storage. Automatic backups are writ
 private storage; backups you export go where you choose and can be password-encrypted. Server sign-in
 tokens and assistant API keys are encrypted with a key held in the Android Keystore.
 
+Some things are read on the phone and never sent anywhere:
+
+- **Receipt photos.** When you attach or scan a receipt, the app reads its amount, date and shop with
+  text-recognition models built into the app. No Google Play services and no network are involved. The
+  photo is saved with the transaction like any other attachment.
+- **Bank statements you import.** The file (PDF, Excel, CSV, OFX or QIF, and its password if it has one)
+  is read on the phone; only the entries you choose to import are saved. The file and its password are
+  not kept.
+- **Voice entry.** The microphone button uses your phone's own speech recognition service (offline when
+  the phone supports it). LekhaMint receives only the words, not the recording. The app does not hold
+  the microphone permission itself.
+
 Android's own cloud backup and device-to-device transfer are turned off for this app, so your data is
 not copied to Google's backup service.
 
@@ -29,7 +41,8 @@ Only in these cases, and only after you set them up:
 
 1. **Sync with your own server.** If you sign in to a LekhaMint server, your records are sent to that
    server address and nowhere else. The server is run by you or by someone you choose (for example a
-   family member). Its operator can read the data stored on it.
+   family member). Its operator can read the data stored on it. If you share a book with someone
+   (*More → Share with family*), they see that book's records on their own devices.
 2. **The assistant.** If you configure the assistant, your question and the records it looks up
    (totals, balances, loans, deposits and, if you allow it, payee names and notes) are sent to the
    model service address you enter. The app asks for your consent before the first request to each

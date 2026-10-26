@@ -149,20 +149,39 @@ class SyncEngine(private val repo: Repository) {
         return Triple(accepted, conflicts, rejected)
     }
 
-    private suspend fun pull(api: KoshApi, ledgerId: String): Int = try {
-        pullFrom(api, ledgerId, settings.syncCursor, null)
-    } catch (e: ApiException) {
-        // The server cleared deleted items older than this phone's last sync, so it can no
-        // longer say which records were deleted since. Download the whole book again; any
-        // synced record the server no longer has was deleted elsewhere.
-        if (e.code != "resync_required") throw e
-        val seen = HashSet<String>()
-        val n = pullFrom(api, ledgerId, 0, seen)
-        repo.db.withTransaction { dropMissing(seen) }
-        n
+    private suspend fun pull(api: KoshApi, ledgerId: String): Int {
+        if (settings.resyncPending) return fullDownload(api, ledgerId)
+        return try {
+            pullFrom(api, ledgerId, settings.syncCursor, null)
+        } catch (e: ApiException) {
+            // The server cleared deleted items older than this phone's last sync, so it can no
+            // longer say which records were deleted since. Download the whole book again; any
+            // synced record the server no longer has was deleted elsewhere.
+            if (e.code != "resync_required") throw e
+            settings.resyncPending = true
+            fullDownload(api, ledgerId)
+        }
     }
 
-    private suspend fun pullFrom(api: KoshApi, ledgerId: String, from: Long, seen: MutableSet<String>?): Int {
+    /**
+     * Downloads every record and then marks local copies the server no longer has as deleted. The
+     * cursor is saved only at the end: if the download stops halfway, the next sync starts it
+     * again from the beginning instead of continuing without knowing what is missing.
+     */
+    private suspend fun fullDownload(api: KoshApi, ledgerId: String): Int {
+        val seen = HashSet<String>()
+        var cursor = 0L
+        val n = pullFrom(api, ledgerId, 0, seen) { cursor = it }
+        repo.db.withTransaction { dropMissing(seen) }
+        settings.syncCursor = cursor
+        settings.resyncPending = false
+        return n
+    }
+
+    private suspend fun pullFrom(
+        api: KoshApi, ledgerId: String, from: Long, seen: MutableSet<String>?,
+        saveCursor: (Long) -> Unit = { settings.syncCursor = it },
+    ): Int {
         var cursor = from
         var total = 0
         while (true) {
@@ -176,7 +195,7 @@ class SyncEngine(private val repo: Repository) {
             }
             total += page.changes.size
             cursor = page.next_cursor
-            settings.syncCursor = cursor
+            saveCursor(cursor)
             if (!page.has_more || page.changes.isEmpty()) break
         }
         return total

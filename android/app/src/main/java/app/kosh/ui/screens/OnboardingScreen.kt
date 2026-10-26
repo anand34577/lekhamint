@@ -43,7 +43,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,11 +60,12 @@ import kotlinx.coroutines.launch
 fun OnboardingScreen(onDone: () -> Unit) {
     val c = LocalContainer.current
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     var currency by remember { mutableStateOf(Currencies.forLocale()) }
     var name by remember { mutableStateOf("Personal") }
     var pick by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
     val notify = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { onDone() }
 
     Column(
@@ -122,13 +122,20 @@ fun OnboardingScreen(onDone: () -> Unit) {
                         enabled = !busy && name.isNotBlank(),
                         onClick = {
                             busy = true
+                            error = null
                             scope.launch {
-                                c.repo.createLedger(name.trim(), currency)
-                                if (Build.VERSION.SDK_INT >= 33) notify.launch(Manifest.permission.POST_NOTIFICATIONS) else onDone()
+                                // A failure (for example a full disk) must not leave the button stuck.
+                                val made = runCatching { c.repo.createLedger(name.trim(), currency) }
+                                busy = false
+                                made.onFailure { error = "Couldn't create the book: ${it.message ?: it.javaClass.simpleName}. Try again." }
+                                if (made.isSuccess) {
+                                    if (Build.VERSION.SDK_INT >= 33) notify.launch(Manifest.permission.POST_NOTIFICATIONS) else onDone()
+                                }
                             }
                         },
                         modifier = Modifier.fillMaxWidth().height(54.dp),
-                    ) { Text("Get started", style = MaterialTheme.typography.titleSmall) }
+                    ) { Text(if (busy) "Setting up…" else "Get started", style = MaterialTheme.typography.titleSmall) }
+                    error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                     Text(
                         "We'll add a Cash account and common categories. You can change everything later.",
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,

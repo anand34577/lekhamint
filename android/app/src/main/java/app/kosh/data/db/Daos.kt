@@ -136,13 +136,19 @@ interface TransactionDao : SyncDao<TransactionEntity> {
     )
     fun observeForAccount(accountId: String, limit: Int): Flow<List<TransactionEntity>>
 
-    /** Case-insensitive search in payee and note across all time. */
+    /**
+     * Case-insensitive search across all time in payee, note and category name, plus an exact
+     * amount when the text is a number ([minor] in minor units, or 0): people look up "486" from a
+     * bank statement as often as a shop name.
+     */
     @Query(
         """SELECT * FROM transactions WHERE deleted = 0
-           AND (payee LIKE '%' || :q || '%' ESCAPE '\' OR note LIKE '%' || :q || '%' ESCAPE '\')
+           AND (payee LIKE '%' || :q || '%' ESCAPE '\' OR note LIKE '%' || :q || '%' ESCAPE '\'
+                OR category_id IN (SELECT id FROM categories WHERE deleted = 0 AND name LIKE '%' || :q || '%' ESCAPE '\')
+                OR (:minor > 0 AND (amount = :minor OR to_amount = :minor)))
            ORDER BY local_date DESC, occurred_at DESC, id DESC LIMIT :limit""",
     )
-    fun search(q: String, limit: Int): Flow<List<TransactionEntity>>
+    fun search(q: String, minor: Long, limit: Int): Flow<List<TransactionEntity>>
 
     /** Loans and repayments (docs/02 §9). */
     @Query("SELECT * FROM transactions WHERE deleted = 0 AND debt_id IS NOT NULL ORDER BY local_date, occurred_at")
@@ -199,6 +205,23 @@ interface TransactionDao : SyncDao<TransactionEntity> {
 
     @Query("SELECT account_id FROM transactions WHERE deleted = 0 ORDER BY created_at DESC LIMIT 1")
     suspend fun lastAccountId(): String?
+
+    /**
+     * Income and spending since [from] that has no category (and is not split): what the weekly check-in asks about.
+     * Transfers, adjustments, planned entries and loan, deposit or debt movements never need one.
+     */
+    @Query(
+        """SELECT * FROM transactions t WHERE t.deleted = 0 AND t.type != 'transfer' AND t.category_id IS NULL
+             AND t.is_adjustment = 0 AND t.status != 'planned' AND t.debt_id IS NULL AND t.loan_id IS NULL AND t.deposit_id IS NULL
+             AND t.local_date >= :from
+             AND NOT EXISTS (SELECT 1 FROM transaction_splits s WHERE s.transaction_id = t.id AND s.deleted = 0)
+           ORDER BY t.local_date DESC, t.occurred_at DESC LIMIT :limit""",
+    )
+    fun observeUncategorized(from: String, limit: Int = 200): Flow<List<TransactionEntity>>
+
+    /** Live entries on an account between two days (inclusive): what an imported statement is checked against. */
+    @Query("SELECT * FROM transactions WHERE deleted = 0 AND account_id = :accountId AND local_date BETWEEN :from AND :to")
+    suspend fun forAccountBetween(accountId: String, from: String, to: String): List<TransactionEntity>
 
     /**
      * Rows that count in income/expense reports, with their account currency.

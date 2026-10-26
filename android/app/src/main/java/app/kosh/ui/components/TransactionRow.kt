@@ -67,7 +67,9 @@ fun TransactionRow(
         if (!t.note.isNullOrBlank()) add(t.note)
     }.joinToString(" · ")
     val currency = if (transfer && forAccount != null && t.toAccountId == forAccount) lookup.currencyOf(t.toAccountId) else lookup.currencyOf(t.accountId)
-    val amount = signedAmount(t, forAccount)
+    // In a mixed list a transfer is neither money in nor out, so it shows unsigned; inside one
+    // account it has a direction.
+    val amount = if (transfer && forAccount == null) t.amount else signedAmount(t, forAccount)
     Row(
         Modifier.fillMaxWidth()
             .background(if (selected) MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f) else androidx.compose.ui.graphics.Color.Transparent)
@@ -89,8 +91,15 @@ fun TransactionRow(
         }
         Column(horizontalAlignment = Alignment.End) {
             MoneyText(
-                amount, currency, signed = true, style = MaterialTheme.typography.bodyLarge,
-                color = if (transfer && forAccount == null) MaterialTheme.colorScheme.onSurface else typeColor(if (amount >= 0) "income" else "expense"),
+                amount, currency, signed = !(transfer && forAccount == null), style = MaterialTheme.typography.bodyLarge,
+                // Money in stands out in green; spending stays in the text colour so a list of
+                // everyday purchases reads calmly instead of as a wall of red.
+                color = when {
+                    transfer && forAccount == null -> MaterialTheme.colorScheme.onSurfaceVariant
+                    amount > 0 -> typeColor("income")
+                    else -> MaterialTheme.colorScheme.onSurface
+                },
+                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
             )
             if (t.originalAmount != null && t.originalCurrency != null) {
                 MoneyText(t.originalAmount, t.originalCurrency, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

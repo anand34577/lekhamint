@@ -37,7 +37,15 @@ export function Skeleton({ rows = 3, height = 18 }: { rows?: number; height?: nu
 
 export function Modal({ title, onClose, children, footer, wide }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null)
-  useEffect(() => { ref.current?.showModal() }, [])
+  useEffect(() => {
+    const d = ref.current
+    if (!d) return
+    // React has already focused any autoFocus field; showModal() then moves focus to the first
+    // button (Close). Give it back, so typing starts in the field the form asked for.
+    const wanted = d.contains(document.activeElement) ? document.activeElement as HTMLElement : d.querySelector<HTMLElement>('[data-autofocus]')
+    d.showModal()
+    wanted?.focus()
+  }, [])
   // A press that starts and ends on the backdrop closes; a drag out of a text field does not.
   const downOnBackdrop = useRef(false)
   return (

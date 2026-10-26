@@ -10,7 +10,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.material.icons.automirrored.rounded.ReceiptLong
 import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Lightbulb
@@ -57,6 +57,12 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material.icons.rounded.Edit
+import androidx.compose.material.icons.rounded.Mic
+import androidx.compose.material.icons.rounded.DocumentScanner
+import androidx.compose.material.icons.rounded.Category
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -67,7 +73,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -235,12 +240,15 @@ fun HomeScreen() {
 
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    QuickAction(Icons.Rounded.Remove, "Expense", money.expense, Modifier.weight(1f)) { nav.navigate(Routes.editTx(type = "expense")) }
+                    // Spending has the big + button; these are the next most common jobs.
                     QuickAction(Icons.Rounded.Add, "Income", money.income, Modifier.weight(1f)) { nav.navigate(Routes.editTx(type = "income")) }
                     QuickAction(Icons.Rounded.SwapHoriz, "Transfer", money.transfer, Modifier.weight(1f)) { nav.navigate(Routes.editTx(type = "transfer")) }
+                    QuickAction(Icons.Rounded.AccountBalanceWallet, "Accounts", Color(0xFF7C3AED), Modifier.weight(1f)) { nav.navigate(Routes.ACCOUNTS) }
                     QuickAction(Icons.Rounded.Insights, "Reports", MaterialTheme.colorScheme.primary, Modifier.weight(1f)) { nav.navigate(Routes.REPORTS) }
                 }
             }
+
+            item { QuickEntryBar(onType = { nav.navigate(Routes.QUICK) }, onSpeak = { nav.navigate(Routes.QUICK_VOICE) }) }
 
             // Getting-started tips (dismissible).
             item {
@@ -264,7 +272,7 @@ fun HomeScreen() {
                 }
             }
 
-            item { FoundPaymentsBanner(onOpen = { nav.navigate(FOUND_PAYMENTS_ROUTE) }) }
+            item { HomeTodo() }
             item { InsightsTeaser(onOpen = { nav.navigate(Routes.INSIGHTS) }) }
 
             if (s.upcoming.isNotEmpty()) {
@@ -350,7 +358,7 @@ private fun BalanceHero(s: HomeState, onClick: () -> Unit) {
     HeroCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp), onClick = onClick) {
         val onHero = LocalOnHero.current
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("Available to spend", style = MaterialTheme.typography.labelLarge, color = onHero.copy(alpha = 0.85f), modifier = Modifier.weight(1f))
+            Text("Total balance", style = MaterialTheme.typography.labelLarge, color = onHero.copy(alpha = 0.85f), modifier = Modifier.weight(1f))
             Text(Dates.month(YearMonth.now()), style = MaterialTheme.typography.labelMedium, color = onHero.copy(alpha = 0.75f))
         }
         MoneyText(p.available[base] ?: 0, base, style = MaterialTheme.typography.displaySmall, color = onHero, modifier = Modifier.padding(top = 2.dp))
@@ -365,14 +373,15 @@ private fun BalanceHero(s: HomeState, onClick: () -> Unit) {
         val income = s.monthAll?.income ?: s.month?.income ?: 0
         val spent = s.monthAll?.expense ?: s.month?.expense ?: 0
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // Until the month is added up, show a placeholder rather than a misleading ₹0.
             StatTile("Money in", Modifier.weight(1f), icon = Icons.Rounded.SouthWest, onHero = true) {
-                MoneyText(income, base, style = MaterialTheme.typography.titleMedium, color = onHero)
+                if (s.loaded) MoneyText(income, base, style = MaterialTheme.typography.titleMedium, color = onHero) else HeroPlaceholder()
             }
             StatTile("Money out", Modifier.weight(1f), icon = Icons.Rounded.NorthEast, onHero = true) {
-                MoneyText(spent, base, style = MaterialTheme.typography.titleMedium, color = onHero)
+                if (s.loaded) MoneyText(spent, base, style = MaterialTheme.typography.titleMedium, color = onHero) else HeroPlaceholder()
             }
         }
-        if (income > 0) {
+        if (s.loaded && income > 0) {
             // How much of this month's income is still unspent: one bar instead of a sentence.
             val kept = ((income - spent).toFloat() / income).coerceIn(-1f, 1f)
             Spacer(Modifier.height(12.dp))
@@ -391,6 +400,12 @@ private fun BalanceHero(s: HomeState, onClick: () -> Unit) {
             )
         }
     }
+}
+
+/** A soft bar standing in for a figure that is still being worked out. */
+@Composable
+private fun HeroPlaceholder() {
+    Box(Modifier.padding(vertical = 4.dp).size(width = 88.dp, height = 18.dp).clip(RoundedCornerShape(6.dp)).background(LocalOnHero.current.copy(alpha = 0.22f)))
 }
 
 /** Assets against what is owed, as one bar, with the net worth figure. Hidden until there is more than cash. */
@@ -528,7 +543,7 @@ fun budgetState(b: BudgetStatus): Pair<String, Color> {
 }
 
 @Composable
-private fun UpcomingRow(u: Upcoming, lookup: Lookup, onAdd: () -> Unit, onSkip: () -> Unit) {
+internal fun UpcomingRow(u: Upcoming, lookup: Lookup, onAdd: () -> Unit, onSkip: () -> Unit) {
     val (icon, color) = if (u.rule.type == "transfer") "transfer" to null else lookup.categoryLook(u.rule.categoryId)
     Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         IconBadge(icon, color, size = 36.dp)
@@ -542,14 +557,14 @@ private fun UpcomingRow(u: Upcoming, lookup: Lookup, onAdd: () -> Unit, onSkip: 
         }
         if (u.due && u.rule.mode == "remind") {
             Column(horizontalAlignment = Alignment.End) {
-                MoneyText(if (u.rule.type == "income") u.rule.amount else -u.rule.amount, lookup.currencyOf(u.rule.accountId), signed = u.rule.type != "transfer", style = MaterialTheme.typography.labelLarge)
+                MoneyText(if (u.rule.type == "expense") -u.rule.amount else u.rule.amount, lookup.currencyOf(u.rule.accountId), signed = u.rule.type != "transfer", style = MaterialTheme.typography.labelLarge)
                 Row {
                     TextButton(onClick = onSkip, contentPadding = PaddingValues(horizontal = 8.dp)) { Text("Skip") }
                     FilledTonalButton(onClick = onAdd, contentPadding = PaddingValues(horizontal = 12.dp)) { Text("Pay") }
                 }
             }
         } else {
-            MoneyText(if (u.rule.type == "income") u.rule.amount else -u.rule.amount, lookup.currencyOf(u.rule.accountId), signed = u.rule.type != "transfer")
+            MoneyText(if (u.rule.type == "expense") -u.rule.amount else u.rule.amount, lookup.currencyOf(u.rule.accountId), signed = u.rule.type != "transfer")
         }
     }
 }
@@ -559,7 +574,99 @@ fun budgetLine(b: BudgetStatus): String {
     val cur = b.budget.currency
     return when {
         b.over -> "Over by ${app.kosh.core.Money.ui(-b.remaining, cur)}"
-        b.daysLeft > 0 -> "${app.kosh.core.Money.ui(b.remaining, cur)} left · ${app.kosh.core.Money.ui(b.perDayLeft, cur)}/day for ${b.daysLeft} days"
+        b.daysLeft > 0 -> "${app.kosh.core.Money.ui(b.remaining, cur)} left · ${app.kosh.core.Money.ui(b.perDayLeft, cur)}/day for ${app.kosh.core.plural(b.daysLeft, "day")}"
         else -> "${app.kosh.core.Money.ui(b.remaining, cur)} left"
+    }
+}
+
+/** "Type it: 450 lunch": opens the one-line entry, starts listening straight away, or scans a receipt. */
+@Composable
+private fun QuickEntryBar(onType: () -> Unit, onSpeak: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val c = LocalContainer.current
+    val nav = LocalNav.current
+    val scope = app.kosh.ui.rememberSafeScope()
+    val canSpeak = remember { app.kosh.ui.speechAvailable(context) }
+    var cameraUri by remember { androidx.compose.runtime.mutableStateOf<android.net.Uri?>(null) }
+    // A receipt photo goes into a new expense, which reads it and fills itself in.
+    val camera = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.TakePicture()) { ok ->
+        val uri = cameraUri
+        if (ok && uri != null) scope.launch {
+            val stored = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { c.repo.blobs.import(uri, "receipt.jpg") }
+            app.kosh.SharedInbox.pending = app.kosh.SharedInbox.Shared(payee = null, note = null, file = stored)
+            nav.navigate(Routes.editTx())
+        }
+    }
+    fun scan() {
+        val f = java.io.File(java.io.File(context.cacheDir, "camera").apply { mkdirs() }, "receipt-${System.currentTimeMillis()}.jpg")
+        val uri = androidx.core.content.FileProvider.getUriForFile(context, context.packageName + ".files", f)
+        cameraUri = uri
+        runCatching { camera.launch(uri) }
+    }
+    androidx.compose.material3.Surface(
+        onClick = onType,
+        shape = androidx.compose.foundation.shape.RoundedCornerShape(50),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)
+            .spokenAs("Quick add. Type or say one line, like 450 lunch."),
+    ) {
+        Row(Modifier.padding(start = 18.dp, end = 6.dp).height(52.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.Edit, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(20.dp))
+            Text(
+                "Type it: 450 lunch yesterday", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f).padding(start = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            if (c.receipts.available) IconButton(onClick = ::scan) { Icon(Icons.Rounded.DocumentScanner, "Scan a receipt", tint = MaterialTheme.colorScheme.primary) }
+            if (canSpeak) IconButton(onClick = onSpeak) { Icon(Icons.Rounded.Mic, "Say it", tint = MaterialTheme.colorScheme.primary) }
+        }
+    }
+}
+
+private fun Modifier.spokenAs(label: String) = this.then(
+    Modifier.semantics(mergeDescendants = true) { contentDescription = label },
+)
+
+/**
+ * At most one small to-do on Home, most useful first: payments found in alerts, entries without a category,
+ * then an account whose balance has not been checked against the bank for a month.
+ */
+@Composable
+private fun HomeTodo() {
+    val c = LocalContainer.current
+    val nav = LocalNav.current
+    val scope = app.kosh.ui.rememberSafeScope()
+    val found by c.captures.items.collectAsStateWithLifecycle()
+    val uncategorized by remember { c.repo.uncategorized(30) }.collectAsStateWithLifecycle(emptyList())
+    val lookup by c.lookup.collectAsStateWithLifecycle()
+    var toCheck by remember { androidx.compose.runtime.mutableStateOf<app.kosh.data.db.AccountEntity?>(null) }
+    var fix by remember { androidx.compose.runtime.mutableStateOf<app.kosh.data.db.AccountEntity?>(null) }
+    androidx.compose.runtime.LaunchedEffect(Unit) { toCheck = app.kosh.work.WeeklyCheckIn.accountToCheck(c) }
+    when {
+        found.any { it.state == "new" } -> FoundPaymentsBanner(onOpen = { nav.navigate(FOUND_PAYMENTS_ROUTE) })
+        uncategorized.isNotEmpty() -> KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), onClick = { nav.navigate(Routes.WEEKLY) }) {
+            Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                IconTile(Icons.Rounded.Category, MaterialTheme.colorScheme.tertiary, size = 38.dp)
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text("${app.kosh.core.plural(uncategorized.size, "entry", "entries")} without a category", style = MaterialTheme.typography.titleSmall)
+                    Text("Sort them in a few taps so reports stay right", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                app.kosh.ui.components.StatusPill("Sort", MaterialTheme.colorScheme.tertiary)
+            }
+        }
+        toCheck != null -> {
+            val a = toCheck!!
+            BalanceCheckCard(a, lookup.balances[a.id] ?: a.openingBalance,
+                onYes = { c.settings.setBalanceChecked(a.id); toCheck = null },
+                onFix = { fix = a }, modifier = Modifier.padding(vertical = 0.dp))
+        }
+    }
+    fix?.let { a ->
+        ReconcileDialog(a, lookup.balances[a.id] ?: a.openingBalance, onDismiss = { fix = null }) { actual ->
+            scope.launch {
+                c.repo.reconcile(a, lookup.balances[a.id] ?: a.openingBalance, actual)
+                c.settings.setBalanceChecked(a.id)
+                toCheck = null
+            }
+        }
     }
 }

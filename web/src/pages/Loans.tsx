@@ -4,7 +4,7 @@ import { useAccounts, useBalances, useCanWrite, useCategories, useLedger, useLin
 import { LOAN_KINDS, emi, loanKindLabel, loanStatus, monthlyInterest, prepaymentOptions, rateError, schedule, splitPayment, type LoanStatus, type ScheduleRow } from '../lib/loans'
 import { createOp, feeCategory, interestExpenseCategory, linkedTxData } from '../lib/links'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
-import { addMonths, dayLabel, download, isoDate, monthRange, uuidv7 } from '../lib/util'
+import { addMonths, dayLabel, download, isoDate, monthRange, plural, uuidv7 } from '../lib/util'
 import { workbook, XLSX_TYPE } from '../lib/xlsx'
 import { Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
 import { SERIES, StackBar } from '../charts'
@@ -201,7 +201,7 @@ function LoanDetail({ x, onClose, onEdit, go }: { x: LoanEntry; onClose: () => v
             {loan.paid_before > 0 && <><dt>Paid before tracking</dt><dd>{loan.paid_before} instalments</dd></>}
             <dt>Paid from</dt><dd>{loan.pay_from_account_id ? accName(loan.pay_from_account_id) : 'Chosen each time'}</dd>
             {loan.processing_fee ? <><dt>Processing fee</dt><dd><Money value={loan.processing_fee} currency={cur} /></dd></> : null}
-            <dt>Reminder</dt><dd>{loan.remind_days ? `${loan.remind_days} days before each EMI` : 'Off'}</dd>
+            <dt>Reminder</dt><dd>{loan.remind_days ? `${plural(loan.remind_days, 'day')} before each EMI` : 'Off'}</dd>
             {loan.closed && <><dt>Closed</dt><dd>{loan.closed_date ? dayLabel(loan.closed_date) : 'Yes'}</dd></>}
             {loan.note && <><dt>Note</dt><dd>{loan.note}</dd></>}
           </dl>

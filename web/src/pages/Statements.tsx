@@ -3,7 +3,7 @@ import { api, type Account, type Budget, type Category, type Debt, type Deposit,
 import { useAccounts, useCategories, useCategoryIndex, useDebts, useLedger, useLoans, useTags } from '../lib/data'
 import { allTransactions, accountStatement, budgetReport, depositReport, incomeExpense, ledger, loanReport, netWorthReport, personReport, presets, toSheets, type Ctx, type Report } from '../lib/reports'
 import { currency } from '../lib/money'
-import { csvEscape, download, isoDate } from '../lib/util'
+import { csvEscape, download, isoDate, plural } from '../lib/util'
 import { workbook, XLSX_TYPE, type Cell } from '../lib/xlsx'
 import { Card, Field, Segmented, errorText, toast } from '../components'
 import { Icon } from '../icons'
@@ -185,7 +185,7 @@ function ExportAll() {
         { name: 'Recurring', header: ['Name', 'Type', 'Account', 'Amount', 'Category', 'Frequency', 'Every', 'Start', 'End', 'Mode', 'Paused', 'ID'], rows: live(rules).map((x) => [x.data.name ?? x.data.payee ?? '', x.data.type, acc.get(x.data.account_id)?.name ?? '', money(x.data.amount, acc.get(x.data.account_id)?.currency ?? l.base_currency), catPath(x.data.category_id), x.data.frequency, x.data.every, d(x.data.start_date), d(x.data.end_date ?? null), x.data.mode, x.data.paused ? 'yes' : '', x.id]) },
       ])
       download(`${l.name.replace(/[^\w-]+/g, '-')}-all-data-${isoDate()}.xlsx`, new Blob([bytes], { type: XLSX_TYPE }))
-      toast(`Exported ${txs.length} transactions and every list`)
+      toast(`Exported ${plural(txs.length, 'transaction')} and every list`)
     } catch (x) { toast(errorText(x)) } finally { setBusy(false) }
   }
   return (

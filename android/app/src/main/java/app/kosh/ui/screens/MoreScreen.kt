@@ -38,52 +38,46 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.HelpOutline
 import androidx.compose.material.icons.automirrored.rounded.ShowChart
 import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.Category
-import androidx.compose.material.icons.rounded.Flag
 import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.MarkEmailRead
-import androidx.compose.material.icons.rounded.Percent
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.CurrencyExchange
 import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.Fingerprint
-import androidx.compose.material.icons.rounded.Handshake
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.Repeat
-import androidx.compose.material.icons.rounded.Sell
-import androidx.compose.material.icons.rounded.AutoFixHigh
-import androidx.compose.material.icons.rounded.AccountBalance
-import androidx.compose.material.icons.rounded.AutoAwesome
-import androidx.compose.material.icons.rounded.Calculate
-import androidx.compose.material.icons.rounded.PictureAsPdf
-import androidx.compose.material.icons.rounded.Savings
 import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.UploadFile
+import androidx.compose.material.icons.rounded.EventAvailable
+import androidx.compose.material.icons.rounded.SpaceDashboard
+import androidx.compose.material.icons.rounded.GroupAdd
+import androidx.compose.material.icons.rounded.Gavel
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -97,7 +91,6 @@ import app.kosh.ui.LocalSnackbar
 import app.kosh.ui.Routes
 import app.kosh.ui.components.CurrencyPickerSheet
 import app.kosh.ui.components.LocalContainer
-import app.kosh.ui.components.SectionHeader
 import app.kosh.ui.components.SettingRow
 import app.kosh.ui.components.ago
 import kotlinx.coroutines.launch
@@ -121,14 +114,24 @@ fun MoreScreen() {
     val pending by c.repo.pendingCount.collectAsStateWithLifecycle(0)
     val context = LocalContext.current
     val snackbar = LocalSnackbar.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     var themeSheet by remember { mutableStateOf(false) }
     var currencySheet by remember { mutableStateOf(false) }
     var renameDialog by remember { mutableStateOf(false) }
+    var notices by remember { mutableStateOf(false) }
     var notificationsGranted by remember {
         mutableStateOf(Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
     }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { notificationsGranted = it }
+    val inUse by rememberFeaturesInUse(c)
+    // In simple mode a tool shows once it is turned on in Features or the book already uses it.
+    fun show(key: String) = Features.visible(s, inUse, key)
+    @Composable
+    fun FeatureRow(key: String) {
+        if (!show(key)) return
+        val f = Features.byKey(key)
+        SettingRow(f.title, f.subtitle, f.icon, tint = f.tint, onClick = { nav.navigate(f.route) })
+    }
 
     Scaffold(
         contentWindowInsets = WindowInsets(0),
@@ -159,29 +162,39 @@ fun MoreScreen() {
                     SettingRow("Accounts", "Cash, bank, cards, wallets", Icons.Rounded.AccountBalanceWallet, tint = CMoney, onClick = { nav.navigate(Routes.ACCOUNTS) })
                     SettingRow("Reports", "Charts of spending, trends and 50/30/20", Icons.AutoMirrored.Rounded.ShowChart, tint = CMoney, onClick = { nav.navigate(Routes.REPORTS) })
                     SettingRow("Find payments automatically", "Read bank and UPI alerts, add with one tap", Icons.Rounded.MarkEmailRead, tint = CMoney, onClick = { nav.navigate(FOUND_PAYMENTS_ROUTE) })
+                    SettingRow("Import a statement", "From your bank: CSV, Excel, PDF, OFX or QIF", Icons.Rounded.UploadFile, tint = CMoney, onClick = { nav.navigate(Routes.IMPORT) })
+                    SettingRow("Weekly check-in", if (s.weeklyCheckIn) "Sunday evening: the week and what needs a look" else "Off · open it any time", Icons.Rounded.EventAvailable, tint = CMoney, onClick = { nav.navigate(Routes.WEEKLY) }) {
+                        Switch(s.weeklyCheckIn, { c.settings.setWeeklyCheckIn(it) })
+                    }
                     SettingRow("Insights & forecast", "Safe to spend, cash forecast, subscriptions", Icons.Rounded.Insights, tint = CMoney, onClick = { nav.navigate(Routes.INSIGHTS) })
                     SettingRow("Recurring & bills", "Subscriptions, rent, salary", Icons.Rounded.Repeat, tint = CPlan, onClick = { nav.navigate(Routes.RECURRING) })
-                    SettingRow("Goals", "Save for a trip, a gadget or an emergency fund", Icons.Rounded.Flag, tint = CPlan, onClick = { nav.navigate(Routes.GOALS) })
-                    SettingRow("Loans & EMIs", "What's left, next EMI, prepayment", Icons.Rounded.AccountBalance, tint = CPlan, onClick = { nav.navigate(Routes.LOANS) })
-                    SettingRow("Deposits", "Fixed and recurring deposits, maturity", Icons.Rounded.Savings, tint = CPlan, onClick = { nav.navigate(Routes.DEPOSITS) })
-                    SettingRow("Lent & borrowed", "Friends and family: who owes what", Icons.Rounded.Handshake, tint = CPeople, onClick = { nav.navigate(Routes.DEBTS) })
+                    FeatureRow("goals")
+                    FeatureRow("loans")
+                    FeatureRow("deposits")
+                    FeatureRow("debts")
                 }
             }
             item {
                 Group("Organise") {
                     SettingRow("Categories", "Groups for income and spending", Icons.Rounded.Category, tint = COrganise, onClick = { nav.navigate(Routes.CATEGORIES) })
-                    SettingRow("Tags", "Trips, projects, anything across categories", Icons.Rounded.Sell, tint = COrganise, onClick = { nav.navigate(Routes.TAGS) })
-                    SettingRow("Auto-categorise", "Rules that fill in category, payee and tags", Icons.Rounded.AutoFixHigh, tint = COrganise, onClick = { nav.navigate(Routes.CAT_RULES) })
-                    SettingRow("Exchange rates", "Add up money held in other currencies", Icons.Rounded.CurrencyExchange, tint = COrganise, onClick = { nav.navigate(Routes.RATES) })
+                    FeatureRow("tags")
+                    FeatureRow("rules")
+                    FeatureRow("rates")
                     SettingRow("Trash", "Restore deleted items", Icons.Rounded.Delete, tint = CSafe, onClick = { nav.navigate(Routes.TRASH) })
                 }
             }
             item {
                 Group("Tools") {
-                    SettingRow("Calculators", "EMI, FD and RD, split a bill, afford a loan", Icons.Rounded.Calculate, tint = CTools, onClick = { nav.navigate(Routes.TOOLS) })
-                    SettingRow("Year & tax", "Your financial year and tax-saving spending", Icons.Rounded.Percent, tint = CTools, onClick = { nav.navigate(Routes.YEAR_TAX) })
-                    SettingRow("Statements & export", "PDF and Excel for any account, loan or person", Icons.Rounded.PictureAsPdf, tint = CTools, onClick = { nav.navigate(Routes.STATEMENTS) })
-                    SettingRow("Assistant", "Ask about your money in plain words", Icons.Rounded.AutoAwesome, tint = CTools, onClick = { nav.navigate(Routes.ASSISTANT) })
+                    FeatureRow("tools")
+                    FeatureRow("tax")
+                    FeatureRow("statements")
+                    FeatureRow("assistant")
+                    val hidden = Features.all.count { !show(it.key) }
+                    SettingRow(
+                        "Features",
+                        if (s.simpleMode) "Simple mode · ${if (hidden > 0) "$hidden more tools to turn on" else "everything you use is on"}" else "All tools shown · turn on simple mode",
+                        Icons.Rounded.SpaceDashboard, tint = CTools, onClick = { nav.navigate(Routes.FEATURES) },
+                    )
                 }
             }
             item {
@@ -191,10 +204,15 @@ fun MoreScreen() {
                         when {
                             !s.syncEnabled -> "Off · optional, with your own LekhaMint server"
                             s.lastSyncError != null -> "Problem: ${s.lastSyncError}"
-                            pending > 0 -> "$pending changes waiting · last synced ${ago(s.lastSyncAt)}"
+                            pending > 0 -> "$pending ${if (pending == 1) "change" else "changes"} waiting · last synced ${ago(s.lastSyncAt)}"
                             else -> "Up to date · ${ago(s.lastSyncAt)}"
                         },
                         Icons.Rounded.CloudSync, tint = if (s.lastSyncError != null) MaterialTheme.colorScheme.error else CData, onClick = { nav.navigate(Routes.SYNC) },
+                    )
+                    SettingRow(
+                        "Share with family",
+                        if (s.syncEnabled) "Let someone else add to this book from their phone" else "Needs sync with your LekhaMint server first",
+                        Icons.Rounded.GroupAdd, tint = CPeople, onClick = { nav.navigate(if (s.syncEnabled) Routes.SHARE else Routes.SYNC) },
                     )
                     SettingRow(
                         "Backup & restore",
@@ -242,12 +260,14 @@ fun MoreScreen() {
                     )
                     SettingRow("Privacy policy", "What the app stores and where it goes", Icons.Rounded.Policy, tint = CSafe, onClick = { Links.open(context, Links.PRIVACY) })
                     SettingRow("Help & source code", "Guides, questions and bug reports", Icons.AutoMirrored.Rounded.HelpOutline, tint = CSafe, onClick = { Links.open(context, Links.HELP) })
+                    SettingRow("Open-source notices", "The fonts, receipt reader and libraries inside the app", Icons.Rounded.Gavel, tint = CSafe, onClick = { notices = true })
                 }
             }
         }
     }
 
     if (themeSheet) ThemeSheet(onDismiss = { themeSheet = false })
+    if (notices) NoticesDialog(onDismiss = { notices = false })
     if (currencySheet) {
         CurrencyPickerSheet({ currencySheet = false }, s.baseCurrency) { code ->
             c.settings.setBaseCurrency(code)
@@ -318,4 +338,27 @@ private fun ThemeSheet(onDismiss: () -> Unit) {
             }
         }
     }
+}
+
+/** The licences of everything the app ships, read from assets/licenses: a list, then one licence's text. */
+@Composable
+private fun NoticesDialog(onDismiss: () -> Unit) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val files = remember { runCatching { context.assets.list("licenses")?.sortedBy { it != "NOTICE.txt" } }.getOrNull().orEmpty() }
+    var open by remember { mutableStateOf("NOTICE.txt") }
+    val text = remember(open) { runCatching { context.assets.open("licenses/$open").bufferedReader().use { it.readText() } }.getOrDefault("") }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(if (open == "NOTICE.txt") "Open-source notices" else open.removeSuffix(".txt")) },
+        text = {
+            Column(Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                Text(text, style = MaterialTheme.typography.bodySmall)
+                if (open == "NOTICE.txt") files.filter { it != "NOTICE.txt" }.forEach { f ->
+                    TextButton(onClick = { open = f }) { Text("Read ${f.removeSuffix(".txt")}") }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Close") } },
+        dismissButton = if (open != "NOTICE.txt") ({ TextButton(onClick = { open = "NOTICE.txt" }) { Text("Back") } }) else null,
+    )
 }

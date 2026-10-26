@@ -31,6 +31,7 @@ describe('dates and amounts', () => {
     expect(parseDateIn('31/02/2026', 'DMY')).toBeNull()
     expect(detectDateFormat(['01/02/2026', '13/02/2026'])).toBe('DMY')
     expect(detectDateFormat(['02/13/2026', '02/01/2026'])).toBe('MDY')
+    expect(detectDateFormat(['2026-10-01', '2026-10-05'])).toBe('YMD')
   })
   it('parses signed amounts exactly', () => {
     expect(parseAmount('-1,250.50', 'INR')).toBe(-125050)

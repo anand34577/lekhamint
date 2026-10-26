@@ -416,6 +416,7 @@ class BackupManager(
         if (mode == RestoreMode.REPLACE && l != null && Ids.isValid(l.id)) {
             settings.setLedger(l.id, l.name.ifBlank { settings.current.ledgerName }, l.base_currency.ifBlank { settings.current.baseCurrency })
             settings.syncCursor = 0
+            settings.resyncPending = false
         }
         if (!settings.current.onboarded) settings.setOnboarded()
         repo.clock.now() // keep the clock ahead of restored HLCs

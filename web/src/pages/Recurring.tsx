@@ -111,7 +111,7 @@ export function Recurring({ go }: PageProps) {
               <li key={r.id + d}>
                 {r.type === 'transfer' ? <CatIcon name="transfer" color="var(--transfer)" /> : <CatIcon name={cats.icon(r.category_id)} color={cats.color(r.category_id)} />}
                 <div className="grow"><div>{r.name || r.payee || cats.name(r.category_id)}</div><div className="sub">{dayLabel(d)}{d < today ? ' · overdue' : ''}</div></div>
-                <Money value={r.type === 'income' ? r.amount : -r.amount} currency={cur(r.account_id)} signed={r.type !== 'transfer'} />
+                <Money value={r.type === 'expense' ? -r.amount : r.amount} currency={cur(r.account_id)} signed={r.type !== 'transfer'} />
                 <button onClick={() => skip(r, d)}>Skip</button>
                 <button className="primary" onClick={() => confirm(r, d)}>{r.type === 'income' ? 'Received' : 'Paid'}</button>
               </li>
@@ -129,7 +129,7 @@ export function Recurring({ go }: PageProps) {
             <div className="grow"><div>{r.name || r.payee || cats.name(r.category_id)}</div>
               <div className="sub">{describe(r)} · {r.paused ? 'paused' : next ? `next ${dayLabel(next)}` : 'ended'} · {r.mode === 'auto' ? 'automatic' : 'reminder'}
                 {r.type === 'transfer' ? ` · ${accName(r.account_id)} → ${accName(r.to_account_id)}` : ` · ${cats.name(r.category_id)}`}</div></div>
-            <Money value={r.type === 'income' ? r.amount : -r.amount} currency={cur(r.account_id)} signed={r.type !== 'transfer'} />
+            <Money value={r.type === 'expense' ? -r.amount : r.amount} currency={cur(r.account_id)} signed={r.type !== 'transfer'} />
           </li>))}</ul></Card>
       )}
       <p className="muted small">Automatic items are recorded on their due date by whichever device opens LekhaMint first; the phone and the web never create the same one twice. <button className="link" onClick={() => go('transactions', { all: '1' })}>View transactions</button></p>

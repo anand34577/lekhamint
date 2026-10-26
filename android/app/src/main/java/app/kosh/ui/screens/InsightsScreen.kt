@@ -38,7 +38,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -256,7 +255,7 @@ fun InsightsScreen() {
     val s by vm.state.collectAsStateWithLifecycle()
     val nav = LocalNav.current
     val snackbar = LocalSnackbar.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
 
     Scaffold(topBar = { KoshTopBar("Insights", onBack = { nav.popBackStack() }) }) { padding ->
         LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
@@ -321,7 +320,7 @@ private fun SafeToSpendCard(safe: SafeToSpend, cur: String) {
                 MoneyText(safe.start, cur, style = MaterialTheme.typography.titleSmall, color = on)
             }
             StatTile("Bills due", Modifier.weight(1f), icon = Icons.Rounded.NorthEast, onHero = true) {
-                MoneyText(-safe.billsOut, cur, style = MaterialTheme.typography.titleSmall, color = on)
+                MoneyText(safe.billsOut, cur, style = MaterialTheme.typography.titleSmall, color = on)
             }
             if (safe.incomeIn > 0) {
                 StatTile("Coming in", Modifier.weight(1f), icon = Icons.Rounded.SouthWest, onHero = true) {

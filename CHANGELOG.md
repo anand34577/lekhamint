@@ -1,5 +1,57 @@
 # Changelog
 
+## 1.7.0
+
+**Android: less typing, fewer taps**
+- Found payments can be saved straight from the notification: Save, Edit or Ignore, then Undo or Change for a few minutes after. A payment that is already in the book says so and offers "Add anyway".
+- Type or say it in one line: "450 lunch yesterday", "+85000 salary @hdfc", "1.2k groceries #trip". The amount, date, account, tags and category are filled in as you type (everyday words like lunch, cab or petrol find their category), and the mic works offline where the phone supports it. It is on Home and as a long-press shortcut on the app icon.
+- Scan a receipt: take or pick a photo and the amount, date and shop fill themselves in, with Undo. Reading happens on the phone with open models (PaddleOCR, run by ncnn): no Google services and no network. It reads Indian receipts (₹, Rs., GST lines, lakh grouping) and most others (decimal commas, SUMA, TOTALE…), and photos come out the right way up.
+- Import bank statements on the phone: PDF (including password-protected ones), Excel (.xls and .xlsx), CSV, OFX/QFX and QIF. Columns and the date style are guessed, UPI/NEFT/card narrations become readable payees, categories come from your rules and past entries, and anything already in the book is left out. Open or share a statement file to LekhaMint to start.
+- A weekly check-in on Sunday evening: what you spent against last week, entries without a category (one tap each, or "always file it this way"), found payments, budgets to watch, the week's bills, and an account whose balance hasn't been checked lately. It takes about 30 seconds; it can be turned off in More.
+- "Does this match your bank?": Home and the check-in ask about an account now and then; type the bank's balance and one tap adds the difference as an adjustment.
+- Bill reminders you can act on: Mark paid or Skip this time from the notification; card bills, loan EMIs and deposits open the right screen. Reminders arrive in the daytime only.
+- Share a book with family from the phone: add people by email as editors or viewers, remove them, or send an invite.
+- Simple mode for new books: More shows the everyday screens, and each tool (goals, loans, tags, rules…) appears once you turn it on in More → Features or once the book uses it.
+- Open-source notices in More → About list everything the app ships with and their licences.
+
+**Web**
+- Quick add knows everyday words too ("lunch", "uber", "petrol"), the same as the phone.
+- Imports recognise dates written 2026-10-24 as year first.
+
+**Fixes**
+- Android: photos taken in portrait were saved lying on their side in receipts.
+
+**Android: polish**
+- Inter is now the app's typeface (bundled, about 180 KB, trimmed to Latin, currency and maths signs; other scripts fall back to the system font).
+- Cards float on a soft shadow instead of a grey outline; the bottom bar is lifted and rounded; screens slide in when you open them and fade between tabs.
+- Lists show spending in the normal text colour and income in green, so a month of purchases reads calmly; the sign still says which way money went. Transfers show without a sign.
+- Home: the main card says "Total balance" (it read "Available to spend", which contradicted "Safe to spend" below it), shows placeholders instead of ₹0 while the month is added up, and the quick actions are Income, Transfer, Accounts and Reports (spending has the big + button).
+- Adding a transaction: a more compact keypad leaves the payee and note fields visible.
+- Sync says "Not syncing right now" with the error when it fails, instead of "Connected".
+- Dates read day first everywhere ("1 Oct 2025"); counts read "1 day", "1 change" instead of "1 days", "1 changes"; the snackbar's Undo uses the theme colour.
+- Local builds show the real version (from this changelog) instead of 1.0.0.
+
+**Web: polish**
+- Phones: transaction filters fold behind a Filters button so the list starts on the first screen; the tab bar's last tab is More, which opens every page; the Month / All time switch stays on one line.
+- Home: the set-up checklist shrinks to one line with the next step once most of it is done; the main card says "Total balance".
+- Lists show spending in the text colour and income in green; transfers show without a sign.
+- The add form puts the cursor in Amount (every dialog now focuses the field it asks for, not the Close button), and Today / Yesterday sit under the date.
+- Inter is bundled with the app (69 KB) so every browser shows the same type; nothing is fetched from a font service.
+
+**Search**
+- Search on Android and the web also finds a category by name and an exact amount: type "486" from a bank statement or "groceries".
+
+**Fixes**
+- Web: the transactions table's column header stuck 60px down inside the table, covering the first rows.
+- Android: if saving a transaction failed (for example a full disk or an unreadable receipt), Save stopped working with no message; it now says what went wrong. Saves in other forms (loans, deposits, people, budgets…) show a message instead of closing the app. A failure creating the first book no longer leaves "Get started" stuck.
+- Android: if a full download of the book (needed after a long time offline) was interrupted, items deleted on other devices could stay on the phone; the download now restarts from the beginning until it completes.
+
+**Server**
+- Deleting your account no longer deletes a book other people still use: a book you alone own passes to its longest-standing member (editors first), and only books nobody else uses are deleted.
+- The session cookie is marked Secure behind a trusted HTTPS reverse proxy (`X-Forwarded-Proto`), not only on direct TLS.
+- Changing the password is rate limited per person; deleting the account also clears the browser's session cookie; cross-origin requests may use `PUT` (settings).
+- The server logs a one-time warning when requests come through a reverse proxy that is not trusted, because everyone then shares one sign-in limit.
+
 ## 1.6.0
 
 **Android: a new look**

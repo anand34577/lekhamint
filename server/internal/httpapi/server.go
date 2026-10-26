@@ -10,6 +10,7 @@ import (
 	"runtime/debug"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anand34577/lekhamint/server/internal/auth"
@@ -60,6 +61,7 @@ type Server struct {
 	authLimiter *rateLimiter
 	aiLimiter   *rateLimiter
 	userLimiter *rateLimiter
+	proxyWarn   sync.Once
 }
 
 // Body size limits.
@@ -100,7 +102,7 @@ func (s *Server) Handler() http.Handler {
 	private("DELETE /api/v1/auth/me", s.limited(s.deleteMe))
 	private("GET /api/v1/auth/sessions", s.listSessions)
 	private("DELETE /api/v1/auth/sessions/{id}", s.deleteSession)
-	private("POST /api/v1/auth/password", s.changePassword)
+	private("POST /api/v1/auth/password", s.perUser(s.changePassword))
 	public("POST /api/v1/auth/forgot", s.limited(s.forgotPassword))
 	public("POST /api/v1/auth/reset", s.limited(s.resetPassword))
 	private("GET /api/v1/auth/2fa", s.totpStatus)
@@ -223,20 +225,32 @@ func bearerToken(r *http.Request) (token string, viaCookie bool) {
 }
 
 // setSessionCookie issues the HttpOnly session cookie. Secure is set whenever
-// the request came over TLS or is a loopback address (a secure context), so a
-// plain-HTTP LAN deployment still works.
+// the request came over TLS (directly, or through a trusted reverse proxy that
+// terminated it) or is a loopback address (a secure context), so a plain-HTTP
+// LAN deployment still works.
 func (s *Server) setSessionCookie(w http.ResponseWriter, r *http.Request, token string) {
 	http.SetCookie(w, &http.Cookie{
 		Name: SessionCookie, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
-		MaxAge: int(s.Auth.SessionTTL.Seconds()), Secure: r.TLS != nil || isLoopback(r.Host),
+		MaxAge: int(s.Auth.SessionTTL.Seconds()), Secure: s.secureRequest(r),
 	})
 }
 
-func clearSessionCookie(w http.ResponseWriter, r *http.Request) {
+func (s *Server) clearSessionCookie(w http.ResponseWriter, r *http.Request) {
 	http.SetCookie(w, &http.Cookie{
 		Name: SessionCookie, Value: "", Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
-		MaxAge: -1, Secure: r.TLS != nil || isLoopback(r.Host),
+		MaxAge: -1, Secure: s.secureRequest(r),
 	})
+}
+
+// secureRequest reports whether the browser reached us over HTTPS. Behind a
+// trusted proxy (the usual Caddy or nginx setup) TLS ends at the proxy, so its
+// X-Forwarded-Proto header is believed; otherwise only a direct TLS connection
+// or loopback counts.
+func (s *Server) secureRequest(r *http.Request) bool {
+	if r.TLS != nil || isLoopback(r.Host) {
+		return true
+	}
+	return s.TrustProxy && strings.EqualFold(strings.TrimSpace(strings.Split(r.Header.Get("X-Forwarded-Proto"), ",")[0]), "https")
 }
 
 func isLoopback(hostPort string) bool {
@@ -301,6 +315,14 @@ func (s *Server) perUser(next http.HandlerFunc) http.HandlerFunc {
 }
 
 func (s *Server) clientIP(r *http.Request) string {
+	if !s.TrustProxy && r.Header.Get("X-Forwarded-For") != "" {
+		// Everyone then appears to come from the proxy's address and shares one sign-in limit:
+		// a few wrong passwords lock the whole household out for a minute.
+		s.proxyWarn.Do(func() {
+			s.Log.Warn("requests arrive through a reverse proxy, but it is not trusted: everyone shares one sign-in rate limit. " +
+				"Set LEKHAMINT_TRUST_PROXY=true (--trust-proxy) if this server is only reachable through that proxy.")
+		})
+	}
 	if s.TrustProxy {
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			// Our one trusted proxy appends the address it saw; anything to the
@@ -326,8 +348,8 @@ func (s *Server) cors(next http.Handler) http.Handler {
 			h := w.Header()
 			h.Set("Access-Control-Allow-Origin", origin)
 			h.Add("Vary", "Origin")
-			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type")
-			h.Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+			h.Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Request-ID")
+			h.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			h.Set("Access-Control-Max-Age", "600")
 			if r.Method == http.MethodOptions {
 				w.WriteHeader(http.StatusNoContent)
