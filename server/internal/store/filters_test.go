@@ -70,4 +70,14 @@ func TestTransactionFilters(t *testing.T) {
 	if got := list(store.TxFilter{MinAmount: 20000, MaxAmount: 40000}); len(got) != 3 {
 		t.Fatalf("amount range = %d rows, want 3", len(got))
 	}
+	// Search finds a category by name, and an amount typed as a number.
+	if got := list(store.TxFilter{Query: "foo"}); len(got) != 1 {
+		t.Fatalf(`search "foo" = %d rows, want the one in Food`, len(got))
+	}
+	if got := list(store.TxFilter{Query: "100", QueryAmount: 10000}); len(got) != 1 || got[0] != plain {
+		t.Fatalf("search by amount = %v, want only %s", got, plain)
+	}
+	if got := list(store.TxFilter{Query: "400", QueryAmount: 40000}); len(got) != 1 {
+		t.Fatalf("search by transfer amount = %v", got)
+	}
 }

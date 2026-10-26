@@ -120,6 +120,8 @@ export function parseDateIn(raw: string, fmt: DateFormat): string | null {
 export function detectDateFormat(samples: string[], preferUS = false): DateFormat {
   const order: DateFormat[] = preferUS ? ['MDY', 'DMY', 'YMD'] : ['DMY', 'MDY', 'YMD']
   const vals = samples.filter((s) => s.trim() !== '')
+  // 2026-10-24 reads the same in every order; say so, rather than "month first".
+  if (vals.length > 0 && vals.every((v) => /^\s*\d{4}[-/.]\d{1,2}[-/.]\d{1,2}/.test(v))) return 'YMD'
   for (const f of order) if (vals.every((v) => parseDateIn(v, f) !== null)) return f
   return order[0]
 }

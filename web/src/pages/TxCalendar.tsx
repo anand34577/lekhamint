@@ -2,7 +2,7 @@ import { useContext } from 'react'
 import type { TxRow } from '../lib/api'
 import { compactMoney } from '../lib/money'
 import { HideAmounts } from '../components'
-import { monthRange, parseDate } from '../lib/util'
+import { monthRange, parseDate, plural } from '../lib/util'
 
 /**
  * A month as a calendar: each day shows money out and in (main currency), and
@@ -44,7 +44,7 @@ export function TxCalendar({ month, rows, currency, isMain, picked, onPick, spen
           return (
             <button key={d} type="button" role="gridcell" className={`txcal-cell ${picked === d ? 'on' : ''} ${d === today ? 'today' : ''} ${v ? '' : 'quiet'}`}
               style={{ ['--heat' as string]: heat.toFixed(3) }} onClick={() => onPick(picked === d ? '' : d)}
-              aria-label={`${d}: ${v ? `${v.n} transactions` : 'nothing recorded'}`} aria-pressed={picked === d}>
+              aria-label={`${d}: ${v ? plural(v.n, 'transaction') : 'nothing recorded'}`} aria-pressed={picked === d}>
               <span className="txcal-day">{Number(d.slice(8))}</span>
               {v && !hidden && v.out > 0 && <span className="txcal-out">−{compactMoney(v.out, currency)}</span>}
               {v && !hidden && v.in > 0 && <span className="txcal-in">+{compactMoney(v.in, currency)}</span>}

@@ -145,3 +145,47 @@ func TestAbsoluteSessionCap(t *testing.T) {
 	}
 	_ = u
 }
+
+// Behind a reverse proxy that ends TLS, the session cookie must still be Secure, but only when the
+// proxy is trusted: anyone can send X-Forwarded-Proto.
+func TestSessionCookieSecureBehindProxy(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		trustProxy bool
+		proto      string
+		want       bool
+	}{
+		{"trusted proxy over https", true, "https", true},
+		{"trusted proxy over http", true, "http", false},
+		{"untrusted header", false, "https", false},
+		{"plain LAN", false, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			d := testutil.NewDB(t)
+			sync := syncer.New(d)
+			api := &httpapi.Server{DB: d, Auth: auth.NewService(d, true, time.Hour), Sync: sync,
+				Ledgers: &ledger.Service{DB: d, Sync: sync}, Reports: &report.Service{DB: d}, TrustProxy: tc.trustProxy,
+				Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Version: "test", MaxImportSize: 32 << 20}
+			req := httptest.NewRequest(http.MethodPost, "http://money.example.com/api/v1/auth/register",
+				strings.NewReader(`{"email":"proxy@example.com","password":"longenough1","device_name":"Test"}`))
+			req.RemoteAddr = "192.168.1.10:5555"
+			if tc.proto != "" {
+				req.Header.Set("X-Forwarded-Proto", tc.proto)
+			}
+			rec := httptest.NewRecorder()
+			api.Handler().ServeHTTP(rec, req)
+			if rec.Code != http.StatusCreated {
+				t.Fatalf("register: %d %s", rec.Code, rec.Body)
+			}
+			var got *http.Cookie
+			for _, c := range rec.Result().Cookies() {
+				if c.Name == httpapi.SessionCookie {
+					got = c
+				}
+			}
+			if got == nil || got.Secure != tc.want {
+				t.Fatalf("cookie %+v, want Secure=%v", got, tc.want)
+			}
+		})
+	}
+}

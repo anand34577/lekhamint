@@ -107,7 +107,7 @@ export function Dashboard({ go, openAdd }: PageProps) {
 
       <div className="grid stats">
         <Card className="stat-card hero-card">
-          <div className="stat-label">Available to spend</div>
+          <div className="stat-label">Total balance</div>
           <div className="stat-big">{position.isPending ? <Skeleton rows={1} height={34} /> : <Money value={pos.cash} currency={base} />}</div>
           <div className="muted small">Cash, bank, savings and wallet accounts. Credit limits are not counted.</div>
           {dueThisMonth > 0 && !position.isPending && (
@@ -177,7 +177,7 @@ export function Dashboard({ go, openAdd }: PageProps) {
             {recent.isPending ? <Skeleton rows={5} /> : recent.data?.transactions.length === 0 ? (
               <Empty title="Nothing recorded yet" body="Add your first expense; it takes a few seconds." action={can && !noAccounts ? <button className="primary" onClick={() => openAdd()}>Add an expense</button> : undefined} />
             ) : (
-              <ul className="list">
+              <ul className="list recent-list">
                 {recent.data?.transactions.map((r) => {
                   const t = r.data
                   const transfer = t.type === 'transfer'
@@ -188,7 +188,7 @@ export function Dashboard({ go, openAdd }: PageProps) {
                     <li key={r.id}>
                       {transfer ? <CatIcon name="transfer" color="var(--transfer)" /> : split ? <CatIcon name="split" color="#7C3AED" /> : <CatIcon name={cats.icon(t.category_id)} color={cats.color(t.category_id)} />}
                       <div className="grow"><div className="ellipsis">{title}</div><div className="sub ellipsis">{dayLabel(t.local_date)} · {label}</div></div>
-                      <Money value={t.type === 'income' ? t.amount : -t.amount} currency={accCur(t.account_id)} signed={!transfer} />
+                      <Money value={t.type === 'income' || transfer ? t.amount : -t.amount} currency={accCur(t.account_id)} signed={!transfer} className={transfer ? 'muted' : ''} />
                     </li>
                   )
                 })}

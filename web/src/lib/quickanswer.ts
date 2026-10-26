@@ -4,7 +4,7 @@
 // so the Assistant is useful from the first minute and nothing leaves the server.
 
 import { runTool, type ToolRun, type Turn } from './ai'
-import { addDays, isoDate, monthRange } from './util'
+import { addDays, isoDate, monthRange, plural } from './util'
 
 export interface Intent { tool: string; args: Record<string, unknown>; about: string }
 
@@ -98,7 +98,7 @@ export function describe(run: ToolRun, about: string): string {
     case 'budgets': {
       const list = (r as unknown as { budget: string; spent: Money; limit: Money; left: Money; used: string; days_left: number }[])
       if (!list.length) return 'You have no active budgets. Create one under Budgets.'
-      return list.map((b) => `- **${b.budget}**: ${b.used} used (${b.spent.amount} of ${b.limit.amount}), ${b.left.amount} left for ${b.days_left} days`).join('\n')
+      return list.map((b) => `- **${b.budget}**: ${b.used} used (${b.spent.amount} of ${b.limit.amount}), ${b.left.amount} left for ${plural(b.days_left, 'day')}`).join('\n')
     }
     case 'accounts': {
       const list = r as unknown as { name: string; balance: Money }[]

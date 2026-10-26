@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api, type ExchangeRate } from '../lib/api'
 import { setSetting } from '../lib/settings'
 import { useAccounts, useCanWrite, useExchangeRates, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
-import { download, isoDate, shortDate } from '../lib/util'
+import { download, isoDate, plural, shortDate } from '../lib/util'
 import { Card, Confirm, CurrencySelect, Field, Modal, errorText, toast } from '../components'
 import { Notifications } from './Notifications'
 import { TwoStep } from './Security'
@@ -81,7 +81,7 @@ export function Settings({ theme, setTheme, accent, setAccent, onSignOut, params
               if (f) run('import', async () => {
                 const r = await api.importLedger(l.id, f)
                 qc.invalidateQueries({ queryKey: [l.id] })
-                return `Imported ${r.accepted} records${r.skipped_newer_exists ? `, ${r.skipped_newer_exists} already newer here` : ''}`
+                return `Imported ${plural(r.accepted, 'record')}${r.skipped_newer_exists ? `, ${r.skipped_newer_exists} already newer here` : ''}`
               })
             }} />
           </div>
@@ -148,7 +148,7 @@ function DeleteAccount({ email, onClose, onDeleted }: { email: string; onClose: 
         onDeleted()
       }}
       body={<>
-        <p>This permanently deletes <strong>{email}</strong>, every book that only you own and all of their data. You are removed from books that have another owner. Phones keep their own copy. Export first if you might need it.</p>
+        <p>This permanently deletes <strong>{email}</strong>. Books that only you use are deleted with all their data. A book you share passes to the person who has been in it longest, so your family keeps it. Phones keep their own copy. Export first if you might need it.</p>
         <Field label="Password" hint="Signed in through single sign-on? Type your email address instead."><PasswordInput autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus /></Field>
       </>} />
   )

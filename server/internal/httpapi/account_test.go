@@ -12,11 +12,13 @@ func TestDeleteAccount(t *testing.T) {
 	alice := signUp(t, base, "alice@example.com", http.StatusCreated)
 	bob := signUp(t, base, "bob@example.com", http.StatusCreated)
 
-	// Alice alone owns "Mine"; "Shared" is co-owned with Bob.
-	mine, shared := ids.NewV7(), ids.NewV7()
+	// Alice alone owns "Mine"; "Shared" is co-owned with Bob; she owns "Family" and Bob only edits it.
+	mine, shared, family := ids.NewV7(), ids.NewV7(), ids.NewV7()
 	alice.do("POST", "/api/v1/ledgers", map[string]any{"id": mine, "name": "Mine", "base_currency": "INR"}, http.StatusCreated)
 	alice.do("POST", "/api/v1/ledgers", map[string]any{"id": shared, "name": "Shared", "base_currency": "INR"}, http.StatusCreated)
 	alice.do("POST", "/api/v1/ledgers/"+shared+"/members", map[string]any{"email": "bob@example.com", "role": "owner"}, http.StatusOK)
+	alice.do("POST", "/api/v1/ledgers", map[string]any{"id": family, "name": "Family", "base_currency": "INR"}, http.StatusCreated)
+	alice.do("POST", "/api/v1/ledgers/"+family+"/members", map[string]any{"email": "bob@example.com", "role": "editor"}, http.StatusOK)
 
 	alice.do("DELETE", "/api/v1/auth/me", map[string]any{"password": "wrong password"}, http.StatusUnauthorized)
 	res := alice.do("DELETE", "/api/v1/auth/me", map[string]any{"password": "correct horse battery"}, http.StatusOK)
@@ -34,6 +36,13 @@ func TestDeleteAccount(t *testing.T) {
 	members := bob.do("GET", "/api/v1/ledgers/"+shared+"/members", nil, http.StatusOK)["members"].([]any)
 	if len(members) != 1 {
 		t.Fatalf("shared ledger members = %d, want 1", len(members))
+	}
+
+	// The family book was not deleted under Bob: it passed to him as owner.
+	for _, m := range bob.do("GET", "/api/v1/ledgers/"+family+"/members", nil, http.StatusOK)["members"].([]any) {
+		if role := m.(map[string]any)["role"]; role != "owner" {
+			t.Fatalf("family book: Bob is %v, want owner", role)
+		}
 	}
 	signUp(t, base, "alice@example.com", http.StatusCreated)
 }

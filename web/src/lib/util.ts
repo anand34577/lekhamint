@@ -12,6 +12,9 @@ export function uuidv7(now = Date.now()): string {
 }
 
 /** Local calendar date as YYYY-MM-DD (not UTC). */
+/** "1 day", "3 days": a count with its noun in the right number. */
+export function plural(n: number, one: string, many = one + 's'): string { return `${n} ${n === 1 ? one : many}` }
+
 export function isoDate(d = new Date()): string {
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`

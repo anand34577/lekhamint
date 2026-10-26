@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"strings"
 	"time"
@@ -300,6 +301,24 @@ func SoleOwnedLedgers(ctx context.Context, q db.Querier, userID string) ([]strin
 		out = append(out, id)
 	}
 	return out, rows.Err()
+}
+
+// HandOverLedger makes the longest-standing remaining member (editors before
+// viewers) the owner of a ledger that leavingUserID owns alone. It reports
+// false when nobody else is a member, so the caller can delete the ledger.
+func HandOverLedger(ctx context.Context, q db.Querier, ledgerID, leavingUserID string) (bool, error) {
+	var next string
+	err := q.QueryRowContext(ctx, "SELECT user_id FROM ledger_members WHERE ledger_id = ? AND user_id <> ? "+
+		"ORDER BY CASE role WHEN ? THEN 0 WHEN ? THEN 1 ELSE 2 END, created_at, user_id LIMIT 1",
+		ledgerID, leavingUserID, RoleOwner, RoleEditor).Scan(&next)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	_, err = q.ExecContext(ctx, "UPDATE ledger_members SET role = ? WHERE ledger_id = ? AND user_id = ?", RoleOwner, ledgerID, next)
+	return err == nil, err
 }
 
 // DeleteUser removes a user. Sessions and memberships go with it (ON DELETE CASCADE).

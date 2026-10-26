@@ -7,7 +7,7 @@ import { estimate, fdValue, rdValue, tenureLabel } from '../lib/deposits'
 import { affordability, findRecurring, goalMonthly, goalMonths, payoff, splitBill, type PayoffDebt, type SplitMode } from '../lib/tools'
 import { createOp, linkedTxData } from '../lib/links'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
-import { addMonths, dayLabel, isoDate, monthRange, uuidv7 } from '../lib/util'
+import { addMonths, dayLabel, isoDate, monthRange, plural, uuidv7 } from '../lib/util'
 import { Avatar, Card, Check, Field, LineChart, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
 import { Columns, Explain, Loading, Meter, RankBars, SERIES, Spinner, StackBar } from '../charts'
 import { Icon } from '../icons'
@@ -732,7 +732,7 @@ function EmergencyTool() {
           { title: `× ${want} months`, body: 'Long enough to find a new job or recover from an emergency without borrowing.', value: <Money value={target} currency={code} /> },
           { title: 'Money you can reach within a day', body: `Enough for about ${covered.toFixed(1)} months.`, value: <Money value={got} currency={code} /> },
           gap > 0
-            ? { title: 'Still to save', body: Number(by) > 0 ? `Spread over ${by} months, that is ${formatMoney(Math.ceil(gap / Number(by)), code)} a month.` : undefined, value: <Money value={gap} currency={code} /> }
+            ? { title: 'Still to save', body: Number(by) > 0 ? `Spread over ${plural(Number(by), 'month')}, that is ${formatMoney(Math.ceil(gap / Number(by)), code)} a month.` : undefined, value: <Money value={gap} currency={code} /> }
             : { title: 'Nothing more to save', body: 'Keep it somewhere safe and easy to withdraw, separate from everyday spending.' },
         ]} />
         <Assumptions>Target = essential monthly spending × months. Only money you can withdraw within a day counts; deposits and investments are left out because breaking them can cost money or take time.</Assumptions>

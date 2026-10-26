@@ -27,6 +27,7 @@ export function Transactions({ params, go }: PageProps) {
   const canWrite = useCanWrite()
   const [month, setMonth] = useState(params.month ?? isoDate())
   const [allTime, setAllTime] = useState(params.all === '1')
+  const [showFilters, setShowFilters] = useState(false)
   const [type, setType] = useState(params.type ?? '')
   const [account, setAccount] = useState(params.account ?? '')
   const [category, setCategory] = useState(params.category ?? '')
@@ -129,6 +130,7 @@ export function Transactions({ params, go }: PageProps) {
   }
   const clearFilters = () => { setType(''); setAccount(''); setCategory(''); setTag(''); setQ(''); go('transactions') }
 
+  const activeFilters = [type, account, category, tag].filter(Boolean).length
   let lastDay = ''
   return (
     <>
@@ -139,7 +141,7 @@ export function Transactions({ params, go }: PageProps) {
         {!trash && canWrite && <button className="primary" onClick={() => setEditing('new')}><Icon name="plus" size={16} /> Add</button>}
       </div>
       <div className="filters">
-        <div className="search-field"><Icon name="search" size={16} /><input ref={searchRef} type="search" placeholder="Search payee or note" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" /></div>
+        <div className="search-field"><Icon name="search" size={16} /><input ref={searchRef} type="search" placeholder="Search payee, note, category or amount" value={q} onChange={(e) => setQ(e.target.value)} aria-label="Search" /></div>
         {!debouncedQ && (
           <div className="row month-nav">
             <Segmented label="Range" value={allTime ? 'all' : 'month'} onChange={(v) => setAllTime(v === 'all')} options={[['month', 'Month'], ['all', 'All time']]} />
@@ -151,12 +153,18 @@ export function Transactions({ params, go }: PageProps) {
           </div>
         )}
         {!debouncedQ && !allTime && !trash && <Segmented label="View" value={view} onChange={setView} options={[['list', 'List'], ['calendar', 'Calendar']]} />}
+        {/* Phones fold the pickers away so the list starts on the first screen. */}
+        <button className={`filters-toggle ${activeFilters ? 'on' : ''}`} onClick={() => setShowFilters(!showFilters)} aria-expanded={showFilters}>
+          <Icon name="filter" size={16} /> Filters{activeFilters ? ` (${activeFilters})` : ''}
+        </button>
+        <div className={`more-filters ${showFilters ? 'open' : ''}`}>
         <Select value={type} onChange={(e) => setType(e.target.value)} aria-label="Type"><option value="">All types</option><option value="expense">Expenses</option><option value="income">Income</option><option value="transfer">Transfers</option></Select>
         <Select value={account} onChange={(e) => setAccount(e.target.value)} aria-label="Account"><option value="">All accounts</option>{(accounts.data ?? []).filter((a) => !a.deleted).map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
         <CategorySelect value={category} onChange={setCategory} cats={cats} all="All categories" uncategorised />
         {tags.all.length > 0 && (
           <Select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Tag"><option value="">All tags</option>{tags.all.map((t) => <option key={t.id} value={t.id}>#{t.name}</option>)}</Select>
         )}
+        </div>
         {(type || account || category || tag || q) && <button className="link" onClick={clearFilters}>Clear filters</button>}
       </div>
       {calendar && (
@@ -225,7 +233,7 @@ export function Transactions({ params, go }: PageProps) {
                       </td>
                       <td className="hide-sm">{transfer ? <span className="muted">Transfer</span> : <span className="row nowrap">{categoryLabel(t)}</span>}</td>
                       <td className="hide-sm">{accName(t.account_id)}{t.status !== 'cleared' && <span className="chip" style={{ marginLeft: 6 }}>{t.status}</span>}</td>
-                      <td className="amt"><Money value={t.type === 'income' ? t.amount : -t.amount} currency={cur(t.account_id)} signed={!transfer} /></td>
+                      <td className="amt"><Money value={t.type === 'income' || transfer ? t.amount : -t.amount} currency={cur(t.account_id)} signed={!transfer} className={transfer ? 'muted' : ''} /></td>
                     </tr>,
                   )
                   return out
@@ -476,7 +484,7 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, payCard, cop
           <Segmented label="Type" value={type} onChange={(t) => { if (t !== type) { setCategoryId(''); setCatTouched(false) } setType(t) }}
             options={[['expense', 'Expense'], ['income', 'Income'], ['transfer', 'Transfer']]} />
           <Field label={`Amount (${currency(code).symbol.trim()})`} hint={value !== null && /[+\-*/×÷−]/.test(amount.slice(1)) && minor ? `= ${formatMoney(minor, code)}` : 'You can type sums like 450+800'}>
-            <NumInput className={`amount-input ${type}`} kind="expr" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus={!readOnly} placeholder="0" aria-label="Amount" />
+            <NumInput className={`amount-input ${type}`} kind="expr" value={amount} onChange={(e) => setAmount(e.target.value)} data-autofocus={readOnly ? undefined : true} placeholder="0" aria-label="Amount" />
           </Field>
           <div className="two">
             <Field label={type === 'transfer' ? 'From account' : 'Account'}>
@@ -506,18 +514,18 @@ function TxFormInner({ tx, onClose, onDelete, presetAccount, draft, payCard, cop
               <input type="time" value={time} onChange={(e) => setTime(e.target.value)} />
             </Field>
           </div>
-          {type !== 'transfer' && (
-            <Field label={type === 'income' ? 'From (payer)' : 'Paid to (payee)'}
-              hint={hint ? `Rule “${hint.matched[0].name ?? hint.matched[0].pattern}”: ${[hint.categoryId && cats.path(hint.categoryId), hint.payee && `saved as “${hint.payee}”`].filter(Boolean).join(', ') || 'tags added'}` : undefined}>
-              <input value={payee} onChange={(e) => setPayee(e.target.value)} />
-            </Field>
-          )}
           {!readOnly && (
             <div className="row date-chips">
               <button type="button" className={`chip-btn ${date === isoDate() ? 'on' : ''}`} onClick={() => setDate(isoDate())}>Today</button>
               <button type="button" className={`chip-btn ${date === addDays(isoDate(), -1) ? 'on' : ''}`} onClick={() => setDate(addDays(isoDate(), -1))}>Yesterday</button>
               <button type="button" className={`chip-btn ${date === addDays(isoDate(), -2) ? 'on' : ''}`} onClick={() => setDate(addDays(isoDate(), -2))}>{dayLabel(addDays(isoDate(), -2))}</button>
             </div>
+          )}
+          {type !== 'transfer' && (
+            <Field label={type === 'income' ? 'From (payer)' : 'Paid to (payee)'}
+              hint={hint ? `Rule “${hint.matched[0].name ?? hint.matched[0].pattern}”: ${[hint.categoryId && cats.path(hint.categoryId), hint.payee && `saved as “${hint.payee}”`].filter(Boolean).join(', ') || 'tags added'}` : undefined}>
+              <input value={payee} onChange={(e) => setPayee(e.target.value)} />
+            </Field>
           )}
           <Field label="Note"><textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)} /></Field>
           <Field label="Tags"><TagInput value={tagIds} onChange={setTagIds} /></Field>

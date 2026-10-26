@@ -66,6 +66,10 @@ describe('quick add', () => {
     const cats = [{ name: 'Food' }, { name: 'Groceries' }, { name: 'Fuel' }]
     expect(categoryFromText(cats, 'weekly groceries big bazaar')?.name).toBe('Groceries')
     expect(categoryFromText(cats, 'seafood')).toBeUndefined()
+    const defaults = [{ name: 'Dining out' }, { name: 'Taxi & ride-hailing' }, { name: 'Fuel' }]
+    expect(categoryFromText(defaults, 'lunch with team')?.name).toBe('Dining out')
+    expect(categoryFromText(defaults, 'Uber to airport')?.name).toBe('Taxi & ride-hailing')
+    expect(categoryFromText([{ name: 'Eating out' }], 'lunch')).toBeUndefined()
     expect(withoutWords('groceries big bazaar', 'Groceries')).toBe('big bazaar')
     expect(withoutWords('rent', 'Rent')).toBe('')
   })

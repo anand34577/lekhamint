@@ -62,7 +62,7 @@ export type Route = (typeof ROUTES)[number][0] | (typeof HIDDEN_ROUTES)[number]
 const SECTIONS: [string, string][] = [['main', ''], ['plan', 'Plan & commitments'], ['tools', 'Tools'], ['organise', 'Organise']]
 /** Pages reachable by link but not listed in the navigation. */
 const HIDDEN_ROUTES = ['print'] as const
-const MOBILE_TABS: Route[] = ['dashboard', 'transactions', 'budgets', 'reports']
+const MOBILE_TABS: Route[] = ['dashboard', 'transactions', 'budgets']
 
 export type Params = Record<string, string>
 
@@ -328,6 +328,8 @@ function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden,
         {MOBILE_TABS.slice(0, 2).map((r) => <TabLink key={r} r={r} route={route} />)}
         {canWrite ? <button className="fab" onClick={() => setAdding({ draft: null })} aria-label="New transaction"><Icon name="plus" size={24} /></button> : <span />}
         {MOBILE_TABS.slice(2).map((r) => <TabLink key={r} r={r} route={route} />)}
+        {/* Everything else (accounts, reports, plans, settings) is one tap away in the full menu. */}
+        <button className={`tab-more ${menu || !MOBILE_TABS.includes(route) ? 'active' : ''}`} onClick={() => setMenu(true)} aria-label="More pages"><Icon name="grid" size={20} /><span>More</span></button>
       </nav>
       {palette && <CommandPalette commands={commands} onClose={() => setPalette(false)} onAddForm={(r) => setAdding({ draft: r })} onSearch={(q) => go('transactions', { q })} />}
       {adding && <TxForm draft={adding.draft ?? undefined} onClose={() => setAdding(null)} />}
