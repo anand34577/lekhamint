@@ -22,8 +22,8 @@ server, or a small model served on the phone itself at a `localhost` address.
 | Mode | Where the key lives | Notes |
 |---|---|---|
 | Web: from this browser | Your LekhaMint server (per person), held in memory for the tab | The page may only call origins in its CSP: OpenAI, OpenRouter and `localhost` by default; add more with `LEKHAMINT_AI_CONNECT_ORIGINS`. Local servers need CORS (`OLLAMA_ORIGINS`). |
-| Web: through the server | Server environment | Set `LEKHAMINT_AI_BASE_URL` (e.g. `http://localhost:11434/v1`), `LEKHAMINT_AI_API_KEY`, `LEKHAMINT_AI_MODEL`, optional `LEKHAMINT_AI_TIMEOUT`. Endpoint: `POST /api/v1/ai/chat/completions` (signed in). Bodies are never logged. |
-| Android | Android Keystore (encrypted) | Base URL, model and key in Assistant settings. |
+| Through the server (web and Android) | Server environment | Set `LEKHAMINT_AI_BASE_URL` (e.g. `http://localhost:11434/v1`), `LEKHAMINT_AI_API_KEY`, `LEKHAMINT_AI_MODEL`, optional `LEKHAMINT_AI_TIMEOUT`. Endpoint: `POST /api/v1/ai/chat/completions` (signed in, 30 questions a minute per person). Bodies are never logged. `GET /api/v1/meta` reports `ai: {enabled, model, host}`; when it is enabled the web app and a connected Android phone use it without any setup, until the person turns it off or picks their own provider. |
+| Android: own provider | Android Keystore (encrypted) | Base URL, model and key in Assistant settings, for phones without a server or to use a different model. |
 
 ## Using it (web)
 
@@ -32,7 +32,9 @@ server, or a small model served on the phone itself at a `localhost` address.
   the model sends `text/event-stream`; otherwise it returns one JSON response as before.
   Servers that refuse streaming are asked again without it.
 - Conversations are listed at the side and can be reopened or deleted. They are kept in
-  this browser only (localStorage, per book, the latest 30) and removed on sign-out.
+  this browser only (localStorage, per book, the latest 30) and removed on sign-out. The
+  assistant's settings (mode, address, model, sharing choices) are saved to your account
+  on the server, like the app's other settings.
 - The last question can be edited or asked again; follow-up questions are suggested from
   the lookups an answer used.
 

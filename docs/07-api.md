@@ -32,13 +32,25 @@ Base path is `/api/v1`. The API speaks JSON only. Authenticated endpoints need
 | Method & path | Body → response |
 |---|---|
 | `POST /auth/register` | `{email, password, name?, device_name?}` → `201 {user, token}`. The first user can always register and becomes admin. |
-| `POST /auth/login` | `{email, password, device_name?}` → `{user, token}` |
+| `POST /auth/login` | `{email, password, device_name?, otp?}` → `{user, token}`. With two-step sign-in on, a right password without `otp` gives 401 `otp_required`; a wrong code 401 `invalid_otp`. After 5 wrong codes the account's code check pauses for 15 minutes: 429 `otp_locked` with `Retry-After`. |
 | `POST /auth/logout` | Revokes the current token → `204` |
 | `GET /auth/me` | `{user, session}` |
 | `GET /auth/sessions` | Devices signed in: `{sessions:[{id, device_name, last_used_at, current}]}` |
 | `DELETE /auth/sessions/{id}` | Sign out that device |
 | `POST /auth/password` | `{current_password, new_password}`. Also signs out all other devices. |
 | `DELETE /auth/me` | `{password}` → `{deleted_ledgers}`. Permanently deletes the account and every ledger it alone owns; removes it from ledgers with another owner. Wrong password: 401 `invalid_credentials` (the session stays valid). |
+
+## Per-person settings
+
+A signed-in person's own app choices (theme, accent, chosen book, hidden tips, assistant options), kept on the server so they are the same in every browser. Never shared with other members of a book; removed with the account; included in full-server dumps.
+
+| Method & path | Body → response |
+|---|---|
+| `GET /settings` | `{settings: {key: value, …}}` (values are any JSON) |
+| `PUT /settings/{key}` | `{value}` → `{key, value}`. `null` removes the setting (`204`). Keys: up to 64 of `a-z 0-9 . _ -`; values up to 16 KB; at most 200 per person (409 `too_many_settings`). |
+| `DELETE /settings/{key}` | `204` |
+
+The web app uses keys such as `theme`, `accent`, `ledger`, `hide_amounts`, `nav_rail`, `tx_view`, `assistant`, `fy_start.{ledger}`, `last_account.{ledger}`, `subscriptions_hidden.{ledger}` and `getting_started_hidden.{ledger}`. Android phones share `android.appearance` (`{theme, palette, amoled, dynamic_color, updated_at}`): a change made on one phone is sent on its next sync, and the newest `updated_at` wins on the others.
 
 ## Ledgers
 

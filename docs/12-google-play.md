@@ -17,6 +17,7 @@ the steps that must be done by hand in the Play Console.
 | Notifications permission | Asked for at runtime on Android 13+ (onboarding, or *More → Allow reminders*). |
 | Version codes | `MAJOR*10000 + MINOR*100 + PATCH` from the tag, so each release is higher than the last. |
 | No restricted permissions | Internet, network state, notifications, biometrics, plus WorkManager's wake lock and boot-completed. No SMS, contacts, location, storage, exact alarms or foreground services (WorkManager's foreground service is removed in the manifest). |
+| Notification access (optional) | *More → Find payments automatically* uses a `NotificationListenerService` to read bank, card and payment-app alerts **on the phone** and list payments to review. It only runs after the person turns it on in Android's *Notification access* settings, after an in-app explanation. Chat apps are skipped; nothing is uploaded or saved until the person taps *Add*. Describe it in the store listing and the Data safety form ("Messages: read on device, not collected"). |
 
 ## One-time setup
 

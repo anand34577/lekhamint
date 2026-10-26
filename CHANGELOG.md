@@ -1,5 +1,43 @@
 # Changelog
 
+## 1.6.0
+
+**Android: a new look**
+- Six colour themes — Mint (the default), Ocean, Indigo, Graphite, Plum and Sunset — each in light, dark and pure-black, picked from live swatches under More → Theme. Wallpaper colours (Material You) are still there as an option instead of the default.
+- Home is rebuilt: a greeting, one clear "available to spend" card with money in and out this month and how much of the income is spent, quick actions (expense, income, transfer, reports), what's coming up, the spending pace chart with your budget line and where the month is heading, budgets with a plain status ("On track", "Ahead of pace", "Over"), a tappable spending donut and a net-worth bar of what you own against what you owe.
+- Reports: a "kept" ring for the share of income saved, a tappable category donut, a spending calendar that shades each day by what it cost, which weekdays cost the most, income against spending on a labelled scale, and ranked bars for payees, tags and income.
+- Adding a transaction: coloured Expense/Income/Transfer tabs, categories as one row of icons (so the payee and note fields are visible without scrolling), a larger amount and a calmer keypad; Save stays dimmed until there is an amount.
+- Budgets open with a ring for the whole month and counts of budgets on track, to watch and over; each budget says its state in words. Activity shows a day-by-day spending strip. Accounts are grouped (cash & bank, cards & loans, savings & investments) with subtotals, and each account shows its 90-day balance trend.
+- Calculators work with sliders and explain themselves with pictures: where an EMI goes (loan against interest, "for every ₹100 you pay back ₹208"), how the loan shrinks year by year, how a deposit grows, each person's share of a bill and who pays whom, and where a month's income would go with a new loan.
+- More is grouped into cards with coloured icons; onboarding has a proper welcome. Whole amounts show without ".00" on screen (statements and exports keep every digit).
+
+**Android: less typing, more foresight**
+- Found payments: turn on *More → Find payments automatically* and bank SMS, card alerts and UPI or wallet app notifications are read on the phone and listed for review, with a notification you can tap. *Add* opens the form already filled in (amount, payee, time, the account whose last digits match, categorised by your rules). OTPs, offers, bill reminders and chat apps are ignored; nothing is uploaded, and nothing is saved until you tap *Add*.
+- Insights (*More → Insights & forecast*, and a card on Home): **safe to spend per day** until month end or payday, measured against your overall monthly budget, else this month's income, else your cash, with the sum laid out step by step and your usual daily spending beside it; what stands out against the same days last month; a cash forecast for 30, 60 or 90 days with a likely line and a range you can scrub through; and subscriptions and repeat payments found in your spending, with their yearly cost, price rises and a one-tap reminder.
+- Bills & recurring opens with what comes in and goes out each month (and the share of income bills take), a 30-day timeline of what's due, and groups for bills, income, transfers and paused items.
+- Goals: a ring for each goal and for all of them together, and a bar that marks where the plan says you should be today; monthly amounts are rounded to whole units.
+- Your theme, colour and dark-mode choice follow you to your other phones through your server.
+- Payee suggestions no longer repeat a name in different capitals ("Swiggy", "swiggy").
+
+**Assistant**
+- Android uses the assistant your server's admin has set up (`LEKHAMINT_AI_BASE_URL`) as soon as the phone is connected — no provider, key or model to enter on the phone. Your own provider remains an option in the assistant's settings. The web app now does the same instead of asking each person to pick it first.
+
+**Web: settings follow you**
+- Theme, accent, the book you have open, hidden amounts, the sidebar, the list/calendar view, assistant options, the financial-year start and dismissed cards are saved to your account on the server, so every browser shows the same. Settings an older version kept in a browser move to the server the first time you sign in there. (New API: `GET/PUT/DELETE /api/v1/settings`.)
+
+**Web**
+- The app loads faster: pages open as you visit them, and the main file is about half the size (≈310 KB, with React in a separate file that stays cached between updates).
+
+**Fixes**
+- Needs, wants and savings (web and Android) now measure against income, as the 50/30/20 guide intends, with "Saved" being what was not spent; before, it showed shares of spending, so someone who kept 39% of their income could see "0% savings".
+- Android: long-pressing Save showed "Saved. Add the next one." even when nothing was saved (for example with no amount); the time picker now follows the phone's 12/24-hour setting.
+- Android release builds in CI read the key password from `ANDROID_KEY_PASSWORD` (it used the keystore password, so signing failed whenever the two differed).
+- Web sign-in no longer offers "Create an account" on a server where sign-up is closed.
+- Full-server dumps (format v3) now include each person's notification choices and personal assistant key, and the new settings; restoring an older dump still works.
+
+**Security**
+- Wrong two-step codes at sign-in are now limited per account as well as per IP address: after five, that account's code check pauses for 15 minutes.
+
 ## 1.5.0
 
 **Sign-in and account security**

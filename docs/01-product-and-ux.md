@@ -61,10 +61,12 @@ Bottom navigation
 - The numpad opens straight away. No keyboard pops up.
 - **Save** keeps the screen open on long-press, for logging several receipts in a row.
 - Entry points: the FAB, a **Quick Settings tile**, a **home-screen widget**, an **app shortcut**, and the share sheet (share an SMS or receipt image to pre-fill the amount).
+- **Found payments** (optional, Android): with notification access turned on, bank SMS, card alerts and UPI/wallet app notifications are read on the phone and listed under *More → Find payments automatically* (and a card on Home). Each shows the amount, payee and the account's last digits; *Add* opens the form already filled in, matched to the account with those digits and categorised by your rules. OTPs, offers, due-date reminders and chat apps are ignored, and nothing is saved until you tap *Add*.
+- **Insights** (Android, *More → Insights & forecast*, and a card on Home): *safe to spend per day* until month end or payday — measured against an overall monthly budget, else this month's income, else cash — with the sum shown step by step; what stands out against the same days last month; a cash forecast with a likely line and a range; and repeat payments found in past spending, with price rises and a one-tap reminder.
 
 ## Visual design
 
-- **Material 3 with dynamic colour** (Material You) on Android 12+, and a refined default palette elsewhere. Light, dark and **true black (AMOLED)** themes.
+- **Material 3** with six palettes (Mint by default, Ocean, Indigo, Graphite, Plum, Sunset) and wallpaper colours (Material You) as an option. Light, dark and **true black (AMOLED)**. The choice follows the person to their other phones through the server (setting `android.appearance`).
 - **Typography:** large tabular figures for amounts, so columns line up. Negative amounts are never shown in red alone. They always have a sign and an icon as well (colour-blind safe).
 - **Category colours and icons** carry through every chart, list row and chip.
 - **Motion:** shared-element transitions from a list row to its detail, and spring animations on the budget rings. All motion respects "Remove animations".
