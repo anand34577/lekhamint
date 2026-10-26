@@ -12,6 +12,7 @@ server/dist/
 android/.gradle/
 android/build/
 android/**/build/
+android/**/.cxx/
 android/local.properties
 *.keystore
 *.jks

@@ -35,7 +35,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -115,7 +114,7 @@ fun natureLabel(n: String) = when (n) {
 @Composable
 private fun CategoryEditor(e: CategoryEdit, lookup: Lookup, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val snackbar = LocalSnackbar.current
     val ex = e.existing
     var name by remember { mutableStateOf(ex?.name.orEmpty()) }

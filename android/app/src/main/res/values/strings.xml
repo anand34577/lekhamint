@@ -6,6 +6,9 @@
     <string name="shortcut_expense">Add expense</string>
     <string name="shortcut_income">Add income</string>
     <string name="shortcut_transfer">Transfer</string>
+    <string name="shortcut_quick">Type or speak</string>
+    <string name="import_statement">Import into LekhaMint</string>
+    <string name="shortcut_quick_long">Add by typing or saying one line</string>
     <string name="widget_name">Spending this month</string>
     <string name="widget_description">Month-to-date spending, money available, and one tap to add an expense.</string>
     <string name="widget_spent_label">Spent this month</string>

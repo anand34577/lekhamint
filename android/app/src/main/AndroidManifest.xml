@@ -10,6 +10,16 @@
          Removing them keeps the app out of Google Play's foreground-service declaration. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" tools:node="remove" />
 
+    <!-- Voice entry hands the request to the phone's own speech recogniser; nothing is bundled or sent by LekhaMint. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <!-- allowBackup is off: Android auto backup would restore stale copies that
          conflict with sync. LekhaMint makes its own backups (docs/06). -->
     <application
@@ -46,6 +56,24 @@
                 <data android:mimeType="text/plain" />
                 <data android:mimeType="image/*" />
                 <data android:mimeType="application/pdf" />
+                <!-- Bank statements and money-app exports open the importer. -->
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+                <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/x-ofx" />
+                <data android:mimeType="application/x-qif" />
+            </intent-filter>
+            <intent-filter android:label="@string/import_statement">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="text/csv" />
+                <data android:mimeType="text/comma-separated-values" />
+                <data android:mimeType="application/vnd.ms-excel" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" />
+                <data android:mimeType="application/x-ofx" />
+                <data android:mimeType="application/x-qif" />
             </intent-filter>
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
@@ -86,6 +114,16 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <!-- Save, Ignore and Undo buttons on the "payment found" notification. Only this app's own notifications reach it. -->
+        <receiver
+            android:name=".capture.CaptureActionReceiver"
+            android:exported="false" />
+
+        <!-- "Mark paid" and "Snooze" on bill reminders. -->
+        <receiver
+            android:name=".work.ReminderActionReceiver"
+            android:exported="false" />
 
         <receiver
             android:name=".work.SpendWidget"

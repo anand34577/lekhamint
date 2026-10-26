@@ -107,8 +107,16 @@ class Repository(
         db.transactions().observeRange(from.toString(), to.toString())
 
     fun recentTransactions(limit: Int = 30) = db.transactions().observeRecent(limit)
+    /** Entries from the last [days] days that still need a category. */
+    fun uncategorized(days: Long = 30) = db.transactions().observeUncategorized(LocalDate.now().minusDays(days).toString())
     fun accountTransactions(accountId: String, limit: Int = 300) = db.transactions().observeForAccount(accountId, limit)
-    fun search(q: String, limit: Int = 200) = db.transactions().search(escapeLike(q), limit)
+    fun search(q: String, limit: Int = 200): Flow<List<TransactionEntity>> {
+        // "1,299" or "486.50" also finds that exact amount in the main currency.
+        val minor = if (q.any(Char::isDigit) && q.all { it.isDigit() || it in ".,₹$€£ " }) {
+            app.kosh.core.Money.parse(q.filter { it.isDigit() || it == '.' || it == ',' }, settings.current.baseCurrency) ?: 0L
+        } else 0L
+        return db.transactions().search(escapeLike(q), minor, limit)
+    }
     /** Reportable rows with split transactions expanded into one row per split. */
     fun reportRows(from: LocalDate, to: LocalDate): Flow<List<ReportRow>> = combine(
         db.transactions().observeReportRows(from.toString(), to.toString()),
@@ -424,6 +432,8 @@ class Repository(
             listOf(AccountEntity(id = Ids.newV7(now), name = "Cash", type = "cash", currency = currency, icon = "cash", color = "#2E7D32", createdAt = now)),
         )
         write(tables.categories, defaultCategories(now))
+        // A new book starts simple: the everyday screens only, with the rest a tap away in Features.
+        settings.setSimpleMode(true)
         settings.setOnboarded()
     }
 

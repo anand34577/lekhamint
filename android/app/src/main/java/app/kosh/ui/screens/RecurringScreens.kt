@@ -45,7 +45,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -147,7 +146,7 @@ fun RecurringScreen() {
                             Row(Modifier.fillMaxWidth().padding(vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
                                 StatusPill(Dates.relativeDay(d, today), if (d == today) m.warning else MaterialTheme.colorScheme.primary)
                                 Text(r.name ?: r.payee ?: lookup.categoryName(r.categoryId), Modifier.weight(1f).padding(start = 10.dp), style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                                MoneyText(if (r.type == "income") r.amount else -r.amount, lookup.currencyOf(r.accountId), style = MaterialTheme.typography.labelLarge, signed = r.type == "income")
+                                MoneyText(if (r.type == "expense") -r.amount else r.amount, lookup.currencyOf(r.accountId), style = MaterialTheme.typography.labelLarge, signed = r.type != "transfer")
                             }
                         }
                     }
@@ -193,7 +192,7 @@ private fun RuleRow(r: RecurringRuleEntity, lookup: app.kosh.domain.Lookup, next
         leadingContent = { IconBadge(icon, color) },
         trailingContent = {
             Column(horizontalAlignment = Alignment.End) {
-                MoneyText(if (r.type == "income") r.amount else -r.amount, cur, signed = r.type != "transfer", style = MaterialTheme.typography.titleSmall)
+                MoneyText(if (r.type == "expense") -r.amount else r.amount, cur, signed = r.type != "transfer", style = MaterialTheme.typography.titleSmall)
                 if (r.frequency != "monthly" || r.every != 1) {
                     MoneyText(monthlyEquivalent(r), cur, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text("a month", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -247,7 +246,7 @@ private fun monthlyEquivalent(r: RecurringRuleEntity): Long {
 fun EditRuleScreen(id: String?) {
     val c = LocalContainer.current
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val lookup by c.lookup.collectAsStateWithLifecycle()
     var existing by remember { mutableStateOf<RecurringRuleEntity?>(null) }
     var type by remember { mutableStateOf("expense") }

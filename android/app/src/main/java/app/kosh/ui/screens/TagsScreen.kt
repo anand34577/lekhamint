@@ -36,7 +36,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -94,7 +93,7 @@ fun TagsScreen() {
                     headlineContent = { Text("#" + t.name) },
                     supportingContent = {
                         Text(
-                            (if (n == 1) "1 transaction" else "$n transactions") + if (t.archived) " · hidden from pickers" else "",
+                            (if (n == 1) "1 transaction" else "${app.kosh.core.plural(n, "transaction")}") + if (t.archived) " · hidden from pickers" else "",
                         )
                     },
                     leadingContent = { IconBadge("tag", t.color) },
@@ -111,7 +110,7 @@ fun TagsScreen() {
 @Composable
 private fun TagEditor(existing: TagEntity?, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val snackbar = LocalSnackbar.current
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
     var color by remember { mutableStateOf(existing?.color ?: KoshIcons.palette.random()) }
@@ -183,7 +182,7 @@ fun cleanTag(s: String): String = s.trim().removePrefix("#").trim().replace(Rege
 @Composable
 fun TagPickerSheet(lookup: Lookup, selected: List<String>, onDismiss: () -> Unit, onChange: (List<String>) -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     var query by remember { mutableStateOf("") }
     var current by remember { mutableStateOf(selected) }
     val q = cleanTag(query)

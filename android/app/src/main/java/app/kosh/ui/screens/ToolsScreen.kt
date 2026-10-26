@@ -148,7 +148,7 @@ private fun EmiCalc() {
         val s = Loans.schedule(p, rate.ifBlank { null }, emi, Dates.today())
         val per100 = if (p > 0) s.totalPayment * 100.0 / p else 0.0
         Text("Step 2 · What it costs you", style = MaterialTheme.typography.titleSmall, modifier = Modifier.padding(top = 8.dp))
-        Answer("Monthly instalment (EMI)", emi, cur, "for ${n / 12} years${if (n % 12 != 0) " ${n % 12} months" else ""}, ${n} payments in all")
+        Answer("Monthly instalment (EMI)", emi, cur, "for ${n / 12} years${if (n % 12 != 0) " ${n % 12} months" else ""}, ${app.kosh.core.plural(n, "payment")} in all")
         SectionCard("Where your money goes", subtitle = "For every ${sym}100 you borrow, you pay back $sym${"%.0f".format(per100)}") {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DonutChart(

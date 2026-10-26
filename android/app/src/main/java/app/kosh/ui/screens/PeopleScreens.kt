@@ -33,7 +33,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -274,7 +273,7 @@ fun PersonScreen(key: String) {
 @Composable
 private fun PersonRepayDialog(person: Debts.Person, direction: String, open: List<Triple<DebtEntity, Long, String>>, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val currency = person.currency
     val lent = direction == "lent"
     val total = open.sumOf { it.second }

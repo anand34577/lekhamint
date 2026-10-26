@@ -7,7 +7,6 @@ import java.time.LocalTime
 import java.time.YearMonth
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 import java.time.temporal.TemporalAdjusters
 import java.util.Locale
 
@@ -34,7 +33,8 @@ object Dates {
     private val monthFormat get() = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
     private val shortMonthFormat get() = DateTimeFormatter.ofPattern("MMM", Locale.getDefault())
     private val shortDate get() = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
-    private val mediumDate get() = DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)
+    // Day first, like every other date in the app ("1 Oct 2025"), rather than the locale's "Oct 1, 2025".
+    private val mediumDate get() = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault())
 
     /** "Today", "Yesterday", "Mon, 21 Oct" or "Mon, 21 Oct 2024". */
     fun relativeDay(date: LocalDate, today: LocalDate = today()): String = when (date) {

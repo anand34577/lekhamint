@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="quick_add" android:enabled="true" android:icon="@drawable/ic_shortcut_add"
+        android:shortcutShortLabel="@string/shortcut_quick" android:shortcutLongLabel="@string/shortcut_quick_long">
+        <intent android:action="app.kosh.action.QUICK" android:targetPackage="app.kosh" android:targetClass="app.kosh.MainActivity" />
+    </shortcut>
     <shortcut android:shortcutId="add_expense" android:enabled="true" android:icon="@drawable/ic_shortcut_add"
         android:shortcutShortLabel="@string/shortcut_expense">
         <intent android:action="app.kosh.action.ADD" android:targetPackage="app.kosh" android:targetClass="app.kosh.MainActivity">

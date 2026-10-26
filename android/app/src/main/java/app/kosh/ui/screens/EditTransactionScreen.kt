@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DocumentScanner
 import androidx.compose.material.icons.automirrored.rounded.ArrowForward
 import androidx.compose.material.icons.automirrored.rounded.CallSplit
 import androidx.compose.material.icons.rounded.Close
@@ -181,6 +182,55 @@ class EditTxViewModel(
     /** Set when the form was opened for a found payment, so it leaves the "found" list once saved. */
     private var captureId: String? = null
 
+    /** What a receipt photo says (read on the phone), while it is being read and once it is. */
+    var receipt by mutableStateOf<app.kosh.ocr.ReceiptGuess?>(null)
+        private set
+    var readingReceipt by mutableStateOf(false)
+        private set
+    /** True once the receipt's amount, date and shop are in the form; the note then offers Undo. */
+    var receiptApplied by mutableStateOf(false)
+        private set
+    private var beforeReceipt: Triple<String, String, LocalDate>? = null
+
+    fun addFile(f: FileItem) {
+        files += f
+        readReceipt(f)
+    }
+
+    private fun readReceipt(f: FileItem) {
+        if (isEdit || !f.isImage || !c.receipts.available || type == "transfer") return
+        viewModelScope.launch {
+            readingReceipt = true
+            val lines = try { c.receipts.lines(c.repo.blobs.file(f.sha)) } catch (e: Exception) { emptyList() } finally { readingReceipt = false }
+            // The reader itself could not start: say nothing rather than blame the photo.
+            if (!c.receipts.available) return@launch
+            val g = app.kosh.ocr.ReceiptParser.parse(lines, Dates.today(), java.util.Locale.getDefault().country == "US")
+            receipt = g
+            // An empty form is filled straight away; otherwise the values are offered.
+            if (!g.isEmpty && amountMinor() == null) applyReceipt()
+        }
+    }
+
+    fun applyReceipt() {
+        val g = receipt ?: return
+        beforeReceipt = Triple(expr, payee, date)
+        g.total?.let { t ->
+            val v = t.setScale(Currencies.digits(currency), java.math.RoundingMode.HALF_UP).stripTrailingZeros()
+            expr = (if (v.scale() < 0) v.setScale(0) else v).toPlainString()
+        }
+        g.date?.let { date = it; time = null }
+        if (g.merchant != null && payee.isBlank()) changePayee(g.merchant)
+        receiptApplied = true
+        error = null
+    }
+
+    fun undoReceipt() {
+        beforeReceipt?.let { (e, p, d) -> expr = e; changePayee(p); date = d }
+        receiptApplied = false
+    }
+
+    fun dismissReceipt() { receipt = null }
+
     val lookup get() = c.lookup.value
 
     init {
@@ -241,9 +291,13 @@ class EditTxViewModel(
                         val z = java.time.Instant.ofEpochMilli(at).atZone(java.time.ZoneId.systemDefault())
                         date = z.toLocalDate(); time = z.toLocalTime().withSecond(0).withNano(0)
                     }
+                    sh.accountId?.takeIf { id -> active.any { it.id == id } }?.let { accountId = it }
+                    sh.date?.let { date = it }
                     sh.payee?.let { changePayee(it) }
                     sh.note?.let { note = it }
-                    sh.file?.let { files += fileFromStore(it) }
+                    sh.file?.let { addFile(fileFromStore(it)) }
+                    sh.categoryId?.takeIf { lookup.categoryById.containsKey(it) }?.let { pickCategory(it) }
+                    if (sh.tagIds.isNotEmpty()) tagIds = (tagIds + sh.tagIds).distinct()
                 }
                 if (presetTo != null && note.isBlank()) note = if (lookup.accountById[presetTo]?.type == "credit_card") "Credit card bill" else "Loan payment"
             }
@@ -442,8 +496,17 @@ class EditTxViewModel(
                 if (lines2.isNotEmpty()) { warning = lines2.joinToString("\n"); warnedFor = key; saving = false; return@launch }
             }
             warning = null
-            if (lines == null) c.repo.saveTransaction(tx) else c.repo.saveTransactionWithSplits(tx, lines)
-            saveFiles(c, txId, files.toList())
+            try {
+                if (lines == null) c.repo.saveTransaction(tx) else c.repo.saveTransactionWithSplits(tx, lines)
+                saveFiles(c, txId, files.toList())
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Never leave Save stuck: say what went wrong and let the person try again.
+                error = "Couldn't save: ${e.message ?: e.javaClass.simpleName}"
+                saving = false
+                return@launch
+            }
             if (ruleId != null) {
                 val freq = repeat!!
                 c.repo.saveRule(
@@ -537,6 +600,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                 AmountDisplay(vm, onTap = { focus.clearFocus() })
                 vm.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
                 vm.warning?.let { Text(it, color = MaterialTheme.colorScheme.tertiary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center) }
+                ReceiptNote(vm)
 
                 // Accounts
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(vertical = 8.dp)) {
@@ -642,7 +706,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                     maxLines = 3,
                 )
 
-                ReceiptsField(vm.files, onAdd = { vm.files += it }, onRemove = { f ->
+                ReceiptsField(vm.files, onAdd = { vm.addFile(it) }, onRemove = { f ->
                     val i = vm.files.indexOfFirst { it.id == f.id }
                     if (i >= 0) { if (f.existing) vm.files[i] = f.copy(removed = true) else vm.files.removeAt(i) }
                 })
@@ -776,7 +840,7 @@ private fun AmountDisplay(vm: EditTxViewModel, onTap: () -> Unit) {
     val shown = vm.expr.ifEmpty { "0" }
     val result = if (Calculator.hasOperator(vm.expr)) vm.amountMinor() else null
     Column(
-        Modifier.fillMaxWidth().clickable(onClick = onTap).padding(top = 12.dp, bottom = 8.dp)
+        Modifier.fillMaxWidth().clickable(onClick = onTap).padding(top = 4.dp, bottom = 4.dp)
             .semantics { contentDescription = "Amount ${vm.expr.ifEmpty { "zero" }} ${info.name}" },
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -834,7 +898,7 @@ private fun SaveButton(label: String, onClick: () -> Unit, onLongClick: (() -> U
         color = if (ready) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHighest,
         contentColor = if (ready) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
         shape = RoundedCornerShape(28.dp),
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 8.dp).height(56.dp)
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 8.dp, vertical = 6.dp).height(52.dp)
             .semantics { contentDescription = if (onLongClick != null) "$label. Long press to save and add another." else label }
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
@@ -1000,5 +1064,43 @@ private fun CategoryTile(name: String, selected: Boolean, onClick: () -> Unit, i
             name, style = MaterialTheme.typography.labelSmall, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
         )
+    }
+}
+
+/** "Read from the receipt: ₹1,234 · DMart · 12 Oct" with Use or Undo, or a note that it couldn't be read. */
+@Composable
+private fun ReceiptNote(vm: EditTxViewModel) {
+    if (vm.readingReceipt) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+            androidx.compose.material3.CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+            Text("Reading the receipt…", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(start = 8.dp))
+        }
+        return
+    }
+    val g = vm.receipt ?: return
+    androidx.compose.material3.Surface(
+        shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+    ) {
+        Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Rounded.DocumentScanner, null, tint = MaterialTheme.colorScheme.onSecondaryContainer, modifier = Modifier.size(20.dp))
+            Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                if (g.isEmpty) {
+                    Text("Couldn't read this receipt", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text("Try a closer, flatter photo in good light, or enter it yourself.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                } else {
+                    Text(if (vm.receiptApplied) "Filled in from the receipt" else "The receipt says", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                    Text(
+                        listOfNotNull(g.total?.let { Money.ui(Money.fromDecimal(it, vm.currency) ?: 0, vm.currency) }, g.merchant, g.date?.let { Dates.medium(it) }).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSecondaryContainer, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            when {
+                g.isEmpty -> IconButton(onClick = vm::dismissReceipt) { Icon(Icons.Rounded.Close, "Dismiss") }
+                vm.receiptApplied -> TextButton(onClick = vm::undoReceipt) { Text("Undo") }
+                else -> TextButton(onClick = vm::applyReceipt) { Text("Use") }
+            }
+        }
     }
 }

@@ -41,7 +41,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,7 +81,7 @@ fun describeRule(r: RuleEntity, lookup: Lookup): String {
 fun CategorizationRulesScreen() {
     val c = LocalContainer.current
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val lookup by c.lookup.collectAsStateWithLifecycle()
     val rules by c.rules.collectAsStateWithLifecycle()
     val ordered = rules.sortedWith(compareBy({ it.sortOrder }, { it.createdAt }, { it.id }))
@@ -143,7 +142,7 @@ fun EditCategorizationRuleScreen(id: String?, prefillPayee: String? = null) {
     val c = LocalContainer.current
     val nav = LocalNav.current
     val snackbar = LocalSnackbar.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val lookup by c.lookup.collectAsStateWithLifecycle()
     val rules by c.rules.collectAsStateWithLifecycle()
     val existing = id?.let { rid -> rules.firstOrNull { it.id == rid } }

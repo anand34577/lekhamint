@@ -37,7 +37,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -109,7 +108,7 @@ suspend fun openAttachment(context: Context, c: AppContainer, f: FileItem): Stri
 fun ReceiptsField(files: List<FileItem>, onAdd: (FileItem) -> Unit, onRemove: (FileItem) -> Unit, readOnly: Boolean = false) {
     val c = LocalContainer.current
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf<String?>(null) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
@@ -149,7 +148,7 @@ fun ReceiptsField(files: List<FileItem>, onAdd: (FileItem) -> Unit, onRemove: (F
                 val uri = FileProvider.getUriForFile(context, context.packageName + ".files", f)
                 cameraUri = uri
                 camera.launch(uri)
-            }, label = { Text("Take photo") }, leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, Modifier.size(18.dp)) }, enabled = !busy)
+            }, label = { Text("Scan receipt") }, leadingIcon = { Icon(Icons.Rounded.PhotoCamera, null, Modifier.size(18.dp)) }, enabled = !busy)
             AssistChip(onClick = { photo.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
                 label = { Text("Photo") }, leadingIcon = { Icon(Icons.Rounded.Image, null, Modifier.size(18.dp)) }, enabled = !busy)
             AssistChip(onClick = { doc.launch(arrayOf("application/pdf", "image/*")) },
@@ -165,14 +164,8 @@ private fun Thumb(f: FileItem) {
     val c = LocalContainer.current
     val bmp by produceState<android.graphics.Bitmap?>(null, f.sha) {
         value = if (!f.isImage || !c.repo.blobs.has(f.sha)) null else withContext(Dispatchers.IO) {
-            runCatching {
-                val file = c.repo.blobs.file(f.sha)
-                val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(file.path, o)
-                var s = 1
-                while (maxOf(o.outWidth, o.outHeight) / (s * 2) >= 160) s *= 2
-                BitmapFactory.decodeFile(file.path, BitmapFactory.Options().apply { inSampleSize = s })
-            }.getOrNull()
+            // Upright, whatever way the camera held it.
+            runCatching { app.kosh.ocr.Images.decodeUpright(c.repo.blobs.file(f.sha).readBytes(), 160) }.getOrNull()
         }
     }
     Box(Modifier.size(48.dp).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surface), contentAlignment = Alignment.Center) {

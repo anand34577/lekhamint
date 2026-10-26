@@ -43,6 +43,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -127,6 +133,12 @@ object Routes {
     const val YEAR_TAX = "year_tax"
     const val INSIGHTS = "insights"
     const val EDIT_CAT_RULE = "cat_rule_edit?id={id}"
+    const val QUICK = "quick"
+    const val QUICK_VOICE = "quick_voice"
+    const val WEEKLY = "weekly"
+    const val IMPORT = "import"
+    const val SHARE = "share"
+    const val FEATURES = "features"
 
     fun editTx(id: String? = null, type: String = "expense", copy: Boolean = false, account: String? = null, to: String? = null, amount: String? = null) =
         "tx?id=${id.orEmpty()}&type=$type&copy=$copy&account=${account.orEmpty()}&to=${to.orEmpty()}&amount=${amount.orEmpty()}"
@@ -162,7 +174,8 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
     LaunchedEffect(request, onboarded) {
         val r = request ?: return@LaunchedEffect
         if (onboarded) {
-            nav.navigate(Routes.editTx(type = r.addType ?: "expense", amount = r.amount))
+            if (r.route != null) nav.navigate(r.route) { launchSingleTop = true }
+            else nav.navigate(Routes.editTx(type = r.addType ?: "expense", amount = r.amount))
             launch.value = null
         }
     }
@@ -182,6 +195,18 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
                 navController = nav,
                 startDestination = start,
                 modifier = Modifier.padding(bottom = padding.calculateBottomPadding()),
+                // Tabs cross-fade; screens opened from them slide in a little, so going deeper and
+                // coming back feel different without slowing anything down.
+                enterTransition = {
+                    if (targetState.destination.route in Routes.tabs) fadeIn(tween(180))
+                    else fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 8 }
+                },
+                exitTransition = { fadeOut(tween(140)) },
+                popEnterTransition = { fadeIn(tween(200)) },
+                popExitTransition = {
+                    if (initialState.destination.route in Routes.tabs) fadeOut(tween(140))
+                    else fadeOut(tween(180)) + slideOutHorizontally(tween(220)) { it / 8 }
+                },
             ) {
                 composable(Routes.ONBOARDING) {
                     OnboardingScreen(onDone = { nav.navigate(Routes.HOME) { popUpTo(0) } })
@@ -244,6 +269,12 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
                 composable(Routes.YEAR_TAX) { app.kosh.ui.screens.YearTaxScreen() }
                 composable(Routes.INSIGHTS) { app.kosh.ui.screens.InsightsScreen() }
                 composable(app.kosh.ui.screens.FOUND_PAYMENTS_ROUTE) { app.kosh.ui.screens.FoundPaymentsScreen() }
+                composable(Routes.QUICK) { app.kosh.ui.screens.QuickScreen() }
+                composable(Routes.QUICK_VOICE) { app.kosh.ui.screens.QuickScreen(startVoice = true) }
+                composable(Routes.WEEKLY) { app.kosh.ui.screens.WeeklyScreen() }
+                composable(Routes.FEATURES) { app.kosh.ui.screens.FeaturesScreen() }
+                composable(Routes.SHARE) { app.kosh.ui.screens.ShareScreen() }
+                composable(Routes.IMPORT) { app.kosh.ui.screens.ImportScreen() }
                 composable(Routes.EDIT_CAT_RULE, arguments = listOf(navArgument("id") { type = NavType.StringType; defaultValue = "" })) { e ->
                     EditCategorizationRuleScreen(e.arguments?.getString("id").orEmpty().ifEmpty { null })
                 }
@@ -261,21 +292,31 @@ private fun KoshBottomBar(nav: NavHostController, route: String?) {
         restoreState = true
     }
     val dark = app.kosh.ui.theme.LocalDarkTheme.current
-    Column {
-    androidx.compose.material3.HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+    val items = androidx.compose.material3.NavigationBarItemDefaults.colors(
+        selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+        selectedTextColor = MaterialTheme.colorScheme.onSurface,
+        indicatorColor = MaterialTheme.colorScheme.primaryContainer,
+        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Surface(
+        color = if (dark) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
+        shadowElevation = if (dark) 0.dp else 12.dp,
+        shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+    ) {
     NavigationBar(
-        containerColor = if (dark) MaterialTheme.colorScheme.surfaceContainer else MaterialTheme.colorScheme.surfaceContainerLowest,
+        containerColor = Color.Transparent,
         tonalElevation = 0.dp,
     ) {
-        NavigationBarItem(route == Routes.HOME, { go(Routes.HOME) }, { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") })
-        NavigationBarItem(route == Routes.TRANSACTIONS, { go(Routes.TRANSACTIONS) }, { Icon(Icons.AutoMirrored.Rounded.ReceiptLong, null) }, label = { Text("Activity") })
+        NavigationBarItem(route == Routes.HOME, { go(Routes.HOME) }, { Icon(Icons.Rounded.Home, null) }, label = { Text("Home") }, colors = items)
+        NavigationBarItem(route == Routes.TRANSACTIONS, { go(Routes.TRANSACTIONS) }, { Icon(Icons.AutoMirrored.Rounded.ReceiptLong, null) }, label = { Text("Activity") }, colors = items)
         Box(Modifier.weight(1f).padding(top = 8.dp), contentAlignment = Alignment.Center) {
             Surface(
                 color = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
                 shape = androidx.compose.foundation.shape.CircleShape,
-                shadowElevation = 6.dp,
-                modifier = Modifier.size(58.dp)
+                shadowElevation = 8.dp,
+                modifier = Modifier.size(56.dp)
                     .semantics { contentDescription = "Add transaction. Long press for transfer." }
                     .combinedClickable(
                         onClick = { nav.navigate(Routes.editTx()) },
@@ -285,8 +326,8 @@ private fun KoshBottomBar(nav: NavHostController, route: String?) {
                 Box(contentAlignment = Alignment.Center) { Icon(Icons.Rounded.Add, null, Modifier.size(30.dp)) }
             }
         }
-        NavigationBarItem(route == Routes.BUDGETS, { go(Routes.BUDGETS) }, { Icon(Icons.Rounded.PieChart, null) }, label = { Text("Budgets") })
-        NavigationBarItem(route == Routes.MORE, { go(Routes.MORE) }, { Icon(Icons.Rounded.GridView, null) }, label = { Text("More") })
+        NavigationBarItem(route == Routes.BUDGETS, { go(Routes.BUDGETS) }, { Icon(Icons.Rounded.PieChart, null) }, label = { Text("Budgets") }, colors = items)
+        NavigationBarItem(route == Routes.MORE, { go(Routes.MORE) }, { Icon(Icons.Rounded.GridView, null) }, label = { Text("More") }, colors = items)
     }
     }
 }

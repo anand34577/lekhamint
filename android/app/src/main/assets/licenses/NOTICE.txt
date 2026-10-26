@@ -1,0 +1,11 @@
+LekhaMint is free software under the MIT License (see LICENSE in the source code).
+It includes the following work by others. Tap one below to read its licence.
+
+- Inter typeface, SIL Open Font License 1.1 (Inter-OFL.txt)
+- ncnn neural network runtime by Tencent, BSD 3-Clause (ncnn-BSD-3.txt)
+- PaddleOCR PP-OCRv5 text models by the PaddlePaddle Authors, Apache 2.0 (PaddleOCR-Apache-2.0.txt)
+- PdfBox-Android, Apache 2.0 (PdfBox-Android-Apache-2.0.txt)
+- Bouncy Castle, MIT-style licence (opens password-protected PDF statements)
+- AndroidX, Jetpack Compose, Kotlin, kotlinx and OkHttp libraries, Apache 2.0
+
+Receipts are read on the phone with the models above. No Google Play services and no network are used.

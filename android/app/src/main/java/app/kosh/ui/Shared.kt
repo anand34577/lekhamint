@@ -15,6 +15,31 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+
+/**
+ * A coroutine scope for button handlers (save, delete, record a payment). Unlike a bare
+ * rememberCoroutineScope, a failure shows a message instead of crashing the app, and later
+ * actions on the same screen still run.
+ */
+@Composable
+fun rememberSafeScope(): kotlinx.coroutines.CoroutineScope {
+    val base = androidx.compose.runtime.rememberCoroutineScope()
+    val snackbar = LocalSnackbar.current
+    return androidx.compose.runtime.remember(base, snackbar) {
+        val handler = kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+            android.util.Log.e("LekhaMint", "action failed", e)
+            base.launch { snackbar.showSnackbar("Something went wrong: ${e.message ?: e.javaClass.simpleName}") }
+        }
+        kotlinx.coroutines.CoroutineScope(base.coroutineContext + kotlinx.coroutines.SupervisorJob(base.coroutineContext[kotlinx.coroutines.Job]) + handler)
+    }
+}
+
+/** True when the phone has a speech recogniser LekhaMint can hand a request to (no extra library is bundled). */
+fun speechAvailable(context: android.content.Context): Boolean = runCatching {
+    android.speech.SpeechRecognizer.isRecognitionAvailable(context) ||
+        context.packageManager.queryIntentActivities(android.content.Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0).isNotEmpty()
+}.getOrDefault(false)
 
 /** ViewModel built from the app container (manual DI, no reflection). */
 @Composable

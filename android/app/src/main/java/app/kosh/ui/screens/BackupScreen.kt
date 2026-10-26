@@ -36,7 +36,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,7 +80,7 @@ fun BackupScreen(onRestored: () -> Unit) {
     val nav = LocalNav.current
     val context = LocalContext.current
     val snackbar = LocalSnackbar.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val s by c.settings.state.collectAsStateWithLifecycle()
     var busy by remember { mutableStateOf<String?>(null) }
     var exportPassword by remember { mutableStateOf<String?>(null) }
@@ -106,14 +105,14 @@ fun BackupScreen(onRestored: () -> Unit) {
         val pass = exportPassword
         run("Writing backup…") {
             val n = context.contentResolver.openOutputStream(uri, "wt")!!.use { c.backups.writeBackup(it, pass?.toCharArray()) }
-            "Backup saved ($n records${if (pass != null) ", encrypted" else ""})"
+            "Backup saved (${app.kosh.core.plural(n, "record")}${if (pass != null) ", encrypted" else ""})"
         }
     }
     val exportJson = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         uri ?: return@rememberLauncherForActivityResult
         run("Exporting…") {
             val n = context.contentResolver.openOutputStream(uri, "wt")!!.use { c.backups.writeLedgerJson(it) }
-            "Exported $n records"
+            "Exported ${app.kosh.core.plural(n, "record")}"
         }
     }
     val exportCsv = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
@@ -121,7 +120,7 @@ fun BackupScreen(onRestored: () -> Unit) {
         run("Exporting…") {
             val rows = c.db.transactions().everything()
             val n = context.contentResolver.openOutputStream(uri, "wt")!!.use { CsvExport.write(rows, c.lookup.value, it) }
-            "Exported $n transactions"
+            "Exported ${app.kosh.core.plural(n, "transaction")}"
         }
     }
     val openBackup = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -235,7 +234,7 @@ fun BackupScreen(onRestored: () -> Unit) {
                 val msg = try {
                     val r = c.backups.restore({ src.open(context) }, password?.toCharArray(), mode)
                     if (s.syncEnabled) c.scheduler.syncNow()
-                    "Restored: ${r.applied} items added or updated, ${r.skipped} already newer here" + if (r.invalid > 0) ", ${r.invalid} invalid skipped" else ""
+                    "Restored: ${app.kosh.core.plural(r.applied, "item")} added or updated, ${r.skipped} already newer here" + if (r.invalid > 0) ", ${r.invalid} invalid skipped" else ""
                 } catch (e: BackupDecryptException) {
                     e.message ?: "Wrong password"
                 } catch (e: Exception) {
@@ -280,7 +279,7 @@ private fun RestoreDialog(p: BackupPreview, onDismiss: () -> Unit, onRestore: (R
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 val at = if (p.createdAt > 0) Dates.medium(Instant.ofEpochMilli(p.createdAt).atZone(ZoneId.systemDefault()).toLocalDate()) else "unknown date"
-                Text("Made $at" + if (p.records >= 0) " · ${p.records} records" else "")
+                Text("Made $at" + if (p.records >= 0) " · ${app.kosh.core.plural(p.records, "record")}" else "")
                 if (p.encrypted) {
                     OutlinedTextField(password, { password = it }, label = { Text("Backup password") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
                 }

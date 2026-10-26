@@ -39,7 +39,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -120,7 +119,7 @@ fun GoalsScreen() {
                             if (target > 0) saved.toFloat() / target else 0f, on, size = 84.dp, thickness = 10.dp, track = on.copy(alpha = 0.2f),
                         ) { Text("${if (target > 0) (saved * 100 / target) else 0}%", style = MaterialTheme.typography.titleMedium, color = on) }
                         Column(Modifier.weight(1f).padding(start = 16.dp)) {
-                            Text("Saved across ${inBase.size} goals", style = MaterialTheme.typography.labelLarge, color = on.copy(alpha = 0.85f))
+                            Text("Saved across ${app.kosh.core.plural(inBase.size, "goal")}", style = MaterialTheme.typography.labelLarge, color = on.copy(alpha = 0.85f))
                             MoneyText(saved, lookup.baseCurrency, style = MaterialTheme.typography.headlineSmall, color = on)
                             Text("of ${Money.ui(target, lookup.baseCurrency)}", style = MaterialTheme.typography.bodySmall, color = on.copy(alpha = 0.8f))
                             if (monthly > 0) Text("Put aside ${Money.ui(wholeUp(monthly, lookup.baseCurrency), lookup.baseCurrency)} a month to stay on plan", style = MaterialTheme.typography.bodySmall, color = on.copy(alpha = 0.8f), modifier = Modifier.padding(top = 4.dp))
@@ -211,7 +210,7 @@ private fun GoalCard(g: Goal, p: Goals.Progress, explain: Boolean, onClick: () -
 @Composable
 private fun GoalSheet(existing: Goal?, lookup: Lookup, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val snackbar = LocalSnackbar.current
     val currency = existing?.currency ?: lookup.baseCurrency
     var name by remember { mutableStateOf(existing?.name.orEmpty()) }
@@ -298,7 +297,7 @@ fun ValueSummary(a: AccountEntity, lookup: Lookup, onUpdate: () -> Unit) {
 @Composable
 fun ValuationSheet(a: AccountEntity, lookup: Lookup, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val all by c.repo.valuations.collectAsStateWithLifecycle(emptyList())
     val history = all.filter { it.accountId == a.id }.sortedByDescending { it.date }
     var value by remember { mutableStateOf(Money.toPlain(lookup.worth(a), a.currency)) }
@@ -354,7 +353,7 @@ fun taxSectionOf(cat: CategoryEntity?): String? =
 fun YearTaxScreen() {
     val c = LocalContainer.current
     val nav = LocalNav.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val lookup by c.lookup.collectAsStateWithLifecycle()
     val prefs = remember { c.settings }
     var startMonth by remember { mutableIntStateOf(prefs.fyStartMonth ?: if (lookup.baseCurrency == "INR") 4 else 1) }

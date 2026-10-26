@@ -54,7 +54,14 @@ data class ServerAi(val enabled: Boolean = false, val model: String = "", val ho
 @Serializable
 data class ServerMeta(val version: String = "", val schema_version: Int = 0, val signup_allowed: Boolean = false, val ai: ServerAi = ServerAi())
 
+/** Someone with access to a shared book: owner, editor (can add and change) or viewer (can only look). */
+@Serializable
+data class ApiMember(val user_id: String, val email: String = "", val name: String = "", val role: String = "", val created_at: Long = 0)
+
 @Serializable private data class LedgersResponse(val ledgers: List<ApiLedger> = emptyList())
+@Serializable private data class MembersResponse(val members: List<ApiMember> = emptyList())
+@Serializable private data class MemberBody(val email: String, val role: String)
+@Serializable private data class MemberResponse(val member: ApiMember)
 @Serializable private data class SettingsResponse(val settings: Map<String, kotlinx.serialization.json.JsonElement> = emptyMap())
 @Serializable private data class SettingBody(val value: kotlinx.serialization.json.JsonElement)
 @Serializable private data class LedgerResponse(val ledger: ApiLedger)
@@ -108,6 +115,16 @@ class KoshApi(baseUrl: String, private val token: () -> String?) {
     }
 
     suspend fun ledgers(): List<ApiLedger> = get("/api/v1/ledgers", LedgersResponse.serializer()).ledgers
+
+    suspend fun members(ledgerId: String): List<ApiMember> = get("/api/v1/ledgers/$ledgerId/members", MembersResponse.serializer()).members
+
+    /** Gives an existing account on this server access to the book (owners only). */
+    suspend fun addMember(ledgerId: String, email: String, role: String): ApiMember =
+        post("/api/v1/ledgers/$ledgerId/members", MemberBody(email.trim(), role), MemberBody.serializer(), MemberResponse.serializer()).member
+
+    suspend fun removeMember(ledgerId: String, userId: String) {
+        send(Request.Builder().url("$base/api/v1/ledgers/$ledgerId/members/$userId").delete(), auth = true)
+    }
 
     suspend fun createLedger(id: String, name: String, currency: String): ApiLedger =
         post("/api/v1/ledgers", CreateLedgerBody(id, name, currency), CreateLedgerBody.serializer(), LedgerResponse.serializer()).ledger

@@ -45,14 +45,12 @@ class BlobStore(private val context: Context) {
         return Stored(sha, bytes.size.toLong(), mime, name.take(200))
     }
 
+    /**
+     * Re-encodes a large photo at 2000 px. The camera's rotation flag is applied first: the new JPEG carries no
+     * such flag, so without this a portrait receipt would be saved lying on its side.
+     */
     private fun shrink(bytes: ByteArray): ByteArray? = runCatching {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        var sample = 1
-        while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 2000) sample *= 2
-        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, BitmapFactory.Options().apply { inSampleSize = sample }) ?: return null
-        val scale = minOf(1f, 2000f / maxOf(bmp.width, bmp.height))
-        val out = if (scale < 1f) Bitmap.createScaledBitmap(bmp, (bmp.width * scale).toInt(), (bmp.height * scale).toInt(), true) else bmp
+        val out = app.kosh.ocr.Images.decodeUpright(bytes, 2000) ?: return null
         ByteArrayOutputStream().use { s -> out.compress(Bitmap.CompressFormat.JPEG, 85, s); s.toByteArray() }.takeIf { it.size < bytes.size }
     }.getOrNull()
 

@@ -42,6 +42,17 @@ data class AppSettings(
     val lastBackupError: String? = null,
     /** Post a notification when a payment is found in a bank or payment app alert. */
     val captureNotify: Boolean = true,
+    /** A short summary of the week on Sunday evening, with what needs a look. */
+    val weeklyCheckIn: Boolean = true,
+    /**
+     * Simple mode shows the everyday screens only; a tool such as Loans appears once it is turned on in
+     * Features or once the book has something of that kind. New books start simple; books from before keep everything.
+     */
+    val simpleMode: Boolean = false,
+    /** Tools turned on by hand while in simple mode (Features). */
+    val features: Set<String> = emptySet(),
+    /** When the weekly check-in was last finished. */
+    val lastReviewAt: Long = 0,
 ) {
     val syncEnabled: Boolean get() = serverUrl != null && accountEmail != null
 }
@@ -77,6 +88,10 @@ class Settings(context: Context) {
         lastBackupAt = prefs.getLong(K_LAST_BACKUP, 0),
         lastBackupError = prefs.getString(K_BACKUP_ERROR, null),
         captureNotify = prefs.getBoolean(K_CAPTURE_NOTIFY, true),
+        weeklyCheckIn = prefs.getBoolean(K_WEEKLY, true),
+        simpleMode = prefs.getBoolean(K_SIMPLE, false),
+        features = prefs.getStringSet(K_FEATURES, null)?.toSet() ?: emptySet(),
+        lastReviewAt = prefs.getLong(K_LAST_REVIEW, 0),
     )
 
     fun update(block: SharedPreferences.Editor.() -> Unit) {
@@ -113,6 +128,16 @@ class Settings(context: Context) {
     }
     fun setHideAmounts(on: Boolean) = update { putBoolean(K_HIDE, on) }
     fun setCaptureNotify(on: Boolean) = update { putBoolean(K_CAPTURE_NOTIFY, on) }
+    fun setWeeklyCheckIn(on: Boolean) = update { putBoolean(K_WEEKLY, on) }
+    fun setSimpleMode(on: Boolean) = update { putBoolean(K_SIMPLE, on) }
+    fun setFeature(key: String, on: Boolean) = update {
+        putStringSet(K_FEATURES, (current.features - key + if (on) setOf(key) else emptySet()).toSet())
+    }
+    fun setReviewed(at: Long = System.currentTimeMillis()) = update { putLong(K_LAST_REVIEW, at) }
+
+    /** When the person last confirmed an account's balance matches their bank (on this phone). */
+    fun balanceCheckedAt(accountId: String): Long = prefs.getLong("checked.$accountId", 0)
+    fun setBalanceChecked(accountId: String, at: Long = System.currentTimeMillis()) = update { putLong("checked.$accountId", at) }
     fun setAppLock(on: Boolean) = update { putBoolean(K_LOCK, on) }
     fun setBaseCurrency(code: String) = update { putString(K_BASE_CURRENCY, code) }
     fun setLedgerName(name: String) = update { putString(K_LEDGER_NAME, name) }
@@ -132,13 +157,13 @@ class Settings(context: Context) {
         secrets.put(S_TOKEN, token)
         update {
             putString(K_SERVER, serverUrl); putString(K_EMAIL, email)
-            putLong(K_CURSOR, 0); remove(K_SYNC_ERROR); putLong(K_LAST_SYNC, 0)
+            putLong(K_CURSOR, 0); remove("sync_resync_pending"); remove(K_SYNC_ERROR); putLong(K_LAST_SYNC, 0)
         }
     }
 
     fun disconnect() {
         secrets.remove(S_TOKEN)
-        update { remove(K_SERVER); remove(K_EMAIL); remove(K_SYNC_ERROR); putLong(K_CURSOR, 0) }
+        update { remove(K_SERVER); remove(K_EMAIL); remove(K_SYNC_ERROR); putLong(K_CURSOR, 0); remove("sync_resync_pending") }
     }
 
     /** Month the financial year starts (1-12) for Year & tax; null until chosen. */
@@ -149,6 +174,15 @@ class Settings(context: Context) {
     var syncCursor: Long
         get() = prefs.getLong(K_CURSOR, 0)
         set(v) = prefs.edit(commit = true) { putLong(K_CURSOR, v) }
+
+    /**
+     * True while a full download of the book (after the server cleared old deleted items) has not
+     * finished. Kept across restarts so an interrupted download starts again from the beginning and
+     * still removes what was deleted elsewhere.
+     */
+    var resyncPending: Boolean
+        get() = prefs.getBoolean("sync_resync_pending", false)
+        set(v) = prefs.edit(commit = true) { putBoolean("sync_resync_pending", v) }
 
     fun setSyncResult(at: Long, error: String?) = update {
         if (error == null) putLong(K_LAST_SYNC, at)
@@ -192,6 +226,10 @@ class Settings(context: Context) {
         const val K_LAST_BACKUP = "last_backup_at"
         const val K_BACKUP_ERROR = "last_backup_error"
         const val K_CAPTURE_NOTIFY = "capture_notify"
+        const val K_WEEKLY = "weekly_check_in"
+        const val K_SIMPLE = "simple_mode"
+        const val K_FEATURES = "features_on"
+        const val K_LAST_REVIEW = "last_review_at"
         const val K_APPEARANCE_DIRTY = "appearance_dirty"
         const val K_APPEARANCE_AT = "appearance_at"
         const val S_TOKEN = "sync_token"

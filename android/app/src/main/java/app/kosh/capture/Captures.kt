@@ -1,21 +1,18 @@
 package app.kosh.capture
 
-import android.app.PendingIntent
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import app.kosh.KoshApplication
-import app.kosh.MainActivity
-import app.kosh.R
 import app.kosh.data.KoshJson
 import app.kosh.domain.SmsParser
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.io.File
@@ -35,6 +32,8 @@ data class Captured(
     val accountHint: String? = null,
     /** new, added or ignored. */
     val state: String = "new",
+    /** The transaction saved for it straight from the notification, so Undo can remove it. */
+    val txId: String? = null,
 )
 
 /**
@@ -76,7 +75,8 @@ class CaptureStore(context: Context) {
     }
 
     @Synchronized
-    fun mark(id: String, state: String) = store(_items.value.map { if (it.id == id) it.copy(state = state) else it })
+    fun mark(id: String, state: String, txId: String? = null) =
+        store(_items.value.map { if (it.id == id) it.copy(state = state, txId = txId) else it })
 
     @Synchronized
     fun ignoreAllNew() = store(_items.value.map { if (it.state == "new") it.copy(state = "ignored") else it })
@@ -132,8 +132,10 @@ class PaymentListener : NotificationListenerService() {
         val container = (application as KoshApplication).container
         val source = runCatching { packageManager.getApplicationLabel(packageManager.getApplicationInfo(pkg, 0)).toString() }.getOrDefault(pkg)
         val item = container.captures.add(r, full, source, sbn.postTime.takeIf { it > 0 } ?: System.currentTimeMillis()) ?: return
-        val st = container.settings.current
-        if (st.captureNotify) notifyFound(this, item, st.hideAmounts, st.baseCurrency)
+        if (container.settings.current.captureNotify) {
+            val app = applicationContext
+            container.appScope.launch { runCatching { CaptureNotifier.found(app, container, item) } }
+        }
     }
 
     companion object {
@@ -151,31 +153,5 @@ class PaymentListener : NotificationListenerService() {
         const val CHANNEL = "found_payments"
         const val EXTRA_ID = "capture_id"
         const val ACTION_CAPTURE = "app.kosh.action.CAPTURE"
-
-        fun notifyFound(context: Context, c: Captured, hide: Boolean, currency: String) {
-            if (android.os.Build.VERSION.SDK_INT >= 33 &&
-                androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
-            ) return
-            val open = PendingIntent.getActivity(
-                context, c.id.hashCode(),
-                Intent(context, MainActivity::class.java).setAction(ACTION_CAPTURE).putExtra(EXTRA_ID, c.id),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            )
-            val what = if (c.type == "income") "received" else "paid"
-            val amount = app.kosh.core.Money.parse(c.amount, currency)?.let { app.kosh.core.Money.ui(it, currency) } ?: c.amount
-            val title = if (hide) "Payment found" else "$amount $what${c.payee?.let { if (c.type == "income") " from $it" else " to $it" } ?: ""}"
-            val public = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_stat_kosh)
-                .setContentTitle("LekhaMint").setContentText("A payment was found").build()
-            val n = NotificationCompat.Builder(context, CHANNEL)
-                .setSmallIcon(R.drawable.ic_stat_kosh)
-                .setContentTitle(title)
-                .setContentText("Tap to add it, from ${c.source}")
-                .setContentIntent(open)
-                .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
-                .setPublicVersion(public)
-                .setAutoCancel(true)
-                .build()
-            NotificationManagerCompat.from(context).notify(c.id.hashCode(), n)
-        }
     }
 }

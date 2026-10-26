@@ -37,7 +37,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -152,7 +151,7 @@ fun DepositDetailScreen(id: String) {
     val lookup by c.lookup.collectAsStateWithLifecycle()
     val e = rememberDepositEntries().firstOrNull { it.dep.id == id }
     var action by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     if (e == null) {
         Scaffold(topBar = { KoshTopBar("Deposit", onBack = { nav.popBackStack() }) }) { p -> EmptyState(Icons.Rounded.Savings, "Deposit not found", "It may have been deleted on another device.", Modifier.padding(p)) }
         return
@@ -223,7 +222,7 @@ private fun Lookup.bankAccounts(cur: String): List<AccountEntity> = activeAccoun
 @Composable
 private fun MatureDialog(e: DepositEntry, lookup: Lookup, early: Boolean, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val d = e.dep
     val ids = remember { Triple(Ids.newV7(), Ids.newV7(), Ids.newV7()) }
     var received by remember { mutableStateOf(if (early) "" else Money.toPlain(e.est.maturity, d.currency)) }
@@ -275,7 +274,7 @@ private fun MatureDialog(e: DepositEntry, lookup: Lookup, early: Boolean, onDism
 @Composable
 private fun InterestDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val d = e.dep
     val id = remember { Ids.newV7() }
     val next = e.est.payouts.firstOrNull { p -> e.moves.none { it.part == "interest" && it.localDate.take(7) == p.date.toString().take(7) } }
@@ -310,7 +309,7 @@ private fun InterestDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> Uni
 @Composable
 private fun InstalmentDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> Unit) {
     val c = LocalContainer.current
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val d = e.dep
     val id = remember { Ids.newV7() }
     val due = LocalDate.parse(d.startDate).plusMonths(e.rdPaid.toLong())
@@ -342,7 +341,7 @@ private fun InstalmentDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> U
 fun DepositEditor(onDismiss: () -> Unit) {
     val c = LocalContainer.current
     val lookup by c.lookup.collectAsStateWithLifecycle()
-    val scope = rememberCoroutineScope()
+    val scope = app.kosh.ui.rememberSafeScope()
     val snackbar = LocalSnackbar.current
     val ids = remember { Triple(Ids.newV7(), Ids.newV7(), Ids.newV7()) }
     val cur = lookup.baseCurrency

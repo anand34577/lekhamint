@@ -12,6 +12,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material.icons.rounded.CloudSync
 import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.AlertDialog
@@ -245,15 +246,20 @@ fun SyncScreen(onJoined: () -> Unit) {
                     KoshCard(Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Rounded.CloudSync, null, tint = MaterialTheme.colorScheme.primary)
+                                // The heading tells the truth: a failing sync is not "Connected".
+                                val failing = s.lastSyncError != null
+                                Icon(
+                                    if (failing) Icons.Rounded.CloudOff else Icons.Rounded.CloudSync, null,
+                                    tint = if (failing) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                                )
                                 Spacer(Modifier.size(8.dp))
-                                Text("Connected", style = MaterialTheme.typography.titleMedium)
+                                Text(if (failing) "Not syncing right now" else "Connected", style = MaterialTheme.typography.titleMedium)
                             }
                             Text("${s.accountEmail} on ${s.serverUrl}", style = MaterialTheme.typography.bodyMedium)
                             Text("Book: ${s.ledgerName}", style = MaterialTheme.typography.bodyMedium)
                             Text("Last synced ${ago(s.lastSyncAt)}", style = MaterialTheme.typography.bodyMedium)
-                            Text(if (pending == 0) "Everything is uploaded" else "$pending changes waiting to upload", style = MaterialTheme.typography.bodyMedium)
-                            if (rejected > 0) Text("$rejected items were refused by the server. Edit them to try again.", color = MaterialTheme.colorScheme.error)
+                            Text(if (pending == 0) "Everything is uploaded" else "$pending ${if (pending == 1) "change" else "changes"} waiting to upload", style = MaterialTheme.typography.bodyMedium)
+                            if (rejected > 0) Text("${app.kosh.core.plural(rejected, "item")} were refused by the server. Edit them to try again.", color = MaterialTheme.colorScheme.error)
                             s.lastSyncError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                         }
                     }
@@ -342,8 +348,8 @@ private fun DeleteAccountDialog(email: String, onConfirm: (String) -> Unit, onDi
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(
-                    "This permanently deletes $email from the server, every book that only you own, and their data. " +
-                        "You are removed from books shared with another owner. This cannot be undone.",
+                    "This permanently deletes $email from the server. Books only you use are deleted with their data; " +
+                        "a book you share passes to the person who has been in it longest. This cannot be undone.",
                 )
                 Text("The data on this phone is kept. Make a backup first if you want a copy of the server books.", style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(

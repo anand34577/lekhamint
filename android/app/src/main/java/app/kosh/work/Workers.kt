@@ -23,15 +23,11 @@ import androidx.work.WorkerParameters
 import app.kosh.KoshApplication
 import app.kosh.MainActivity
 import app.kosh.R
-import app.kosh.core.Dates
-import app.kosh.core.Money
-import app.kosh.domain.Budgets
-import app.kosh.domain.Deposits
-import app.kosh.domain.Loans
 import app.kosh.sync.ApiException
-import kotlinx.coroutines.flow.first
 import java.io.IOException
-import java.time.LocalDate
+import java.time.DayOfWeek
+import java.time.Duration
+import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 
 /** Schedules background work. Sync is never required for the app to work. */
@@ -82,11 +78,45 @@ class Scheduler(private val context: Context) {
         wm.enqueueUniqueWork(DAILY_NOW, ExistingWorkPolicy.KEEP, OneTimeWorkRequestBuilder<DailyWorker>().build())
     }
 
-    private companion object {
-        const val SYNC_SOON = "sync-soon"
-        const val SYNC_PERIODIC = "sync-periodic"
-        const val DAILY = "daily"
-        const val DAILY_NOW = "daily-now"
+    /**
+     * Two runs at set times, each booking the next: reminders at 9 am (so bills are not announced at 3 am
+     * when the 12-hourly job happens to run) and the weekly check-in on Sunday evening.
+     */
+    fun scheduleTimed(replace: Boolean = false) {
+        val policy = if (replace) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
+        wm.enqueueUniqueWork(MORNING, policy, OneTimeWorkRequestBuilder<MorningWorker>().setInitialDelay(delayUntil(nextMorning()), TimeUnit.MILLISECONDS).build())
+        wm.enqueueUniqueWork(WEEKLY, policy, OneTimeWorkRequestBuilder<WeeklyWorker>().setInitialDelay(delayUntil(nextWeekly()), TimeUnit.MILLISECONDS).build())
+    }
+
+    fun scheduleNextWeekly() {
+        wm.enqueueUniqueWork(WEEKLY, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<WeeklyWorker>().setInitialDelay(delayUntil(nextWeekly()), TimeUnit.MILLISECONDS).build())
+    }
+
+    fun scheduleNextMorning() {
+        wm.enqueueUniqueWork(MORNING, ExistingWorkPolicy.REPLACE, OneTimeWorkRequestBuilder<MorningWorker>().setInitialDelay(delayUntil(nextMorning()), TimeUnit.MILLISECONDS).build())
+    }
+
+    private fun delayUntil(at: LocalDateTime): Long = Duration.between(LocalDateTime.now(), at).toMillis().coerceAtLeast(60_000)
+
+    companion object {
+        private const val SYNC_SOON = "sync-soon"
+        private const val SYNC_PERIODIC = "sync-periodic"
+        private const val DAILY = "daily"
+        private const val DAILY_NOW = "daily-now"
+        private const val MORNING = "morning"
+        private const val WEEKLY = "weekly"
+
+        fun nextMorning(now: LocalDateTime = LocalDateTime.now()): LocalDateTime {
+            val today = now.toLocalDate().atTime(9, 0)
+            return if (now.isBefore(today)) today else today.plusDays(1)
+        }
+
+        /** Sunday 6 pm: the week is nearly done and there is time to look back before Monday. */
+        fun nextWeekly(now: LocalDateTime = LocalDateTime.now()): LocalDateTime {
+            var d = now.toLocalDate().atTime(18, 0)
+            while (d.dayOfWeek != DayOfWeek.SUNDAY || !d.isAfter(now)) d = d.plusDays(1)
+            return d
+        }
     }
 }
 
@@ -110,15 +140,44 @@ class SyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(c
 
 }
 
+/** Bill, EMI and budget reminders at 9 am; then the next morning's run is booked. */
+class MorningWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val c = (applicationContext as KoshApplication).container
+        try {
+            if (c.settings.current.onboarded) {
+                runCatching { c.recurring.runAuto() }
+                Reminders.runAll(applicationContext, c)
+            }
+        } finally {
+            c.scheduler.scheduleNextMorning()
+        }
+        return Result.success()
+    }
+}
+
+/** Sunday evening: a short summary of the week with what needs a look; then next Sunday is booked. */
+class WeeklyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val c = (applicationContext as KoshApplication).container
+        try {
+            val st = c.settings.current
+            if (st.onboarded && st.weeklyCheckIn) runCatching { WeeklyCheckIn.notify(applicationContext, c) }
+        } finally {
+            c.scheduler.scheduleNextWeekly()
+        }
+        return Result.success()
+    }
+}
+
 /** Recurring transactions, the automatic backup, budget alerts and bill reminders. */
 class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val c = (applicationContext as KoshApplication).container
         if (!c.settings.current.onboarded) return Result.success()
         runCatching { c.recurring.runAuto() }
-        runCatching { remindBills(c) }
-        runCatching { remindLoansDepositsDebts(c) }
-        runCatching { budgetAlerts(c) }
+        // Reminders wait for the daytime; the 9 am run (MorningWorker) sends whatever came due overnight.
+        if (Reminders.daytime()) Reminders.runAll(applicationContext, c)
         val s = c.settings.current
         if (s.autoBackup && System.currentTimeMillis() - s.lastBackupAt > TimeUnit.HOURS.toMillis(20)) {
             runCatching { c.backups.autoBackup() }.onFailure {
@@ -128,105 +187,6 @@ class DailyWorker(context: Context, params: WorkerParameters) : CoroutineWorker(
         if (s.syncEnabled) c.scheduler.syncSoon()
         SpendWidget.refresh(applicationContext) // a new month starts at zero
         return Result.success()
-    }
-
-    private suspend fun remindBills(c: app.kosh.AppContainer) {
-        val today = Dates.today()
-        val due = c.recurring.upcoming(c.repo.recurringRules.first(), days = 0).filter { it.rule.mode == "remind" }
-        for (u in due) {
-            val key = "remind.${u.rule.id}.${u.date}"
-            if (c.settings.flag(key)) continue
-            val account = c.repo.findAccount(u.rule.accountId)
-            val amount = Money.format(u.rule.amount, account?.currency ?: c.settings.current.baseCurrency)
-            val title = u.rule.name ?: u.rule.payee ?: "Bill"
-            val text = if (u.date.isBefore(today)) "$amount was due ${Dates.relativeDay(u.date)}" else "$amount is due today"
-            Notifications.show(applicationContext, key.hashCode(), title, text)
-            c.settings.setFlag(key)
-        }
-    }
-
-    /**
-     * EMIs due within each loan's reminder window (or overdue), deposits
-     * about to mature, and personal debts due. Each reminder is sent once per
-     * due date; amounts stay off the lock screen.
-     */
-    private suspend fun remindLoansDepositsDebts(c: app.kosh.AppContainer) {
-        val today = Dates.today()
-        val accounts = c.repo.accounts.first()
-        val balances = c.repo.balances.first().associate { it.accountId to it.balance }
-        val loanMoves = c.repo.loanMoves.first()
-        for (l in c.repo.loans.first()) {
-            if (l.closed || l.remindDays <= 0) continue
-            val st = Loans.status(l, loanMoves, balances[l.accountId] ?: accounts.firstOrNull { it.id == l.accountId }?.openingBalance ?: 0, today)
-            val due = st.nextDue ?: continue
-            if (due.isAfter(today.plusDays(l.remindDays.toLong()))) continue
-            val key = "remind.loan.${l.id}.$due"
-            if (c.settings.flag(key)) continue
-            val amount = Money.format(st.projection.rows.firstOrNull()?.payment ?: st.emi, l.currency)
-            val text = when {
-                due.isBefore(today) -> "$amount was due ${Dates.relativeDay(due)}. Record it once paid."
-                due == today -> "$amount is due today"
-                else -> "$amount is due ${Dates.relativeDay(due)}"
-            }
-            Notifications.show(applicationContext, key.hashCode(), "${l.name} EMI", text)
-            c.settings.setFlag(key)
-        }
-        for (d in c.repo.deposits.first()) {
-            if (d.status != "active" || d.remindDays <= 0) continue
-            val m = LocalDate.parse(d.maturityDate)
-            if (m.isAfter(today.plusDays(d.remindDays.toLong()))) continue
-            val key = "remind.deposit.${d.id}.${d.maturityDate}"
-            if (c.settings.flag(key)) continue
-            val est = Deposits.estimate(d, today)
-            val text = if (m.isAfter(today)) "Matures ${Dates.relativeDay(m)}: about ${Money.format(est.maturity, d.currency)}" else "Matured ${Dates.relativeDay(m)}. Record what the bank paid."
-            Notifications.show(applicationContext, key.hashCode(), d.name, text)
-            c.settings.setFlag(key)
-        }
-        for (a in accounts) {
-            val due = app.kosh.domain.CardBilling.due(a, balances[a.id] ?: a.openingBalance, today) ?: continue
-            if (due.daysLeft > 3) continue
-            val key = "remind.card.${a.id}.${due.date}"
-            if (c.settings.flag(key)) continue
-            val text = if (due.daysLeft == 0L) "Payment is due today" else "Payment is due ${Dates.relativeDay(due.date)}"
-            Notifications.show(applicationContext, key.hashCode(), "${a.name} bill", text)
-            c.settings.setFlag(key)
-        }
-        val debtMoves = c.repo.debtMoves.first()
-        for (d in c.repo.debts.first()) {
-            val dueDate = d.dueDate ?: continue
-            if (d.closed) continue
-            val due = LocalDate.parse(dueDate)
-            if (due.isAfter(today.plusDays(1))) continue
-            val left = app.kosh.domain.Debts.outstanding(d, debtMoves.filter { it.debtId == d.id })
-            if (left <= 0) continue
-            val key = "remind.debt.${d.id}.$dueDate"
-            if (c.settings.flag(key)) continue
-            val what = if (d.direction == "lent") "${d.person} was to repay ${Money.format(left, d.currency)}" else "You were to repay ${d.person} ${Money.format(left, d.currency)}"
-            Notifications.show(applicationContext, key.hashCode(), if (d.direction == "lent") "Money owed to you" else "Money you owe", "$what ${Dates.relativeDay(due)}")
-            c.settings.setFlag(key)
-        }
-    }
-
-    private suspend fun budgetAlerts(c: app.kosh.AppContainer) {
-        val today = LocalDate.now()
-        val budgets = c.repo.budgets.first().filter { !it.archived }
-        if (budgets.isEmpty()) return
-        val categories = c.repo.categories.first().associateBy { it.id }
-        for (b in budgets) {
-            val from = Budgets.neededFrom(b, today)
-            val rows = c.repo.reportRows(from, today).first()
-            val st = Budgets.status(b, rows, categories, c.settings.current.baseCurrency, today) ?: continue
-            if (!st.overAlert) continue
-            val key = "budget.${b.id}.${st.window.start}.${if (st.over) "over" else "alert"}"
-            if (c.settings.flag(key)) continue
-            val text = if (st.over) {
-                "Over by ${Money.format(-st.remaining, b.currency)}"
-            } else {
-                "${(st.fraction * 100).toInt()}% used · ${Money.format(st.remaining, b.currency)} left for ${st.daysLeft} days"
-            }
-            Notifications.show(applicationContext, key.hashCode(), "Budget: ${b.name}", text)
-            c.settings.setFlag(key)
-        }
     }
 }
 
@@ -247,14 +207,24 @@ object Notifications {
         })
     }
 
-    fun show(context: Context, id: Int, title: String, text: String) {
+    /** Posts a reminder; tapping it opens [route] (or Home), and [actions] add buttons. */
+    fun show(
+        context: Context,
+        id: Int,
+        title: String,
+        text: String,
+        route: String? = null,
+        actions: List<NotificationCompat.Action> = emptyList(),
+        silent: Boolean = false,
+    ) {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
             return
         }
         val intent = PendingIntent.getActivity(
-            context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            context, id, route?.let { MainActivity.openIntent(context, it) } ?: Intent(context, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         // On the lock screen only a neutral line shows; amounts and names appear once unlocked.
         val public = NotificationCompat.Builder(context, CHANNEL)
@@ -272,6 +242,8 @@ object Notifications {
             .setPublicVersion(public)
             .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setAutoCancel(true)
+            .setSilent(silent)
+            .apply { actions.forEach { addAction(it) } }
             .build()
         NotificationManagerCompat.from(context).notify(id, n)
     }
