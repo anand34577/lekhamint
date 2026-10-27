@@ -48,18 +48,23 @@ function CategoryForm({ cat, kind, parent, onClose }: Edit & { onClose: () => vo
   const [tax, setTax] = useState(cat?.tax_section ?? '')
   const [err, setErr] = useState('')
   const hasKids = !!cat && cats.children(cat.id).length > 0
+  // Two categories with the same name in the same place can't be told apart in pickers and reports.
+  const siblings = parentId ? cats.children(parentId) : cats.roots(kind)
+  const clash = siblings.find((c) => c.id !== cat?.id && c.name.trim().toLowerCase() === name.trim().toLowerCase())
   return (
     <Modal title={cat ? 'Edit category' : 'New category'} onClose={onClose} footer={<>
-      {cat && <button className="danger" onClick={async () => {
+      {cat && <button className="danger" disabled={write.batch.isPending} onClick={async () => {
         const ids = [cat.id, ...cats.children(cat.id).map((c) => c.id)]
-        await write.batch.mutateAsync(ids.map((id) => ({ op: 'delete' as const, entity: 'categories', id })))
+        try { await write.batch.mutateAsync(ids.map((id) => ({ op: 'delete' as const, entity: 'categories', id }))) } catch (x) { setErr(errorText(x)); return }
         toast(ids.length > 1 ? `Deleted ${cat.name} and ${ids.length - 1} sub-categories` : 'Category deleted. Past transactions show as uncategorised.',
           { label: 'Undo', run: () => write.batch.mutate(ids.map((id) => ({ op: 'restore' as const, entity: 'categories', id }))) })
         onClose()
       }}>Delete</button>}
       <span className="spacer" /><button onClick={onClose}>Cancel</button><button className="primary" form="catform" disabled={write.save.isPending}>Save</button></>}>
       <form id="catform" onSubmit={async (e) => {
-        e.preventDefault()
+        e.preventDefault(); setErr('')
+        if (!name.trim()) return setErr('Give the category a name')
+        if (clash) return setErr(`“${clash.name}” already exists ${parentId ? 'in this group' : 'at the top level'}. Use a different name.`)
         try {
           await write.save.mutateAsync({ entity: 'categories', id: cat?.id, newId, data: {
             name: name.trim(), kind: kind as Category['kind'], parent_id: parentId || null, nature: kind === 'expense' ? nature || null : null, color, tax_section: tax || null,
@@ -68,7 +73,7 @@ function CategoryForm({ cat, kind, parent, onClose }: Edit & { onClose: () => vo
           onClose()
         } catch (x) { setErr(errorText(x)) }
       }}>
-        <Field label="Name"><input value={name} onChange={(e) => setName(e.target.value)} required autoFocus /></Field>
+        <Field label="Name"><input value={name} onChange={(e) => { setName(e.target.value); setErr('') }} required autoFocus maxLength={60} aria-invalid={clash ? true : undefined} /></Field>
         {!hasKids && <Field label="Group"><Select value={parentId} onChange={(e) => setParentId(e.target.value)}><option value="">None (top level)</option>
           {cats.roots(kind).filter((r) => r.id !== cat?.id).map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}</Select></Field>}
         {kind === 'expense' && <Field label="Kind of spending" hint="Used for the needs / wants / savings (50/30/20) view">

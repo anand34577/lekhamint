@@ -1,7 +1,7 @@
 // Shared loan and deposit cases. android/.../LoansTest.kt asserts the same numbers.
 import { describe, expect, test } from 'vitest'
 import { emi, loanStatus, monthlyInterest, prepaymentOptions, rateError, schedule, splitPayment } from './loans'
-import { estimate, fdValue, rdValue, tenureLabel } from './deposits'
+import { estimate, fdValue, rdValue, renewedEnd, tenureLabel, termEnd } from './deposits'
 
 describe('loans', () => {
   test('EMI matches the standard formula', () => {
@@ -88,5 +88,11 @@ describe('deposits', () => {
   test('tenure label', () => {
     expect(tenureLabel('2026-01-15', '2027-04-25')).toBe('1 year 3 months 10 days')
     expect(tenureLabel('2026-01-01', '2026-01-01')).toBe('0 days')
+    // Short and mixed terms, and renewals that keep them.
+    expect(termEnd('2026-01-15', 0, 0, 7)).toBe('2026-01-22')
+    expect(termEnd('2026-01-15', 1, 4, 15)).toBe('2027-05-30')
+    expect(tenureLabel('2026-01-15', termEnd('2026-01-15', 1, 4, 15))).toBe('1 year 4 months 15 days')
+    expect(renewedEnd('2026-01-01', '2026-01-08', '2026-01-08')).toBe('2026-01-15')
+    expect(renewedEnd('2026-01-15', '2027-05-30', '2027-05-30')).toBe('2028-10-15')
   })
 })

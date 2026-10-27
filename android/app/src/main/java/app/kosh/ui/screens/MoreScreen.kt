@@ -58,6 +58,8 @@ import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Policy
 import androidx.compose.material.icons.rounded.Repeat
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material.icons.rounded.UploadFile
 import androidx.compose.material.icons.rounded.EventAvailable
@@ -119,6 +121,7 @@ fun MoreScreen() {
     var currencySheet by remember { mutableStateOf(false) }
     var renameDialog by remember { mutableStateOf(false) }
     var notices by remember { mutableStateOf(false) }
+    var query by remember { mutableStateOf("") }
     var notificationsGranted by remember {
         mutableStateOf(Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
     }
@@ -138,6 +141,40 @@ fun MoreScreen() {
         topBar = { TopAppBar(title = { Text("More") }, colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.background)) },
     ) { padding ->
         LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item {
+                // Find a page or setting by name or by everyday words ("dark", "password", "export").
+                OutlinedTextField(
+                    query, { query = it }, singleLine = true,
+                    placeholder = { Text("Search settings and tools") },
+                    leadingIcon = { Icon(Icons.Rounded.Search, null) },
+                    trailingIcon = { if (query.isNotEmpty()) androidx.compose.material3.IconButton(onClick = { query = "" }) { Icon(Icons.Rounded.Close, "Clear search") } },
+                    shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp),
+                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = androidx.compose.ui.text.input.ImeAction.Search),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                )
+            }
+            if (query.isNotBlank()) {
+                val links = moreLinks(
+                    open = { r -> if (r in Routes.tabs) nav.navigate(r) { popUpTo(Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true } else nav.navigate(r) }, theme = { themeSheet = true }, currency = { currencySheet = true },
+                    hide = { c.settings.setHideAmounts(!s.hideAmounts) }, notices = { notices = true }, rename = { renameDialog = true },
+                )
+                val words = query.trim().lowercase().split(Regex("\\s+"))
+                val hits = links.filter { l -> words.all { w -> l.text.contains(w) } }
+                item {
+                    if (hits.isEmpty()) {
+                        Text(
+                            "Nothing matches “${query.trim()}”. Try a simpler word, like budget, bank or backup.",
+                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 28.dp, vertical = 16.dp),
+                        )
+                    } else {
+                        Group("Results") {
+                            for (l in hits) SettingRow(l.title, l.subtitle, l.icon, tint = l.tint, onClick = { query = ""; l.go() })
+                        }
+                    }
+                }
+                return@LazyColumn
+            }
             item {
                 // The book: name, currency and sync state in one card.
                 KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), onClick = { renameDialog = true }) {
@@ -161,7 +198,8 @@ fun MoreScreen() {
                 Group("Money") {
                     SettingRow("Accounts", "Cash, bank, cards, wallets", Icons.Rounded.AccountBalanceWallet, tint = CMoney, onClick = { nav.navigate(Routes.ACCOUNTS) })
                     SettingRow("Reports", "Charts of spending, trends and 50/30/20", Icons.AutoMirrored.Rounded.ShowChart, tint = CMoney, onClick = { nav.navigate(Routes.REPORTS) })
-                    SettingRow("Find payments automatically", "Read bank and UPI alerts, add with one tap", Icons.Rounded.MarkEmailRead, tint = CMoney, onClick = { nav.navigate(FOUND_PAYMENTS_ROUTE) })
+                    SettingRow(if (app.kosh.BuildConfig.READS_ALERTS) "Find payments automatically" else "Add from bank messages",
+                        if (app.kosh.BuildConfig.READS_ALERTS) "Read bank and payment alerts, add with one tap" else "Share an SMS or alert to LekhaMint", Icons.Rounded.MarkEmailRead, tint = CMoney, onClick = { nav.navigate(FOUND_PAYMENTS_ROUTE) })
                     SettingRow("Import a statement", "From your bank: CSV, Excel, PDF, OFX or QIF", Icons.Rounded.UploadFile, tint = CMoney, onClick = { nav.navigate(Routes.IMPORT) })
                     SettingRow("Weekly check-in", if (s.weeklyCheckIn) "Sunday evening: the week and what needs a look" else "Off · open it any time", Icons.Rounded.EventAvailable, tint = CMoney, onClick = { nav.navigate(Routes.WEEKLY) }) {
                         Switch(s.weeklyCheckIn, { c.settings.setWeeklyCheckIn(it) })
@@ -285,6 +323,35 @@ fun MoreScreen() {
         )
     }
 }
+
+/** One searchable place on the More screen; [text] holds its title, subtitle and other words people use for it. */
+private class MoreLink(val title: String, val subtitle: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val tint: Color, words: String, val go: () -> Unit) {
+    val text = "$title $subtitle $words".lowercase()
+}
+
+/** Everything More leads to, including tools hidden in simple mode, so search finds them all. */
+private fun moreLinks(open: (String) -> Unit, theme: () -> Unit, currency: () -> Unit, hide: () -> Unit, notices: () -> Unit, rename: () -> Unit): List<MoreLink> =
+    listOf(
+        MoreLink("Accounts", "Cash, bank, cards, wallets", Icons.Rounded.AccountBalanceWallet, CMoney, "balance net worth credit card upi") { open(Routes.ACCOUNTS) },
+        MoreLink("Reports", "Charts of spending, trends and 50/30/20", Icons.AutoMirrored.Rounded.ShowChart, CMoney, "graph chart category month year where money went") { open(Routes.REPORTS) },
+        MoreLink("Budgets", "Monthly limits and what's left", Icons.Rounded.SpaceDashboard, CMoney, "limit plan spend") { open(Routes.BUDGETS) },
+        MoreLink("Bank messages", "Add payments from SMS and alerts", Icons.Rounded.MarkEmailRead, CMoney, "sms notification found payments alert") { open(FOUND_PAYMENTS_ROUTE) },
+        MoreLink("Import a statement", "From your bank: CSV, Excel, PDF, OFX or QIF", Icons.Rounded.UploadFile, CMoney, "bank statement pdf excel csv upload") { open(Routes.IMPORT) },
+        MoreLink("Weekly check-in", "The week and what needs a look", Icons.Rounded.EventAvailable, CMoney, "review sunday summary") { open(Routes.WEEKLY) },
+        MoreLink("Insights & forecast", "Safe to spend, cash forecast, subscriptions", Icons.Rounded.Insights, CMoney, "predict future subscription") { open(Routes.INSIGHTS) },
+        MoreLink("Recurring & bills", "Subscriptions, rent, salary", Icons.Rounded.Repeat, CPlan, "reminder emi bill due repeat") { open(Routes.RECURRING) },
+        MoreLink("Categories", "Groups for income and spending", Icons.Rounded.Category, COrganise, "category group") { open(Routes.CATEGORIES) },
+        MoreLink("Trash", "Restore deleted items", Icons.Rounded.Delete, CSafe, "deleted undo restore bin") { open(Routes.TRASH) },
+        MoreLink("Features", "Simple mode and which tools show", Icons.Rounded.SpaceDashboard, CTools, "simple mode tools hide show") { open(Routes.FEATURES) },
+        MoreLink("Sync", "With your own LekhaMint server", Icons.Rounded.CloudSync, CData, "server sign in login password account connect web qr code") { open(Routes.SYNC) },
+        MoreLink("Share with family", "Let someone else add to this book", Icons.Rounded.GroupAdd, CPeople, "family invite member partner spouse") { open(Routes.SHARE) },
+        MoreLink("Backup & restore", "Daily backup, export and restore", Icons.Rounded.Backup, CData, "export save file restore copy") { open(Routes.BACKUP) },
+        MoreLink("Theme", "Colours, light and dark", Icons.Rounded.Palette, CLook, "dark mode light night colour color appearance") { theme() },
+        MoreLink("Main currency", "Used for totals and new accounts", Icons.Rounded.CurrencyExchange, CLook, "currency rupee dollar euro") { currency() },
+        MoreLink("Hide amounts", "Show •••• instead of numbers", Icons.Rounded.Visibility, CSafe, "privacy hide numbers") { hide() },
+        MoreLink("Rename book", "Change the book's name", Icons.Rounded.Edit, CSafe, "book name ledger") { rename() },
+        MoreLink("Open-source notices", "Licences of what's inside the app", Icons.Rounded.Gavel, CSafe, "licence license about") { notices() },
+    ) + Features.all.map { f -> MoreLink(f.title, f.subtitle, f.icon, f.tint, f.key) { open(f.route) } }
 
 /** A titled group of rows on one card. */
 @Composable

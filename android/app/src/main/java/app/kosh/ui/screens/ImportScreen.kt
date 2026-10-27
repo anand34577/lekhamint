@@ -364,7 +364,7 @@ private fun PickStage(error: String?, onPick: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium, color = on.copy(alpha = 0.88f), modifier = Modifier.padding(top = 6.dp),
                 )
                 Button(onClick = onPick, modifier = Modifier.padding(top = 14.dp),
-                    colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = on, contentColor = MaterialTheme.colorScheme.primary)) {
+                    colors = app.kosh.ui.components.heroButtonColors()) {
                     Text("Choose a file")
                 }
             }

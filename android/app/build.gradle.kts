@@ -156,6 +156,24 @@ android {
         }
     }
 
+    // Two editions that differ in one thing: reading bank and payment app alerts (a notification listener).
+    //  - play:   the Google Play build. Play reviews the listener, so it is allowed there.
+    //  - direct: the APK people download and install themselves. Google Play Protect blocks sideloaded apps that
+    //            ask for notification access in many countries (its "enhanced fraud protection"), with no way to
+    //            install anyway, so this edition leaves the listener out. Sharing an SMS or a receipt still works.
+    flavorDimensions += "store"
+    productFlavors {
+        create("play") {
+            dimension = "store"
+            buildConfigField("boolean", "READS_ALERTS", "true")
+        }
+        create("direct") {
+            dimension = "store"
+            isDefault = true
+            buildConfigField("boolean", "READS_ALERTS", "false")
+        }
+    }
+
     sourceSets["main"].assets.srcDir(seedDir)
     // Exported Room schemas, for MigrationTestHelper in instrumented tests.
     sourceSets["androidTest"].assets.srcDir("$projectDir/schemas")
@@ -220,6 +238,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.okhttp)
     implementation(libs.bouncycastle)
+    implementation(libs.zxing.core)
     // PDF statements: text extraction only. Its own BouncyCastle copy is left out (the app already has one,
     // and it is only needed for certificate-locked PDFs, which statements never are).
     implementation(libs.pdfbox) {

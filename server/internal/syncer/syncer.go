@@ -116,6 +116,8 @@ type Service struct {
 	Clock   *hlc.Clock
 	MaxSkew time.Duration
 	Now     func() time.Time
+
+	watch watchers
 }
 
 // New returns a Service with a fresh server clock.
@@ -268,6 +270,7 @@ func (s *Service) Push(ctx context.Context, ledgerID string, changes []Change) (
 		return PushResult{}, fmt.Errorf("at most %d changes per push", MaxPushBatch)
 	}
 	res := PushResult{Accepted: []string{}, Conflicts: []store.Record{}, Rejected: []Rejection{}}
+	wrote := false
 	err := s.DB.InTx(ctx, func(tx *db.Tx) error {
 		seq, err := store.LockLedgerSeq(ctx, tx, ledgerID)
 		if err != nil {
@@ -290,10 +293,14 @@ func (s *Service) Push(ctx context.Context, ledgerID string, changes []Change) (
 		}
 		res.Cursor = seq
 		if seq != start {
+			wrote = true
 			return store.SetLedgerSeq(ctx, tx, ledgerID, seq)
 		}
 		return nil
 	})
+	if err == nil && wrote {
+		s.watch.changed(ledgerID)
+	}
 	return res, err
 }
 
@@ -382,6 +389,7 @@ func (s *Service) Write(ctx context.Context, ledgerID string, ops []WriteOp) ([]
 // WriteResults is Write with a per-op outcome, including skipped ops.
 func (s *Service) WriteResults(ctx context.Context, ledgerID string, ops []WriteOp) ([]WriteResult, error) {
 	out := make([]WriteResult, 0, len(ops))
+	wrote := false
 	err := s.DB.InTx(ctx, func(tx *db.Tx) error {
 		seq, err := store.LockLedgerSeq(ctx, tx, ledgerID)
 		if err != nil {
@@ -441,10 +449,14 @@ func (s *Service) WriteResults(ctx context.Context, ledgerID string, ops []Write
 			out = append(out, WriteResult{Entity: spec.Name, ID: id, Status: status, Record: &rec})
 		}
 		if seq != start {
+			wrote = true
 			return store.SetLedgerSeq(ctx, tx, ledgerID, seq)
 		}
 		return nil
 	})
+	if err == nil && wrote {
+		s.watch.changed(ledgerID)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -465,6 +477,7 @@ type ImportResult struct {
 // A stream error rolls everything back.
 func (s *Service) Import(ctx context.Context, ledgerID string, next func() (Change, bool, error)) (ImportResult, error) {
 	res := ImportResult{Rejected: []Rejection{}}
+	wrote := false
 	err := s.DB.InTx(ctx, func(tx *db.Tx) error {
 		seq, err := store.LockLedgerSeq(ctx, tx, ledgerID)
 		if err != nil {
@@ -498,9 +511,13 @@ func (s *Service) Import(ctx context.Context, ledgerID string, next func() (Chan
 		}
 		res.Cursor = seq
 		if seq != start {
+			wrote = true
 			return store.SetLedgerSeq(ctx, tx, ledgerID, seq)
 		}
 		return nil
 	})
+	if err == nil && wrote {
+		s.watch.changed(ledgerID)
+	}
 	return res, err
 }

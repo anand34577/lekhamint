@@ -26,7 +26,11 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import app.kosh.sync.LiveSync
 import app.kosh.sync.SyncEngine
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.ProcessLifecycleOwner
 import app.kosh.work.Notifications
 import app.kosh.work.Scheduler
 import app.kosh.work.SpendWidget
@@ -39,7 +43,8 @@ class AppContainer(app: Application) {
     val tables = SyncTables(db)
     val scheduler = Scheduler(app)
     val repo = Repository(app, db, tables, clock, settings) {
-        if (settings.current.syncEnabled) scheduler.syncSoon()
+        // On screen, the live loop sends the edit within a second; otherwise WorkManager does it shortly.
+        if (settings.current.syncEnabled) { if (live.active) live.nudge() else scheduler.syncSoon() }
         SpendWidget.refresh(app)
     }
     val sync = SyncEngine(repo)
@@ -53,6 +58,15 @@ class AppContainer(app: Application) {
 
     /** Lives as long as the process; used for shared, always-fresh reference data. */
     val appScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    /** Real-time sync while the app is open. */
+    val live: LiveSync by lazy { LiveSync(appScope, settings, sync) { SpendWidget.refresh(app) } }
+
+    private val appContext = app
+
+    /** A sync the person asked for (pull to refresh): runs now and reports how it went. */
+    suspend fun syncNowAndWait(): Result<app.kosh.sync.SyncReport> =
+        runCatching { sync.sync() }.onSuccess { if (it.pulled > 0) SpendWidget.refresh(appContext) }
 
     val lookup: StateFlow<Lookup> = combine(
         combine(repo.accounts, repo.balances, repo.accountValues, ::Triple), repo.categories, repo.tags, settings.state,
@@ -92,5 +106,26 @@ class KoshApplication : Application() {
         container.scheduler.schedulePeriodic()
         container.scheduler.scheduleTimed()
         container.scheduler.schedulePeriodicSync(container.settings.current.syncEnabled)
+        startLiveSync()
+    }
+
+    /** Sync live while any screen of the app is visible, and stop when it goes to the background. */
+    private fun startLiveSync() {
+        var foreground = false
+        fun update() {
+            if (foreground && container.settings.current.syncEnabled) container.live.start() else container.live.stop()
+        }
+        ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) { foreground = true; update() }
+            override fun onStop(owner: LifecycleOwner) { foreground = false; update() }
+        })
+        // Signing in or out on the Sync screen starts or stops it straight away.
+        container.appScope.launch(Dispatchers.Main) {
+            container.settings.state.map { it.syncEnabled }.distinctUntilChanged().collect { on ->
+                update()
+                // Disconnected, or removed by the server: the background sync stops too.
+                if (!on) container.scheduler.schedulePeriodicSync(false)
+            }
+        }
     }
 }

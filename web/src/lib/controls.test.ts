@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { cleanNumber, parseTypedDate } from '../controls'
+import { cleanNumber, formatDate, parseTypedDate } from '../controls'
 
 describe('cleanNumber', () => {
   it('keeps only digits for whole numbers', () => {
@@ -23,6 +23,23 @@ describe('parseTypedDate', () => {
     expect(parseTypedDate('2026-10-25')).toBe('2026-10-25')
     expect(parseTypedDate('25 Oct 2026')).toBe('2026-10-25')
     expect(parseTypedDate('5 october 2026')).toBe('2026-10-05')
+  })
+  it('reads numbers in the reader’s order, and the only possible order when one side is over 12', () => {
+    expect(parseTypedDate('10/11/2026', 'dmy')).toBe('2026-11-10')
+    expect(parseTypedDate('10/11/2026', 'mdy')).toBe('2026-10-11')
+    expect(parseTypedDate('10/25/2026', 'dmy')).toBe('2026-10-25')
+    expect(parseTypedDate('25/10/2026', 'mdy')).toBe('2026-10-25')
+  })
+  it('reads the month first or second when it is a word', () => {
+    expect(parseTypedDate('Oct 25, 2026')).toBe('2026-10-25')
+    expect(parseTypedDate('october 5 2026')).toBe('2026-10-05')
+    expect(parseTypedDate('25th Oct 2026')).toBe('2026-10-25')
+    expect(parseTypedDate('Sept. 3, 2026')).toBe('2026-09-03')
+  })
+  it('shows dates in the reader’s order and reads them back', () => {
+    expect(formatDate('2026-10-25', 'dmy')).toBe('25 Oct 2026')
+    expect(formatDate('2026-10-25', 'mdy')).toBe('Oct 25, 2026')
+    for (const o of ['dmy', 'mdy'] as const) expect(parseTypedDate(formatDate('2026-03-04', o), o)).toBe('2026-03-04')
   })
   it('rejects impossible dates and nonsense', () => {
     expect(parseTypedDate('31/02/2026')).toBeNull()

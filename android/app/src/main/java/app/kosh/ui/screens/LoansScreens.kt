@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -158,7 +159,8 @@ fun LoansScreen() {
         topBar = { KoshTopBar("Loans & EMIs", onBack = { nav.popBackStack() }) },
         floatingActionButton = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Add loan") }) },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 96.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
             if (entries.isEmpty()) {
                 item { EmptyState(Icons.Rounded.AccountBalance, "No loans yet", "Add a home, car, personal or any other loan, new or already running. LekhaMint keeps the schedule, splits each EMI into principal and interest, and reminds you before it is due.") }
             } else {
@@ -180,6 +182,7 @@ fun LoansScreen() {
                 TextButton(onClick = { showClosed = !showClosed }, modifier = Modifier.padding(horizontal = 8.dp)) { Text(if (showClosed) "Hide closed loans" else "Show closed loans") }
             }
             if (entries.isNotEmpty()) item { AssumptionNote("Schedules assume interest is charged monthly on the reducing balance. Lenders may round or count days differently; enter the EMI and each payment's interest as your statement shows.") }
+        }
         }
     }
     if (adding) LoanEditor(null) { adding = false }
@@ -241,7 +244,8 @@ fun LoanDetailScreen(id: String) {
             IconButton(onClick = { action = "delete" }) { Icon(Icons.Rounded.Delete, "Delete loan") }
         }
     }) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
                 KoshCard(Modifier.fillMaxWidth().padding(16.dp)) {
                     Column(Modifier.padding(20.dp)) {
@@ -298,6 +302,7 @@ fun LoanDetailScreen(id: String) {
                     )
                 }
             }
+        }
         }
     }
     when (action) {

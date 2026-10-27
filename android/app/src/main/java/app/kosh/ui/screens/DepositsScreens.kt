@@ -7,11 +7,13 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -102,7 +104,8 @@ fun DepositsScreen() {
         topBar = { KoshTopBar("Deposits", onBack = { nav.popBackStack() }) },
         floatingActionButton = { ExtendedFloatingActionButton(onClick = { adding = true }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Add deposit") }) },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 96.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
             if (entries.isEmpty()) item { EmptyState(Icons.Rounded.Savings, "No deposits yet", "Add fixed or recurring deposits to see their value, maturity dates and interest. Estimates use the terms you enter; the bank's figure wins when you add it.") }
             else item {
                 KoshCard(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -140,6 +143,7 @@ fun DepositsScreen() {
             if (entries.any { it.dep.status != "active" }) item { TextButton(onClick = { showClosed = !showClosed }, Modifier.padding(horizontal = 8.dp)) { Text(if (showClosed) "Hide matured and closed" else "Show matured and closed") } }
             if (entries.isNotEmpty()) item { AssumptionNote("Estimates compound every full period from the start date and pay simple interest for leftover days. Banks differ in day counts, rounding and tax deducted; enter the bank's maturity amount for an exact figure.") }
         }
+        }
     }
     if (adding) DepositEditor { adding = false }
 }
@@ -164,7 +168,8 @@ fun DepositDetailScreen(id: String) {
     Scaffold(topBar = {
         KoshTopBar(d.name, onBack = { nav.popBackStack() }) { IconButton(onClick = { action = "delete" }) { Icon(Icons.Rounded.Delete, "Delete deposit") } }
     }) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
                 KoshCard(Modifier.fillMaxWidth().padding(16.dp)) {
                     Column(Modifier.padding(20.dp)) {
@@ -172,7 +177,8 @@ fun DepositDetailScreen(id: String) {
                         MoneyText(e.balance, cur, style = MaterialTheme.typography.headlineMedium)
                         Spacer(Modifier.height(8.dp))
                         FactRow(if (d.status == "active") "Expected at maturity" else "Maturity value") { Text("${Money.ui(e.est.maturity, cur)}${if (e.est.fromBank) "" else " (estimate)"}") }
-                        FactRow("Matures") { Text(Dates.medium(end)) }
+                        FactRow("Matures") { Text("${Dates.medium(end)} · ${Dates.relativeDay(end).let { if (end.isAfter(today)) "in " + Deposits.termLabel(today, end) else it }}") }
+                        FactRow("Term") { Text(Deposits.termLabel(LocalDate.parse(d.startDate), end)) }
                         FactRow("Interest over the term") { MoneyText(e.est.interest, cur) }
                         if (e.est.tax > 0) FactRow("Estimated tax at ${d.taxPercent}%") { MoneyText(e.est.tax, cur) }
                         if (d.kind == "rd") FactRow("Instalments") { Text("${e.rdPaid} of $rdTotal paid") }
@@ -201,6 +207,7 @@ fun DepositDetailScreen(id: String) {
                 ListItem(headlineContent = { Text(m.note ?: m.part.orEmpty()) }, supportingContent = { Text(Dates.medium(LocalDate.parse(m.localDate))) },
                     trailingContent = { MoneyText(signed, cur, signed = true) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent))
             }
+        }
         }
     }
     when (action) {
@@ -351,7 +358,10 @@ fun DepositEditor(onDismiss: () -> Unit) {
     var institution by remember { mutableStateOf("") }
     var amount by remember { mutableStateOf("") }
     var rate by remember { mutableStateOf("") }
-    var months by remember { mutableStateOf("12") }
+    // Term as years + months + days: banks sell 7-day, 46-day and "1 year 4 months 15 days" deposits.
+    var years by remember { mutableStateOf("1") }
+    var months by remember { mutableStateOf("0") }
+    var days by remember { mutableStateOf("0") }
     var start by remember { mutableStateOf(today) }
     var compounding by remember { mutableStateOf("quarterly") }
     var payout by remember { mutableStateOf("cumulative") }
@@ -360,8 +370,11 @@ fun DepositEditor(onDismiss: () -> Unit) {
     var from by remember { mutableStateOf(lookup.bankAccounts(cur).firstOrNull()?.id) }
     var saving by remember { mutableStateOf(false) }
     val minor = Money.parse(amount, cur)
-    val n = months.toIntOrNull()
-    val end = n?.let { start.plusMonths(it.toLong()) }
+    val ty = years.ifBlank { "0" }.toIntOrNull()
+    val tm = months.ifBlank { "0" }.toIntOrNull()
+    val td = if (kind == "rd") 0 else days.ifBlank { "0" }.toIntOrNull()
+    val n = if (ty != null && tm != null) ty * 12 + tm else null
+    val end = if (n != null && td != null) start.plusMonths(n.toLong()).plusDays(td.toLong()) else null
     val bank = if (bankMaturity.isBlank()) null else Money.parse(bankMaturity, cur)
     val preview = if (minor != null && minor > 0 && Loans.rateError(rate) == null && end != null && end.isAfter(start))
         Deposits.estimate(DepositEntity("", name = "", accountId = "", currency = cur, amount = minor, annualRate = rate.trim(), startDate = start.toString(), maturityDate = end.toString(), kind = kind,
@@ -370,7 +383,9 @@ fun DepositEditor(onDismiss: () -> Unit) {
         name.isBlank() -> "Give the deposit a name"
         minor == null || minor <= 0 -> if (kind == "rd") "Enter the monthly instalment" else "Enter the amount deposited"
         Loans.rateError(rate) != null -> Loans.rateError(rate)
-        n == null || n !in 1..600 -> "Term must be 1 to 600 months"
+        end == null || !end.isAfter(start) -> if (kind == "rd") "Enter the term in years and months" else "Enter the term: years, months or days"
+        n!! > 600 || td!! > 3650 -> "Term must be 50 years or less"
+        kind == "rd" && n < 1 -> "A recurring deposit runs for at least one month"
         bankMaturity.isNotBlank() && (bank == null || bank <= 0) -> "Enter the bank's maturity amount, or leave it empty"
         fromBank && from == null -> "Choose the account it was paid from"
         else -> null
@@ -389,8 +404,29 @@ fun DepositEditor(onDismiss: () -> Unit) {
                 AmountField(amount, { amount = it }, cur, if (kind == "rd") "Monthly instalment" else "Amount deposited")
                 OutlinedTextField(rate, { rate = it }, label = { Text("Interest rate (% a year)") }, singleLine = true, modifier = Modifier.fillMaxWidth(),
                     isError = rate.isNotBlank() && Loans.rateError(rate) != null, supportingText = { Text(if (rate.isNotBlank()) Loans.rateError(rate) ?: "" else "As on the receipt") })
-                OutlinedTextField(months, { months = it.filter(Char::isDigit) }, label = { Text("Term (months)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 DateField("Start date", start, { start = it })
+                Text("Term", style = MaterialTheme.typography.labelMedium)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    val presets = if (kind == "rd") listOf("6 months" to Triple(0, 6, 0), "1 year" to Triple(1, 0, 0), "2 years" to Triple(2, 0, 0), "3 years" to Triple(3, 0, 0), "5 years" to Triple(5, 0, 0))
+                    else listOf("7 days" to Triple(0, 0, 7), "30 days" to Triple(0, 0, 30), "91 days" to Triple(0, 0, 91), "6 months" to Triple(0, 6, 0),
+                        "1 year" to Triple(1, 0, 0), "2 years" to Triple(2, 0, 0), "5 years" to Triple(5, 0, 0))
+                    for ((label, t) in presets) {
+                        val on = ty == t.first && tm == t.second && (kind == "rd" || td == t.third)
+                        FilterChip(on, { years = t.first.toString(); months = t.second.toString(); days = t.third.toString() }, label = { Text(label) })
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val digits = { v: String -> v.filter(Char::isDigit).take(4) }
+                    OutlinedTextField(years, { years = digits(it) }, label = { Text("Years") }, singleLine = true, modifier = Modifier.weight(1f),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+                    OutlinedTextField(months, { months = digits(it) }, label = { Text("Months") }, singleLine = true, modifier = Modifier.weight(1f),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+                    if (kind != "rd") OutlinedTextField(days, { days = digits(it) }, label = { Text("Days") }, singleLine = true, modifier = Modifier.weight(1f),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+                }
+                if (end != null && end.isAfter(start)) {
+                    Text("Matures on ${Dates.medium(end)} · ${Deposits.days(start, end)} days", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
                 Text("Compounding", style = MaterialTheme.typography.labelMedium)
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     for ((k, l) in listOf("quarterly" to "Quarterly", "monthly" to "Monthly", "yearly" to "Yearly", "simple" to "Simple")) FilterChip(compounding == k, { compounding = k }, label = { Text(l) })

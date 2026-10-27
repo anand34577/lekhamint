@@ -302,9 +302,24 @@ class EditTxViewModel(
                 if (presetTo != null && note.isBlank()) note = if (lookup.accountById[presetTo]?.type == "credit_card") "Credit card bill" else "Loan payment"
             }
             refreshSuggestions()
+            baseline = snapshot()
             loaded = true
         }
     }
+
+    private var baseline: List<Any?>? = null
+    private fun snapshot(): List<Any?> = listOf(
+        type, expr, toExpr, accountId, toAccountId, categoryId, date, time, payee, note, status, excluded, repeat, tagIds,
+        files.toList(), splitMode, splitLines.toList(),
+    )
+
+    /** Something entered that closing would lose: any content in a new entry, any change to an existing one. */
+    val hasUnsavedInput: Boolean
+        get() = when {
+            done || !loaded -> false
+            isEdit -> baseline != snapshot()
+            else -> expr.isNotBlank() || payee.isNotBlank() || note.isNotBlank() || files.any { !it.removed }
+        }
 
     val currency: String get() = lookup.currencyOf(accountId)
     val toCurrency: String get() = lookup.currencyOf(toAccountId)
@@ -562,6 +577,19 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
     var splitPick by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(vm.done) { if (vm.done) nav.popBackStack() }
+    // Closing with ✕ or Back after typing something asks first, so an entry is never lost by a slip.
+    var askDiscard by remember { mutableStateOf(false) }
+    val close = { if (vm.hasUnsavedInput) askDiscard = true else nav.popBackStack() }
+    androidx.activity.compose.BackHandler(enabled = vm.hasUnsavedInput) { askDiscard = true }
+    if (askDiscard) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { askDiscard = false },
+            title = { Text(if (vm.isEdit) "Discard your changes?" else "Discard this entry?") },
+            text = { Text(if (vm.isEdit) "The changes you made here will not be saved." else "What you entered will not be saved.") },
+            confirmButton = { TextButton(onClick = { askDiscard = false; nav.popBackStack() }) { Text("Discard", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { askDiscard = false }) { Text("Keep editing") } },
+        )
+    }
 
     val title = when {
         vm.isEdit -> "Edit"
@@ -571,7 +599,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
     }
     Scaffold(
         topBar = {
-            KoshTopBar(title, onBack = { nav.popBackStack() }, closeIcon = true) {
+            KoshTopBar(title, onBack = { close() }, closeIcon = true) {
                 if (vm.isEdit) {
                     IconButton(onClick = { nav.navigate(app.kosh.ui.Routes.editTx(id, vm.type, copy = true)) }) { Icon(Icons.Rounded.ContentCopy, "Duplicate") }
                     IconButton(onClick = {
@@ -667,7 +695,7 @@ fun EditTransactionScreen(id: String?, initialType: String, copy: Boolean, prese
                     )
                     FilterChip(
                         vm.time != null, { showTime = true },
-                        { Text(vm.time?.format(java.time.format.DateTimeFormatter.ofPattern("h:mm a")) ?: "Time") },
+                        { Text(vm.time?.let { app.kosh.core.Dates.time(it, android.text.format.DateFormat.is24HourFormat(androidx.compose.ui.platform.LocalContext.current)) } ?: "Time") },
                     )
                 }
 
@@ -1038,7 +1066,7 @@ private fun TypeTabs(type: String, enabled: (String) -> Boolean, onPick: (String
                 Text(
                     label, style = MaterialTheme.typography.labelLarge,
                     color = when {
-                        sel -> androidx.compose.ui.graphics.Color.White
+                        sel -> app.kosh.ui.components.contentOn(color)
                         !enabled(t) -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
                         else -> MaterialTheme.colorScheme.onSurfaceVariant
                     },

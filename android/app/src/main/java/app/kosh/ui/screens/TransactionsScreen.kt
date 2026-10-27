@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -135,6 +136,7 @@ fun TransactionsScreen() {
     val scope = rememberSafeScope()
     var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
     var bulkCategory by remember { mutableStateOf(false) }
+    var categorising by remember { mutableStateOf<app.kosh.data.db.TransactionEntity?>(null) }
     // Only rows still on screen can stay selected (a filter or month change drops the rest).
     val chosen = s.items.filter { it.id in selected }
     // Money lent, borrowed or tied to a loan or deposit is changed from its own screen, never in bulk.
@@ -183,7 +185,8 @@ fun TransactionsScreen() {
             )
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             if (f.query.isBlank()) {
                 item { MonthSwitcher(f.month, { m -> vm.update { it.copy(month = m) } }) }
                 item {
@@ -256,12 +259,26 @@ fun TransactionsScreen() {
                             t, s.lookup, selected = t.id in selected,
                             onClick = { if (selected.isNotEmpty()) selected = if (t.id in selected) selected - t.id else selected + t.id else nav.navigate(Routes.editTx(t.id, t.type)) },
                             onLongClick = { selected = if (t.id in selected) selected - t.id else selected + t.id },
+                            onCategorise = if (selected.isEmpty()) ({ categorising = t }) else null,
                         )
                     }
                 }
             }
             if (f.query.isNotBlank() && s.items.size >= f.searchLimit) item {
                 androidx.compose.material3.TextButton(onClick = { vm.update { it.copy(searchLimit = it.searchLimit + 300) } }, modifier = Modifier.padding(horizontal = 8.dp)) { Text("Show more results") }
+            }
+        }
+        }
+    }
+
+    // One uncategorised entry, filed from the list: pick a category, with Undo.
+    categorising?.let { t ->
+        CategorySheet(s.lookup, t.type, null, onDismiss = { categorising = null }) { id ->
+            categorising = null
+            if (id != null) scope.launch {
+                val before = c.repo.recategorize(listOf(t.id), id)
+                val r = snackbar.showSnackbar("Filed under ${s.lookup.categoryPath(id)}", "Undo", duration = androidx.compose.material3.SnackbarDuration.Short)
+                if (r == androidx.compose.material3.SnackbarResult.ActionPerformed) c.repo.setCategories(before)
             }
         }
     }

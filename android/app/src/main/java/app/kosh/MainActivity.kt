@@ -98,7 +98,12 @@ class MainActivity : FragmentActivity() {
                     launch.value = LaunchRequest(c.type, c.amount.toBigDecimalOrNull()?.stripTrailingZeros()?.toPlainString() ?: c.amount)
                 }
             }
-            Intent.ACTION_VIEW -> intent.data?.let { openStatement(it) }
+            Intent.ACTION_VIEW -> intent.data?.let { uri ->
+                // lekhamint://pair?... from the QR code on the web app's "Connect a phone".
+                val pair = app.kosh.sync.PairLink.parse(uri.toString())
+                if (pair != null) { app.kosh.sync.PairLink.pending.value = pair; launch.value = LaunchRequest(null, route = app.kosh.ui.Routes.SYNC) }
+                else if (uri.scheme != app.kosh.sync.PairLink.SCHEME) openStatement(uri)
+            }
             Intent.ACTION_SEND -> {
                 val text = intent.getStringExtra(Intent.EXTRA_TEXT)
                 @Suppress("DEPRECATION")

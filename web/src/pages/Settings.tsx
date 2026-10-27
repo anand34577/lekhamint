@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api, type ExchangeRate } from '../lib/api'
+import { api, type ExchangeRate, type Session } from '../lib/api'
 import { setSetting } from '../lib/settings'
 import { useAccounts, useCanWrite, useExchangeRates, useLedger, useStableId, useWrite, type WithId } from '../lib/data'
 import { download, isoDate, plural, shortDate } from '../lib/util'
 import { Card, Confirm, CurrencySelect, Field, Modal, errorText, toast } from '../components'
+import { qrMatrix, qrPath } from '../lib/qr'
+import { DEMO } from '../lib/demo'
 import { Notifications } from './Notifications'
 import { TwoStep } from './Security'
 import { Spinner } from '../charts'
@@ -286,25 +288,104 @@ function Sharing() {
 
 function Devices() {
   const qc = useQueryClient()
+  const [pairing, setPairing] = useState(false)
+  const [removing, setRemoving] = useState<Session | 'all' | null>(null)
   const sessions = useQuery({ queryKey: ['sessions'], queryFn: api.sessions })
+  const others = (sessions.data ?? []).filter((x) => !x.current)
   const ago = (ms: number) => {
     const d = Math.round((Date.now() - ms) / 864e5)
     return d <= 0 ? 'today' : d === 1 ? 'yesterday' : `${d} days ago`
   }
   return (
-    <Card title={<><Icon name="device" size={16} /> Signed-in devices</>}>
+    <Card title={<><Icon name="device" size={16} /> Signed-in devices</>} action={DEMO ? undefined : <button className="link" onClick={() => setPairing(true)}><Icon name="plus" size={14} /> Connect a phone</button>}>
+      {pairing && <ConnectPhone onClose={() => { setPairing(false); qc.invalidateQueries({ queryKey: ['sessions'] }) }} />}
       <ul className="list">
-        {(sessions.data ?? []).sort((a, b) => b.last_used_at - a.last_used_at).map((s) => (
+        {(sessions.data ?? []).sort((a, b) => Number(b.current) - Number(a.current) || b.last_used_at - a.last_used_at).map((s) => (
           <li key={s.id}>
+            <span className="acc-icon" aria-hidden><Icon name={/browser/i.test(s.device_name) ? 'monitor' : 'phone'} size={18} /></span>
             <div className="grow"><div>{s.device_name || 'Unknown device'}{s.current && <span className="chip" style={{ marginLeft: 8 }}>this browser</span>}</div>
               <div className="sub">Last used {ago(s.last_used_at)} · signed in {new Date(s.created_at).toLocaleDateString()}</div></div>
-            {!s.current && <button className="link" onClick={async () => {
-              try { await api.revokeSession(s.id); qc.invalidateQueries({ queryKey: ['sessions'] }); toast('Signed out that device') } catch (x) { toast(errorText(x)) }
-            }}>Sign out</button>}
+            {!s.current && <button className="link danger" onClick={() => setRemoving(s)}>Remove</button>}
           </li>
         ))}
       </ul>
-      <p className="muted small">Lost a phone? Sign it out here; its local data stays on the phone, but it can no longer sync.</p>
+      {others.length > 1 && <button className="danger sm" onClick={() => setRemoving('all')}>Remove all other devices</button>}
+      <p className="muted small">Lost or replaced a phone? Remove it here: it stops syncing at once and leaves your account. What was recorded on it stays on that device.</p>
+      {removing && <Confirm danger title={removing === 'all' ? `Remove ${others.length} other devices?` : `Remove ${removing.device_name || 'this device'}?`}
+        confirm="Remove"
+        body={<p>{removing === 'all' ? 'Every device and browser except this one' : 'It'} stops syncing straight away and leaves your account. Data on {removing === 'all' ? 'them stays on them' : 'it stays on it'}, and changes not yet synced there upload if {removing === 'all' ? 'they are' : 'it is'} connected again.</p>}
+        onClose={() => setRemoving(null)}
+        onConfirm={async () => {
+          const list = removing === 'all' ? others : [removing]
+          for (const d of list) await api.revokeSession(d.id)
+          qc.invalidateQueries({ queryKey: ['sessions'] })
+          toast(list.length === 1 ? `Removed ${list[0].device_name || 'that device'}` : `Removed ${list.length} devices`)
+        }} />}
     </Card>
+  )
+}
+
+/**
+ * Connects the phone app without typing a password on it: a one-time code shown as a QR code
+ * (scanned in the app under Sync) and as text. It lasts 5 minutes and works once.
+ */
+function ConnectPhone({ onClose }: { onClose: () => void }) {
+  const [code, setCode] = useState<{ code: string; expires_at: number } | null>(null)
+  const [err, setErr] = useState('')
+  const [now, setNow] = useState(Date.now())
+  const [device, setDevice] = useState<string | null>(null)
+  const server = location.origin
+  const fresh = async () => {
+    setErr(''); setDevice(null)
+    try { setCode(await api.pairStart()) } catch (x) { setErr(errorText(x)) }
+  }
+  useEffect(() => { void fresh() }, [])
+  const left = code ? Math.max(0, Math.round((code.expires_at - now) / 1000)) : 0
+  const expired = !!code && left === 0 && !device
+  // Tick the countdown, and ask every 2 seconds whether the phone has used the code.
+  useEffect(() => {
+    if (!code || device) return
+    const tick = setInterval(() => setNow(Date.now()), 1000)
+    const poll = setInterval(async () => {
+      try { const s = await api.pairStatus(code.code); if (s.claimed) setDevice(s.device || 'Your phone') } catch { /* try again */ }
+    }, 2000)
+    return () => { clearInterval(tick); clearInterval(poll) }
+  }, [code, device])
+  const link = code ? `lekhamint://pair?server=${encodeURIComponent(server)}&code=${code.code}` : ''
+  const matrix = useMemo(() => (link ? qrMatrix(link) : null), [link])
+  const pretty = code ? `${code.code.slice(0, 5)}-${code.code.slice(5)}` : ''
+  return (
+    <Modal title="Connect a phone" onClose={onClose} footer={device ? <button className="primary" onClick={onClose}>Done</button> : <button onClick={onClose}>Close</button>}>
+      {err && <p className="error">{err}</p>}
+      {device ? (
+        <div className="pair-done" role="status">
+          <span className="pair-tick"><Icon name="check" size={26} /></span>
+          <h3>{device} is connected</h3>
+          <p className="muted">Choose the book to use on the phone, and it starts syncing. It also appears under Signed-in devices, where you can sign it out.</p>
+        </div>
+      ) : (
+        <>
+          <ol className="steps">
+            <li>On your Android phone, open LekhaMint.</li>
+            <li>Tap <strong>Sign in to server</strong> (or More → Sync), then <strong>Scan code</strong>.</li>
+            <li>Point the camera at this code.</li>
+          </ol>
+          <div className="qr-wrap pair-qr">
+            {matrix && !expired ? (
+              <svg className="qr" viewBox={`0 0 ${matrix.length + 8} ${matrix.length + 8}`} role="img" aria-label="QR code that connects the phone app" shapeRendering="crispEdges">
+                <rect width={matrix.length + 8} height={matrix.length + 8} fill="#fff" /><path d={qrPath(matrix)} fill="#000" />
+              </svg>
+            ) : <div className="qr qr-empty">{expired ? <button className="primary" onClick={fresh}>Show a new code</button> : <Spinner size={22} />}</div>}
+            <div className="qr-side">
+              <span className="muted small">No camera? Choose <strong>Enter a code</strong> in the app and type:</span>
+              <span className="small">Server</span><code className="secret">{server}</code>
+              <span className="small">Code</span><code className="secret pair-code">{pretty || '…'}</code>
+              <span className={`small ${expired ? 'error' : 'muted'}`}>{expired ? 'This code has expired.' : code ? `Works once, for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')} more` : ''}</span>
+            </div>
+          </div>
+          <p className="muted small">Anyone who scans this code while it is valid gets into your account, so show it only to your own phone.</p>
+        </>
+      )}
+    </Modal>
   )
 }

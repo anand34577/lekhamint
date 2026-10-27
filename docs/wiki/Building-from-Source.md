@@ -41,10 +41,15 @@ The server embeds the built web app from `server/internal/webui/dist`. After cha
 
 ```sh
 cd android
-./gradlew testDebugUnitTest      # unit tests
-./gradlew assembleDebug          # app/build/outputs/apk/debug/app-debug.apk
-./gradlew connectedDebugAndroidTest   # on an emulator or device
+./gradlew testDirectDebugUnitTest   # unit tests
+./gradlew assembleDirectDebug      # app/build/outputs/apk/direct/debug/app-direct-debug.apk
+./gradlew connectedDirectDebugAndroidTest   # on an emulator or device
 ```
+
+There are two editions (the `store` flavor in `app/build.gradle.kts`):
+
+- **direct**: the APK people download and install themselves (`assembleDirectRelease`). It leaves out reading bank and payment alerts, because Google Play Protect blocks sideloaded apps that ask for notification access in many countries, with no "install anyway" option. Sharing an SMS or alert to the app still works.
+- **play**: the Google Play build (`bundlePlayRelease`), with alert reading. Play reviews that permission, so it installs normally from the store.
 
 Release builds are signed with the key from `android/keystore.properties` (ignored by git):
 
@@ -55,7 +60,7 @@ keyAlias=…
 keyPassword=…
 ```
 
-or from the environment variables `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Without a key the release build uses the debug key, which is fine for testing.
+or from the environment variables `ANDROID_KEYSTORE_FILE`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Without a key the build stops; pass `-PallowDebugSigning=true` for a local test build. Play Protect warns about, and may block, apps signed with a debug key, so share only APKs signed with your release key.
 
 ## Docker image
 

@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.Lightbulb
 import androidx.compose.material.icons.rounded.NorthEast
 import androidx.compose.material.icons.rounded.SouthWest
 import app.kosh.core.Money
+import app.kosh.ui.components.readable
 import app.kosh.ui.components.DonutChart
 import app.kosh.ui.components.EmptyState
 import app.kosh.ui.components.HeroCard
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -184,7 +186,8 @@ class HomeViewModel(private val c: AppContainer) : ViewModel() {
     fun toggleHide() = c.settings.setHideAmounts(!c.settings.current.hideAmounts)
     fun dismissTip(key: String) = c.settings.setFlag("tip.$key")
     fun tipDismissed(key: String) = c.settings.flag("tip.$key")
-    fun syncNow() = c.scheduler.syncNow()
+    /** On screen the live loop syncs at once; otherwise hand it to WorkManager. */
+    fun syncNow() { if (c.live.active) c.live.nudge() else c.scheduler.syncNow() }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -204,7 +207,13 @@ fun HomeScreen() {
             TopAppBar(
                 title = {
                     Column {
-                        Text(greeting(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        // A sync problem replaces the greeting, in plain words: nothing is lost, it waits on the phone.
+                        val problem = s.settings.syncEnabled && s.settings.lastSyncError != null && !syncing
+                        Text(
+                            if (problem) "Not synced · saved on this phone" else greeting(),
+                            style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            color = if (problem) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         Text(s.settings.ledgerName, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
                     }
                 },
@@ -235,8 +244,24 @@ fun HomeScreen() {
             )
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 24.dp)) {
+        // Pull down to sync, the gesture people expect from any app that talks to a server.
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item { BalanceHero(s, onClick = { nav.navigate(Routes.ACCOUNTS) }) }
+            if (s.settings.removedAt > 0 && !s.settings.syncEnabled) item {
+                // The server stopped accepting this phone: say so once, plainly, with the way back.
+                app.kosh.ui.components.KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp), onClick = { nav.navigate(Routes.SYNC) }) {
+                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.CloudOff, null, tint = MaterialTheme.colorScheme.error)
+                        Spacer(Modifier.size(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Removed from the server", style = MaterialTheme.typography.titleSmall)
+                            Text("This phone no longer syncs. Your data here is safe.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        TextButton(onClick = { nav.navigate(Routes.SYNC) }) { Text("Connect again") }
+                    }
+                }
+            }
 
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
@@ -256,7 +281,7 @@ fun HomeScreen() {
                 val tips = buildList {
                     if (s.loaded && s.lookup.accounts.size <= 1 && !vm.tipDismissed("account")) add(Triple("account", "Add your bank account or card" to "Balances then add up across everything you own.", Routes.editAccount()))
                     if (s.loaded && s.budgets.isEmpty() && !vm.tipDismissed("budget")) add(Triple("budget", "Set a monthly budget" to "See what you can still spend each day.", Routes.editBudget()))
-                    if (s.loaded && !s.settings.syncEnabled && !vm.tipDismissed("sync")) add(Triple("sync", "Sync with your own server" to "Optional: use the web app and other phones too.", Routes.SYNC))
+                    if (s.loaded && !s.settings.syncEnabled && s.settings.removedAt == 0L && !vm.tipDismissed("sync")) add(Triple("sync", "Sync with your own server" to "Optional: use the web app and other phones too.", Routes.SYNC))
                 }
                 for ((key, text, route) in tips.take(2)) {
                     KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), onClick = { nav.navigate(route) }) {
@@ -336,6 +361,7 @@ fun HomeScreen() {
                 item(key = "d-$day") { DayHeader(LocalDate.parse(day), dayNet(list, s.lookup), s.lookup.baseCurrency) }
                 items(list, key = { it.id }) { t -> TransactionRow(t, s.lookup, onClick = { nav.navigate(Routes.editTx(t.id, t.type)) }) }
             }
+        }
         }
     }
 }
@@ -422,8 +448,8 @@ private fun NetWorthCard(s: HomeState, onClick: () -> Unit) {
     val youOwe = (p.payable[base] ?: 0).coerceAtLeast(0)
     val assets = cash + invest + owedToYou
     val liabilities = debt + youOwe
-    val cInvest = Color(0xFF7C3AED)
-    val cOwed = Color(0xFF0891B2)
+    val cInvest = Color(0xFF7C3AED).readable()
+    val cOwed = Color(0xFF0891B2).readable()
     SectionCard("Net worth", subtitle = "What you own minus what you owe", action = "Accounts", onAction = onClick) {
         MoneyText(p.netWorth[base] ?: 0, base, style = MaterialTheme.typography.headlineMedium)
         s.lookup.netWorthInBase(Dates.today().toString())?.let { all ->

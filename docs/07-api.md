@@ -37,6 +37,9 @@ Base path is `/api/v1`. The API speaks JSON only. Authenticated endpoints need
 | `GET /auth/me` | `{user, session}` |
 | `GET /auth/sessions` | Devices signed in: `{sessions:[{id, device_name, last_used_at, current}]}` |
 | `DELETE /auth/sessions/{id}` | Sign out that device |
+| `POST /auth/pair` | Signed in: a one-time code that connects a phone without its password → `{code, expires_at}`. Ten characters of Crockford base 32, valid 5 minutes, once; a new code replaces the user's previous one. The web app shows it as the QR link `lekhamint://pair?server=<origin>&code=<code>` and as text. |
+| `GET /auth/pair/{code}` | Signed in, the same user: `{claimed, device?, expired}`, so the browser can say when the phone has connected. |
+| `POST /auth/pair/claim` | Public, rate limited: `{code, device_name?}` → `{user, token}`, like a login (a "new device" security notice is sent). Case, spaces and dashes are ignored, and O, I, L read as 0, 1, 1. Unknown, used or expired: 401 `invalid_credentials`. Codes live in the server process's memory. |
 | `POST /auth/password` | `{current_password, new_password}`. Also signs out all other devices. |
 | `DELETE /auth/me` | `{password}` → `{deleted_ledgers}`. Permanently deletes the account. A ledger it alone owns passes to its longest-standing other member (editors before viewers); one with no other members is deleted. It is removed from every other ledger. Wrong password: 401 `invalid_credentials` (the session stays valid). |
 
@@ -70,7 +73,7 @@ The web app uses keys such as `theme`, `accent`, `ledger`, `hide_amounts`, `nav_
 | Method & path | Notes |
 |---|---|
 | `POST /ledgers/{lid}/sync/push` | `{schema_version, device_id, changes:[{entity, id, hlc, deleted, data}]}`, up to 1,000 changes → `{accepted, conflicts, rejected, cursor}` (editor+) |
-| `GET /ledgers/{lid}/sync/pull?since=&limit=` | `{changes, next_cursor, has_more, server_time}`, up to 2,000 per page |
+| `GET /ledgers/{lid}/sync/pull?since=&limit=&wait=` | `{changes, next_cursor, has_more, server_time}`, up to 2,000 per page. `wait=N` (seconds, at most 25) holds the answer until something after `since` changes, for live updates |
 
 Entity names: `accounts`, `categories`, `tags`, `debts`, `recurring_rules`, `transactions`, `transaction_splits`, `budgets`, `exchange_rates`.
 

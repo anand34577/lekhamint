@@ -7,7 +7,7 @@ import { estimate, fdValue, rdValue, tenureLabel } from '../lib/deposits'
 import { affordability, findRecurring, goalMonthly, goalMonths, payoff, splitBill, type PayoffDebt, type SplitMode } from '../lib/tools'
 import { createOp, linkedTxData } from '../lib/links'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
-import { addMonths, dayLabel, isoDate, monthRange, plural, uuidv7 } from '../lib/util'
+import { addMonths, dayLabel, isoDate, monthRange, parseDate, plural, uuidv7 } from '../lib/util'
 import { Avatar, Card, Check, Field, LineChart, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
 import { Columns, Explain, Loading, Meter, RankBars, SERIES, Spinner, StackBar } from '../charts'
 import { Icon } from '../icons'
@@ -898,7 +898,7 @@ function NetWorthTool() {
   const q = useQuery({ queryKey: [l.id, 'networth', months], queryFn: () => api.netWorth(l.id, Number(months)) })
   const code = l.base_currency
   const pts = (q.data ?? []).map((p) => ({ date: p.date, p: p.positions.find((x) => x.currency === code) }))
-  const labels = pts.map((x) => new Date(x.date).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }))
+  const labels = pts.map((x) => parseDate(x.date).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }))
   const v = (f: (p: NonNullable<typeof pts[number]['p']>) => number) => pts.map((x) => (x.p ? f(x.p) : 0))
   const last = pts[pts.length - 1]?.p, first = pts[0]?.p
   const change = last && first ? last.net_worth - first.net_worth : 0

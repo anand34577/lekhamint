@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -63,6 +64,7 @@ import app.kosh.domain.Loans
 import app.kosh.domain.Lookup
 import app.kosh.domain.RecurringEngine
 import app.kosh.domain.Reports
+import app.kosh.domain.SafeBasis
 import app.kosh.domain.SafeToSpend
 import app.kosh.domain.Subscription
 import app.kosh.domain.Subscriptions
@@ -258,7 +260,8 @@ fun InsightsScreen() {
     val scope = app.kosh.ui.rememberSafeScope()
 
     Scaffold(topBar = { KoshTopBar("Insights", onBack = { nav.popBackStack() }) }) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
                 Text(
                     "What's coming and what stands out, worked out on this phone from your own records.",
@@ -294,6 +297,7 @@ fun InsightsScreen() {
                     onHide = vm::hide,
                 )
             }
+        }
         }
     }
 }
@@ -562,18 +566,49 @@ fun InsightsTeaser(onOpen: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Safe to spend", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Row(verticalAlignment = Alignment.Bottom) {
-                        MoneyText(whole(safe.perDay, s.currency), s.currency, style = MaterialTheme.typography.headlineSmall, color = if (safe.free <= 0) MaterialTheme.colorScheme.error else Color.Unspecified)
-                        Text(" a day", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
+                    if (safe.free > 0) {
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            MoneyText(whole(safe.perDay, s.currency), s.currency, style = MaterialTheme.typography.headlineSmall)
+                            Text(" a day", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
+                        }
+                        Text(
+                            "until ${Dates.short(safe.until)}, ${safe.basis.label}",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        // Nothing spare: say by how much and why, instead of a bare "0 a day".
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            if (safe.free < 0) {
+                                MoneyText(-safe.free, s.currency, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.error)
+                                Text(" short", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 3.dp))
+                            } else {
+                                Text("Nothing spare", style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.error)
+                            }
+                        }
+                        val until = Dates.short(safe.until)
+                        Text(
+                            when {
+                                safe.cappedByCash -> "Bills due by $until need more than your cash and bank accounts hold"
+                                safe.billsOut > 0 && safe.start > 0 -> "Bills due by $until (${Money.ui(safe.billsOut, s.currency)}) need more than the ${Money.ui(safe.start, s.currency)} ${if (safe.basis == SafeBasis.BUDGET) "left in your budget" else "left this month"}"
+                                safe.basis == SafeBasis.BUDGET -> "Your monthly budget is used up until $until"
+                                else -> "This month's spending has passed its income"
+                            },
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
-                    Text(
-                        "until ${Dates.short(safe.until)}, ${safe.basis.label}",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
                 }
                 val usual = safe.usualPerDay
                 val ok = safe.free > 0 && (usual == 0L || usual <= safe.perDay)
-                StatusPill(if (ok) "On track" else "Go easy", if (ok) m.income else m.warning)
+                StatusPill(if (ok) "On track" else if (safe.free <= 0) "Over" else "Go easy", if (ok) m.income else if (safe.free <= 0) MaterialTheme.colorScheme.error else m.warning)
+            }
+            if (safe.free <= 0) {
+                // Short: offer the next step for the cause, not only the bad news.
+                val nav = app.kosh.ui.LocalNav.current
+                Row(Modifier.padding(top = 6.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (safe.billsOut > 0) androidx.compose.material3.AssistChip(onClick = { nav.navigate(app.kosh.ui.Routes.RECURRING) }, label = { Text("Bills due") })
+                    if (safe.cappedByCash) androidx.compose.material3.AssistChip(onClick = { nav.navigate(app.kosh.ui.Routes.editTx(type = "transfer")) }, label = { Text("Move money in") })
+                    else if (safe.basis == SafeBasis.BUDGET) androidx.compose.material3.AssistChip(onClick = { nav.navigate(app.kosh.ui.Routes.BUDGETS) { popUpTo(app.kosh.ui.Routes.HOME) { saveState = true }; launchSingleTop = true; restoreState = true } }, label = { Text("Review budget") })
+                }
             }
             if (top != null) {
                 Spacer(Modifier.height(12.dp))

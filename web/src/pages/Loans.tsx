@@ -4,7 +4,7 @@ import { useAccounts, useBalances, useCanWrite, useCategories, useLedger, useLin
 import { LOAN_KINDS, emi, loanKindLabel, loanStatus, monthlyInterest, prepaymentOptions, rateError, schedule, splitPayment, type LoanStatus, type ScheduleRow } from '../lib/loans'
 import { createOp, feeCategory, interestExpenseCategory, linkedTxData } from '../lib/links'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
-import { addMonths, dayLabel, download, isoDate, monthRange, plural, uuidv7 } from '../lib/util'
+import { addMonths, dayLabel, download, isoDate, monthRange, parseDate, plural, uuidv7 } from '../lib/util'
 import { workbook, XLSX_TYPE } from '../lib/xlsx'
 import { Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
 import { SERIES, StackBar } from '../charts'
@@ -137,7 +137,7 @@ function LoanCard({ loan, s, today, onOpen }: { loan: LoanRec; s: LoanStatus; to
             <span><span className="muted">EMI</span> <Money value={s.emi} currency={loan.currency} /></span>
             {due && <span className={s.overdue ? 'error' : ''}><span className="muted">Next</span> {dayLabel(due)}</span>}
             <span><span className="muted">Paid</span> {s.paidInstalments} of {s.paidInstalments + s.remainingInstalments}</span>
-            {s.endDate && <span><span className="muted">Ends</span> {new Date(s.endDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span>}
+            {s.endDate && <span><span className="muted">Ends</span> {parseDate(s.endDate).toLocaleDateString(undefined, { month: 'short', year: 'numeric' })}</span>}
             {s.overpaid > 0 && <span className="warn-text">Overpaid by <Money value={s.overpaid} currency={loan.currency} /></span>}
           </div>
         </>
@@ -694,7 +694,7 @@ function LoanForm({ loan, preset, onClose }: { loan?: LoanRec; preset?: LoanPres
             <div><span className="muted small">EMI</span><strong><Money value={theEmi} currency={cur} /></strong></div>
             <div><span className="muted small">Total interest</span><strong><Money value={projected.totalInterest} currency={cur} /></strong></div>
             <div><span className="muted small">Total repaid</span><strong><Money value={projected.totalPayment} currency={cur} /></strong></div>
-            <div><span className="muted small">Last EMI</span><strong>{projected.rows.length ? new Date(projected.rows[projected.rows.length - 1].date).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : '—'}</strong></div>
+            <div><span className="muted small">Last EMI</span><strong>{projected.rows.length ? parseDate(projected.rows[projected.rows.length - 1].date).toLocaleDateString(undefined, { month: 'short', year: 'numeric' }) : '—'}</strong></div>
           </div>
         )}
         {projected?.neverRepaid && <p className="error">This EMI does not cover the interest, so the loan would never be repaid.</p>}

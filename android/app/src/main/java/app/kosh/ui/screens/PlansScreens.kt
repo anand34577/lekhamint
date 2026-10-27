@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -99,7 +100,8 @@ fun GoalsScreen() {
             }
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             if (active.isEmpty()) item {
                 EmptyState(Icons.Rounded.Savings, "Save for what matters",
                     "Set a target, like an emergency fund or a trip. Link the accounts where you keep the money and see how much to put aside each month.") {
@@ -138,6 +140,7 @@ fun GoalsScreen() {
                         colors = ListItemDefaults.colors(containerColor = Color.Transparent))
                 }
             }
+        }
         }
     }
     if (adding) GoalSheet(null, lookup) { adding = false }
@@ -371,7 +374,8 @@ fun YearTaxScreen() {
         if (amount > 0) bySection.getOrPut(sec) { mutableListOf() } += lookup.categoryPath(catId) to amount
     }
     Scaffold(topBar = { KoshTopBar("Year & tax", onBack = { nav.popBackStack() }) }) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 48.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 48.dp)) {
             item {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = { offset-- }) { Icon(Icons.Rounded.ChevronLeft, "Previous year") }
@@ -428,6 +432,7 @@ fun YearTaxScreen() {
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                 )
             }
+        }
         }
     }
     marking?.let { cat ->

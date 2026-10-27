@@ -412,7 +412,7 @@ fun SpendCalendar(month: YearMonth, perDay: Map<LocalDate, Long>, currency: Stri
                         Text(
                             "${idx + 1}", style = MaterialTheme.typography.labelSmall,
                             color = when {
-                                f > 0.55f -> Color.White
+                                f > 0.55f -> contentOn(base)
                                 date == today -> MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (future) 0.5f else 1f)
                             },
@@ -521,7 +521,7 @@ fun WeekdayBars(values: List<Long>, currency: String, modifier: Modifier = Modif
 @Composable
 fun chartPalette(): List<Color> {
     val m = LocalMoneyColors.current
-    return listOf(MaterialTheme.colorScheme.primary, m.transfer, m.warning, Color(0xFF7C3AED), Color(0xFF0891B2), m.expense, Color(0xFFDB2777), Color(0xFF65A30D))
+    return listOf(MaterialTheme.colorScheme.primary, m.transfer, m.warning, Color(0xFF7C3AED).readable(), Color(0xFF0891B2).readable(), m.expense, Color(0xFFDB2777).readable(), Color(0xFF65A30D).readable())
 }
 
 /**

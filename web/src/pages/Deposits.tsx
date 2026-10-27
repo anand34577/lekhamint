@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
 import type { BatchOp, Deposit, Transaction } from '../lib/api'
 import { useAccounts, useBalances, useCanWrite, useCategories, useDeposits, useLedger, useLinkedMoves, useStableId, useWrite, type WithId } from '../lib/data'
-import { COMPOUNDINGS, DEPOSIT_KINDS, PAYOUTS, depositKindLabel, estimate, tenureLabel, type DepositEstimate } from '../lib/deposits'
+import { COMPOUNDINGS, DEPOSIT_KINDS, PAYOUTS, daysBetween, depositKindLabel, estimate, renewedEnd, tenureLabel, termEnd, type DepositEstimate } from '../lib/deposits'
 import { rateError } from '../lib/loans'
 import { createOp, feeCategory, interestIncomeCategory, linkedTxData } from '../lib/links'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
-import { addMonths, dayLabel, download, isoDate, uuidv7 } from '../lib/util'
+import { addMonths, dayLabel, download, isoDate, parseDate, uuidv7 } from '../lib/util'
 import { workbook, XLSX_TYPE } from '../lib/xlsx'
 import { Bar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
 import { Columns, SERIES } from '../charts'
@@ -23,6 +23,10 @@ import { Select, DateField, NumInput } from '../controls'
 type DepRec = WithId<Deposit>
 type Move = Transaction & { id: string }
 export type DepositEntry = { dep: DepRec; moves: Move[]; balance: number; est: DepositEstimate; interestCredited: number; payoutsReceived: number; rdPaid: number; nextEvent: { date: string; text: string } | null }
+
+const TERM_PRESETS: [string, number, number, number][] = [
+  ['7 days', 0, 0, 7], ['30 days', 0, 0, 30], ['91 days', 0, 0, 91], ['6 months', 0, 6, 0], ['1 year', 1, 0, 0], ['2 years', 2, 0, 0], ['5 years', 5, 0, 0],
+]
 
 export function useDepositEntries() {
   const deps = useDeposits()
@@ -171,7 +175,7 @@ function MaturityCalendar({ list, onOpen }: { list: DepositEntry[]; onOpen: (id:
         for (const x of xs) sums.set(x.dep.currency, (sums.get(x.dep.currency) ?? 0) + x.est.maturity)
         return (
           <section key={month} className="cal-month">
-            <header><strong>{new Date(month + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong>
+            <header><strong>{parseDate(month + '-01').toLocaleDateString(undefined, { month: 'long', year: 'numeric' })}</strong>
               <span className="muted small">{[...sums].map(([c, v]) => formatMoney(v, c)).join(' + ')} expected</span></header>
             <ul className="list">{xs.map((x) => (
               <li key={x.dep.id} className="clickable" onClick={() => onOpen(x.dep.id)}><span className="cal-day">{new Date(x.dep.maturity_date).getDate()}</span>
@@ -312,7 +316,7 @@ function MatureForm({ x, early, onClose }: { x: DepositEntry; early: boolean; on
     if (taxMinor && taxMinor > 0) ops.push(createOp('transactions', ids[1], linkedTxData({ ...base, type: 'expense', account_id: dep.account_id, amount: taxMinor, note: `${dep.name} · tax deducted`, part: 'fee' })))
     // 3. The money moves to the bank.
     if (!renew) ops.push(createOp('transactions', ids[2], linkedTxData({ ...base, type: 'transfer', account_id: dep.account_id, to_account_id: into, amount: got, note: `${dep.name} · ${early ? 'closed early' : 'matured'}`, part: 'principal' })))
-    ops.push({ op: 'update', entity: 'deposits', id: dep.id, data: renew ? { start_date: date, maturity_date: addMonths(date, Math.max(1, Math.round((new Date(dep.maturity_date).getTime() - new Date(dep.start_date).getTime()) / (30.44 * 864e5)))), amount: got, maturity_amount: null }
+    ops.push({ op: 'update', entity: 'deposits', id: dep.id, data: renew ? { start_date: date, maturity_date: renewedEnd(dep.start_date, dep.maturity_date, date), amount: got, maturity_amount: null }
       : { status: early ? 'closed' : 'matured', closed_date: date } })
     try {
       await write.batch.mutateAsync(ops)
@@ -447,9 +451,12 @@ function DepositForm({ dep, onClose }: { dep?: DepRec; onClose: () => void }) {
   const [amount, setAmount] = useState(dep ? toPlain(dep.amount, dep.currency) : '')
   const [rate, setRate] = useState(dep?.annual_rate ?? '')
   const [start, setStart] = useState(dep?.start_date ?? today)
-  const [termMode, setTermMode] = useState<'date' | 'months'>(dep ? 'date' : 'months')
+  const [termMode, setTermMode] = useState<'date' | 'term'>(dep ? 'date' : 'term')
   const [maturity, setMaturity] = useState(dep?.maturity_date ?? addMonths(today, 12))
-  const [termMonths, setTermMonths] = useState('12')
+  // Years + months + days: banks sell 7-day, 46-day and "1 year 4 months 15 days" deposits.
+  const [term, setTerm] = useState({ y: '1', m: '0', d: '0' })
+  const tNum = (v: string) => (v.trim() === '' ? 0 : Number(v))
+  const termOk = [term.y, term.m, term.d].every((v) => Number.isInteger(tNum(v)) && tNum(v) >= 0)
   const [compounding, setCompounding] = useState(dep?.compounding ?? 'quarterly')
   const [payout, setPayout] = useState(dep?.payout ?? 'cumulative')
   const [payoutAccount, setPayoutAccount] = useState(dep?.payout_account_id ?? banks.list[0]?.id ?? '')
@@ -461,7 +468,7 @@ function DepositForm({ dep, onClose }: { dep?: DepRec; onClose: () => void }) {
   const [funded, setFunded] = useState<'account' | 'outside'>('account')
   const [fromAccount, setFromAccount] = useState(banks.list[0]?.id ?? '')
   const [err, setErr] = useState('')
-  const end = termMode === 'months' ? (Number(termMonths) > 0 ? addMonths(start, Number(termMonths)) : start) : maturity
+  const end = termMode === 'term' ? (termOk ? termEnd(start, tNum(term.y), tNum(term.m), kind === 'rd' ? 0 : tNum(term.d)) : start) : maturity
   const minor = parseMoney(amount, cur)
   const bankMinor = bankMaturity.trim() ? parseMoney(bankMaturity, cur) : null
   const preview = minor && minor > 0 && !rateError(rate) && end > start ? estimate({ kind, amount: minor, annual_rate: rate, start_date: start, maturity_date: end, compounding, payout: kind === 'rd' ? 'cumulative' : payout, maturity_amount: bankMinor, tax_percent: taxPct || null }, today) : null
@@ -474,7 +481,9 @@ function DepositForm({ dep, onClose }: { dep?: DepRec; onClose: () => void }) {
     if (!name.trim()) return setErr('Give the deposit a name, like “SBI FD 2027”')
     if (!minor || minor <= 0) return setErr(kind === 'rd' ? 'Enter the monthly instalment' : 'Enter the amount deposited')
     const re = rateError(rate); if (re) return setErr(re)
-    if (termMode === 'months' && (!Number.isInteger(Number(termMonths)) || Number(termMonths) < 1 || Number(termMonths) > 600)) return setErr('Enter the term as whole months, from 1 to 600')
+    if (termMode === 'term' && (!termOk || end <= start)) return setErr(kind === 'rd' ? 'Enter the term in years and months' : 'Enter the term in years, months or days')
+    if (termMode === 'term' && (tNum(term.y) * 12 + tNum(term.m) > 600 || tNum(term.d) > 3650)) return setErr('The term must be 50 years or less')
+    if (kind === 'rd' && addMonths(start, 1) > end) return setErr('A recurring deposit runs for at least one month')
     if (end <= start) return setErr('The maturity date must be after the start date')
     if (bankMaturity.trim() && (bankMinor === null || bankMinor <= 0)) return setErr("Enter the bank's maturity amount, or leave it empty to use the estimate")
     if (bankMinor && kind !== 'rd' && payout === 'cumulative' && bankMinor < minor) return setErr("The bank's maturity amount is less than the principal. Check the figure.")
@@ -523,8 +532,24 @@ function DepositForm({ dep, onClose }: { dep?: DepRec; onClose: () => void }) {
         </div>
         <div className="two">
           <Field label="Term">
-            <Segmented label="Term as" value={termMode} onChange={setTermMode} options={[['months', 'Months'], ['date', 'Maturity date']]} />
-            {termMode === 'months' ? <NumInput kind="int" value={termMonths} onChange={(e) => setTermMonths(e.target.value)} aria-label="Months" /> : <DateField value={maturity} onChange={(e) => setMaturity(e.target.value)} aria-label="Maturity date" />}
+            <Segmented label="Term as" value={termMode} onChange={setTermMode} options={[['term', 'Length'], ['date', 'Maturity date']]} />
+            {termMode === 'term' ? (
+              <>
+                <div className="term-chips" role="group" aria-label="Common terms">
+                  {(kind === 'rd' ? TERM_PRESETS.filter((p) => p[3] === 0) : TERM_PRESETS).map(([label, y, m, d]) => (
+                    <button type="button" key={label} className={`chip-btn${tNum(term.y) === y && tNum(term.m) === m && (kind === 'rd' || tNum(term.d) === d) ? ' on' : ''}`} onClick={() => setTerm({ y: String(y), m: String(m), d: String(d) })}>{label}</button>
+                  ))}
+                </div>
+                <div className="term-row">
+                  <NumInput kind="int" value={term.y} onChange={(e) => setTerm({ ...term, y: e.target.value })} aria-label="Years" placeholder="Years" />
+                  <span>yr</span>
+                  <NumInput kind="int" value={term.m} onChange={(e) => setTerm({ ...term, m: e.target.value })} aria-label="Months" placeholder="Months" />
+                  <span>mo</span>
+                  {kind !== 'rd' && <><NumInput kind="int" value={term.d} onChange={(e) => setTerm({ ...term, d: e.target.value })} aria-label="Days" placeholder="Days" /><span>days</span></>}
+                </div>
+              </>
+            ) : <DateField value={maturity} onChange={(e) => setMaturity(e.target.value)} aria-label="Maturity date" />}
+            {end > start && <small className="muted">Matures on {dayLabel(end)} · {tenureLabel(start, end)} ({daysBetween(start, end)} days)</small>}
           </Field>
           <Field label="Compounding"><Select value={compounding} onChange={(e) => setCompounding(e.target.value)}>{COMPOUNDINGS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</Select></Field>
         </div>

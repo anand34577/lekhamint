@@ -10,7 +10,7 @@ import { Icon } from '../icons'
 import type { PageProps, Route } from '../App'
 import { Select, PasswordInput } from '../controls'
 import { formatMoney } from '../lib/money'
-import { uuidv7 } from '../lib/util'
+import { parseDate, uuidv7 } from '../lib/util'
 import { getSetting, useSetting } from '../lib/settings'
 
 /**
@@ -501,7 +501,7 @@ function visualFor(r: ToolRun, code: string): { title: string; body: ReactNode }
     case 'net_worth_history': {
       const pts = (res as unknown as { date: string; positions: { currency: string; net_worth: M; assets: M; debts: M }[] }[]).map((p) => ({ date: p.date, p: p.positions.find((x) => x.currency === code) })).filter((x) => x.p)
       if (pts.length < 2) return null
-      return { title: 'Net worth at each month end', body: <LineChart currency={code} label="Net worth over time" height={140} labels={pts.map((x) => new Date(x.date).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }))}
+      return { title: 'Net worth at each month end', body: <LineChart currency={code} label="Net worth over time" height={140} labels={pts.map((x) => parseDate(x.date).toLocaleDateString(undefined, { month: 'short', year: '2-digit' }))}
         series={[{ name: 'Net worth', color: SERIES[0], values: pts.map((x) => mu(x.p!.net_worth)) }]} /> }
     }
     case 'overview': {

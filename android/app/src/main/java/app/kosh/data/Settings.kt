@@ -53,6 +53,11 @@ data class AppSettings(
     val features: Set<String> = emptySet(),
     /** When the weekly check-in was last finished. */
     val lastReviewAt: Long = 0,
+    /** When the server stopped accepting this phone (removed on the web or from another device); 0 if not. */
+    val removedAt: Long = 0,
+    /** The server and email of the last connection, to fill in when connecting again. */
+    val lastServerUrl: String? = null,
+    val lastEmail: String? = null,
 ) {
     val syncEnabled: Boolean get() = serverUrl != null && accountEmail != null
 }
@@ -92,6 +97,9 @@ class Settings(context: Context) {
         simpleMode = prefs.getBoolean(K_SIMPLE, false),
         features = prefs.getStringSet(K_FEATURES, null)?.toSet() ?: emptySet(),
         lastReviewAt = prefs.getLong(K_LAST_REVIEW, 0),
+        removedAt = prefs.getLong(K_REMOVED_AT, 0),
+        lastServerUrl = prefs.getString(K_LAST_SERVER, null),
+        lastEmail = prefs.getString(K_LAST_EMAIL, null),
     )
 
     fun update(block: SharedPreferences.Editor.() -> Unit) {
@@ -156,15 +164,33 @@ class Settings(context: Context) {
     fun connect(serverUrl: String, email: String, token: String) {
         secrets.put(S_TOKEN, token)
         update {
-            putString(K_SERVER, serverUrl); putString(K_EMAIL, email)
+            putString(K_SERVER, serverUrl); putString(K_EMAIL, email); remove(K_REMOVED_AT)
             putLong(K_CURSOR, 0); remove("sync_resync_pending"); remove(K_SYNC_ERROR); putLong(K_LAST_SYNC, 0)
         }
     }
 
     fun disconnect() {
+        val s = current
         secrets.remove(S_TOKEN)
-        update { remove(K_SERVER); remove(K_EMAIL); remove(K_SYNC_ERROR); putLong(K_CURSOR, 0); remove("sync_resync_pending") }
+        update {
+            s.serverUrl?.let { putString(K_LAST_SERVER, it) }; s.accountEmail?.let { putString(K_LAST_EMAIL, it) }
+            remove(K_SERVER); remove(K_EMAIL); remove(K_SYNC_ERROR); putLong(K_CURSOR, 0); remove("sync_resync_pending")
+        }
     }
+
+    /**
+     * The server no longer accepts this phone's sign-in: it was removed on the web or from another
+     * device (or the account's password changed). Sync stops; everything on the phone stays, and
+     * unsent changes upload when it is connected again.
+     */
+    fun markRemoved() {
+        if (!current.syncEnabled) return
+        disconnect()
+        update { putLong(K_REMOVED_AT, System.currentTimeMillis()) }
+    }
+
+    /** The person has seen the "removed" notice. */
+    fun clearRemoved() = update { remove(K_REMOVED_AT) }
 
     /** Month the financial year starts (1-12) for Year & tax; null until chosen. */
     var fyStartMonth: Int?
@@ -219,6 +245,9 @@ class Settings(context: Context) {
         const val K_CURSOR = "sync_cursor"
         const val K_LAST_SYNC = "last_sync_at"
         const val K_SYNC_ERROR = "last_sync_error"
+        const val K_REMOVED_AT = "removed_at"
+        const val K_LAST_SERVER = "last_server_url"
+        const val K_LAST_EMAIL = "last_account_email"
         const val K_NODE = "hlc_node"
         const val K_HLC = "hlc_last"
         const val K_AUTO_BACKUP = "auto_backup"

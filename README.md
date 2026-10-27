@@ -119,7 +119,7 @@ cd web && npm ci && npm run dev        # web app with hot reload on :5173
 cd android && ./gradlew assembleDebug  # Android app
 ```
 
-Tests: `make test` in `server/` (set `LEKHAMINT_TEST_PG_DSN` to include PostgreSQL), `npm test` in `web/`, `./gradlew testDebugUnitTest` in `android/`. CI runs all of them, builds the Docker image and tests the Linux installer on every pull request. See [Building from Source](https://github.com/anand34577/lekhamint/wiki/Building-from-Source) and [CONTRIBUTING.md](CONTRIBUTING.md).
+Tests: `make test` in `server/` (set `LEKHAMINT_TEST_PG_DSN` to include PostgreSQL), `npm test` in `web/`, `./gradlew testDirectDebugUnitTest` in `android/`. CI runs all of them, builds the Docker image and tests the Linux installer on every pull request. See [Building from Source](https://github.com/anand34577/lekhamint/wiki/Building-from-Source) and [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Security and privacy
 

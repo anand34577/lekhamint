@@ -7,7 +7,7 @@ the steps that must be done by hand in the Play Console.
 
 | Requirement | How LekhaMint meets it |
 |---|---|
-| App Bundle upload | `./gradlew bundleRelease` makes `app-release.aab`; the release workflow publishes it as `LekhaMint-play.aab`. |
+| App Bundle upload | `./gradlew bundlePlayRelease` makes `app-play-release.aab`; the release workflow publishes it as `LekhaMint-play.aab`. |
 | Target API level (API 36 from 31 August 2026) | `targetSdk = 36`, `compileSdk = 36`. Raise both each year when Play raises the bar. |
 | Release signing | The release workflow refuses to publish a debug-signed APK or bundle. |
 | 16 KB memory pages | Native code: AndroidX's `libandroidx.graphics.path.so` and the receipt reader `libkoshocr.so` (ncnn, built with NDK 27). Both have 16 KB-aligned ELF segments (`llvm-readelf -lW`, `Align 0x4000`); they are stored compressed (`useLegacyPackaging`), so `zipalign -c -P 16` reports them as "OK - compressed". |

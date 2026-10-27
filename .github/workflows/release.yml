@@ -46,18 +46,19 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew testDebugUnitTest assembleRelease bundleRelease -PversionName="${GITHUB_REF_NAME#v}" --console=plain
+        run: ./gradlew testDirectDebugUnitTest assembleDirectRelease bundlePlayRelease -PversionName="${GITHUB_REF_NAME#v}" --console=plain
 
       - name: Check the APK signature
         run: |
-          apk=android/app/build/outputs/apk/release/app-release.apk
+          # The downloadable APK is the "direct" edition: no notification listener, so Play Protect lets it install.
+          apk=android/app/build/outputs/apk/direct/release/app-direct-release.apk
           signer=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner
           certs=$("$signer" verify --print-certs "$apk")
           echo "$certs"
           if echo "$certs" | grep -q "CN=Android Debug"; then echo "::error::APK is debug-signed"; exit 1; fi
           mkdir -p out && cp "$apk" out/LekhaMint.apk
           # The .aab is what Google Play takes (upload it in the Play Console with Play App Signing on).
-          aab=android/app/build/outputs/bundle/release/app-release.aab
+          aab=android/app/build/outputs/bundle/playRelease/app-play-release.aab
           jarsigner -verify -verbose -certs "$aab" > aab-certs.txt || { cat aab-certs.txt; echo "::error::AAB signature check failed"; exit 1; }
           if grep -q "CN=Android Debug" aab-certs.txt; then echo "::error::AAB is debug-signed"; exit 1; fi
           cp "$aab" out/LekhaMint-play.aab

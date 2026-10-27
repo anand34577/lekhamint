@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -104,7 +105,8 @@ fun RecurringScreen() {
             }
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             if (live.isEmpty()) {
                 item {
                     EmptyState(Icons.Rounded.Repeat, "No recurring items", "Add rent, subscriptions, salary or EMIs. LekhaMint reminds you or records them on the due date.") {
@@ -169,6 +171,7 @@ fun RecurringScreen() {
                     }
                 }
             }
+        }
         }
     }
 }

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -83,7 +84,8 @@ fun DebtsScreen() {
         topBar = { KoshTopBar("Lent & borrowed", onBack = { nav.popBackStack() }) },
         floatingActionButton = { ExtendedFloatingActionButton(onClick = { creating = true }, icon = { Icon(Icons.Rounded.Add, null) }, text = { Text("Add") }) },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 96.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
             if (people.isEmpty()) item {
                 EmptyState(Icons.Rounded.Handshake, "Nothing owed", "Keep track of money you lent to friends or borrowed, even from long ago. Record repayments and settle up whenever.")
             }
@@ -125,6 +127,7 @@ fun DebtsScreen() {
                     Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
         }
     }
     if (creating) DebtDialog(null, onDismiss = { creating = false }, onRepay = {})

@@ -68,6 +68,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.takeOrElse
 import app.kosh.AppContainer
 import app.kosh.core.Currencies
 import app.kosh.core.Dates
@@ -109,9 +111,19 @@ fun MoneyText(
         val name = Currencies.get(currency).name
         (if (minor < 0) "minus " else "") + Money.ui(kotlin.math.abs(minor), currency, showSymbol = false) + " $name"
     }
-    Text(
-        text, modifier.semantics { contentDescription = spoken }, style = style, color = color,
-        fontWeight = fontWeight, maxLines = 1, overflow = TextOverflow.Ellipsis,
+    // An amount is never cut short with "…": in a tight spot (three tiles in a row, a lakh-sized
+    // figure) it gets smaller instead, down to 60% of its size.
+    val size = style.fontSize
+    if (!size.isSp) {
+        Text(text, modifier.semantics { contentDescription = spoken }, style = style, color = color, fontWeight = fontWeight, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        return
+    }
+    val resolved = color.takeOrElse { style.color.takeOrElse { androidx.compose.material3.LocalContentColor.current } }
+    androidx.compose.foundation.text.BasicText(
+        text, modifier.semantics { contentDescription = spoken },
+        style = style.merge(color = resolved, fontWeight = fontWeight),
+        maxLines = 1, overflow = TextOverflow.Ellipsis,
+        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = size * 0.6f, maxFontSize = size, stepSize = 0.5.sp),
     )
 }
 

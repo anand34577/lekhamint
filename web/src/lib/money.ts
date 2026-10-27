@@ -63,9 +63,14 @@ export function compactMoney(minor: number, code: string): string {
 
 /** Parses "1,250.50" into minor units, rounding half-up; null if invalid. */
 export function parseMoney(text: string, code: string): number | null {
-  // "12,50" is twelve and a half: a lone comma with one or two digits after it (and no dot) can't be thousands grouping.
-  let t = text.trim().replace(/[\s_]/g, '')
-  if (!t.includes('.') && /^[^,]*,\d{1,2}$/.test(t)) t = t.replace(',', '.')
+  // People group and mark decimals the way their region does: 1,234.56 · 1.234,56 · 1 234,56 · 1'234.56.
+  // With both marks, the later one is the decimal point. "12,50" is twelve and a half: a lone comma
+  // with one or two digits after it can't be thousands grouping. "1.234.567" has only grouping dots.
+  let t = text.trim().replace(/[\s_'’  ]/g, '').replace(/−/g, '-')
+  const lastDot = t.lastIndexOf('.'), lastComma = t.lastIndexOf(',')
+  if (lastDot >= 0 && lastComma >= 0) t = lastComma > lastDot ? t.replace(/\./g, '').replace(',', '.') : t.replace(/,/g, '')
+  else if (lastComma >= 0 && /^[^,]*,\d{1,2}$/.test(t)) t = t.replace(',', '.')
+  else if (/^-?\d{1,3}(\.\d{3}){2,}$/.test(t)) t = t.replace(/\./g, '')
   const clean = t.replace(/,/g, '')
   if (!/^-?\d*\.?\d*$/.test(clean) || clean === '' || clean === '-' || clean === '.') return null
   const neg = clean.startsWith('-')

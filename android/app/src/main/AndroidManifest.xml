@@ -75,6 +75,13 @@
                 <data android:mimeType="application/x-ofx" />
                 <data android:mimeType="application/x-qif" />
             </intent-filter>
+            <!-- The QR code on the web app's "Connect a phone" (Settings): opens Sync with the code filled in. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="lekhamint" android:host="pair" />
+            </intent-filter>
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
 

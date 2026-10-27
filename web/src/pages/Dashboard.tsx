@@ -123,6 +123,12 @@ export function Dashboard({ go, openAdd }: PageProps) {
             <div><div className="muted small">In</div><div className="stat-value"><Money value={month?.income ?? 0} currency={base} /></div></div>
             <div><div className="muted small">Out</div><div className="stat-value"><Money value={month?.expense ?? 0} currency={base} /></div></div>
           </div>
+          {month && month.income > 0 && (
+            <div className="safe-line small">
+              <span>{month.income >= month.expense ? `Saved ${Math.round(((month.income - month.expense) / month.income) * 100)}% of income` : 'Spent more than came in'}</span>
+              <Money value={month.income - month.expense} currency={base} signed />
+            </div>
+          )}
           {multi && converted.data && (
             <div className="muted small">All currencies in {base}: <Money value={converted.data.converted.expense} currency={base} /> out
               {converted.data.converted.missing_rates.length > 0 && <> · <button className="link" onClick={() => go('settings', { section: 'rates' })}>add a rate for {converted.data.converted.missing_rates.join(', ')}</button></>}</div>
@@ -173,6 +179,17 @@ export function Dashboard({ go, openAdd }: PageProps) {
               </p>
             </>}
           </Card>
+          {top.length > 0 && (
+            <Card title="Where your money went" action={<button className="link" onClick={() => go('reports')}>Reports</button>}>
+              <ul className="list">
+                {top.map(([id, v]) => (
+                  <li key={id ?? 'none'} className="clickable" onClick={() => go('transactions', id ? { category: id } : { category: 'none' })}>
+                    <CatIcon name={cats.icon(id)} color={cats.color(id)} /><div className="grow"><div className="row between"><span>{cats.name(id)}</span><Money value={v} currency={base} /></div><Bar fraction={v / top[0][1]} color={cats.color(id)} /></div>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
           <Card title="Recent activity" action={<button className="link" onClick={() => go('transactions')}>See all</button>}>
             {recent.isPending ? <Skeleton rows={5} /> : recent.data?.transactions.length === 0 ? (
               <Empty title="Nothing recorded yet" body="Add your first expense; it takes a few seconds." action={can && !noAccounts ? <button className="primary" onClick={() => openAdd()}>Add an expense</button> : undefined} />
@@ -214,17 +231,6 @@ export function Dashboard({ go, openAdd }: PageProps) {
                 ))}
               </ul>
               <p className="muted small">Expected, not yet paid. Record each one when it happens.</p>
-            </Card>
-          )}
-          {top.length > 0 && (
-            <Card title="Where your money went" action={<button className="link" onClick={() => go('reports')}>Reports</button>}>
-              <ul className="list">
-                {top.map(([id, v]) => (
-                  <li key={id ?? 'none'} className="clickable" onClick={() => go('transactions', id ? { category: id } : { category: 'none' })}>
-                    <CatIcon name={cats.icon(id)} color={cats.color(id)} /><div className="grow"><div className="row between"><span>{cats.name(id)}</span><Money value={v} currency={base} /></div><Bar fraction={v / top[0][1]} color={cats.color(id)} /></div>
-                  </li>
-                ))}
-              </ul>
             </Card>
           )}
         </div>

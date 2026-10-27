@@ -28,13 +28,21 @@ object Dates {
     fun weekStart(date: LocalDate, first: DayOfWeek = DayOfWeek.MONDAY): LocalDate =
         date.with(TemporalAdjusters.previousOrSame(first))
 
-    private val dayFormat get() = DateTimeFormatter.ofPattern("EEE, d MMM", Locale.getDefault())
-    private val dayYearFormat get() = DateTimeFormatter.ofPattern("EEE, d MMM yyyy", Locale.getDefault())
-    private val monthFormat get() = DateTimeFormatter.ofPattern("MMMM yyyy", Locale.getDefault())
+    /**
+     * Dates follow the phone's region: "Mon, 21 Oct" in the UK and India, "Mon, Oct 21" in the US, "21. Okt." in
+     * Germany. Android picks the order for a set of fields; plain JVM unit tests fall back to day-first.
+     */
+    private fun pattern(skeleton: String, fallback: String): DateTimeFormatter {
+        val locale = Locale.getDefault()
+        val best = runCatching { android.text.format.DateFormat.getBestDateTimePattern(locale, skeleton) }.getOrNull()
+        return DateTimeFormatter.ofPattern(best?.takeIf { it.isNotBlank() } ?: fallback, locale)
+    }
+    private val dayFormat get() = pattern("EEEdMMM", "EEE, d MMM")
+    private val dayYearFormat get() = pattern("EEEdMMMyyyy", "EEE, d MMM yyyy")
+    private val monthFormat get() = pattern("MMMMyyyy", "MMMM yyyy")
     private val shortMonthFormat get() = DateTimeFormatter.ofPattern("MMM", Locale.getDefault())
-    private val shortDate get() = DateTimeFormatter.ofPattern("d MMM", Locale.getDefault())
-    // Day first, like every other date in the app ("1 Oct 2025"), rather than the locale's "Oct 1, 2025".
-    private val mediumDate get() = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.getDefault())
+    private val shortDate get() = pattern("dMMM", "d MMM")
+    private val mediumDate get() = pattern("dMMMyyyy", "d MMM yyyy")
 
     /** "Today", "Yesterday", "Mon, 21 Oct" or "Mon, 21 Oct 2024". */
     fun relativeDay(date: LocalDate, today: LocalDate = today()): String = when (date) {
@@ -48,4 +56,7 @@ object Dates {
     fun shortMonth(m: YearMonth): String = m.format(shortMonthFormat)
     fun short(date: LocalDate): String = date.format(shortDate)
     fun medium(date: LocalDate): String = date.format(mediumDate)
+
+    /** A time of day in the phone's own clock style: "9:05 pm" or "21:05". */
+    fun time(t: LocalTime, h24: Boolean): String = t.format(DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.getDefault()))
 }
