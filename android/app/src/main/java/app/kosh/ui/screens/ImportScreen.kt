@@ -263,7 +263,8 @@ class ImportViewModel(private val c: AppContainer, private val app: Application)
             var saved = 0
             for (batch in chosen.chunked(200)) {
                 val txs = batch.filter { c.repo.findTransaction(it.id) == null }.map { x ->
-                    val at = x.row.date.atTime(LocalTime.NOON).atZone(zone).toInstant().toEpochMilli()
+                    // The statement's own time when it has one; a bare date is saved at midday (shown without a time).
+                    val at = x.row.date.atTime(x.row.time ?: LocalTime.NOON).atZone(zone).toInstant().toEpochMilli()
                     val note = listOf(x.row.description.takeIf { !it.equals(x.payee, ignoreCase = true) }, x.row.note.ifBlank { null })
                         .filterNotNull().joinToString(" · ").take(2000).ifEmpty { null }
                     TransactionEntity(

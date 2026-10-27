@@ -49,6 +49,9 @@ import app.kosh.ui.LocalNav
 import app.kosh.ui.Routes
 import app.kosh.ui.components.AmountField
 import app.kosh.ui.components.DateField
+import app.kosh.ui.components.WhenFields
+import app.kosh.ui.components.isFuture
+import app.kosh.ui.components.nowMinute
 import app.kosh.ui.components.EmptyState
 import app.kosh.ui.components.KoshCard
 import app.kosh.ui.components.KoshTopBar
@@ -283,6 +286,7 @@ private fun PersonRepayDialog(person: Debts.Person, direction: String, open: Lis
     var amount by remember { mutableStateOf(Money.toPlain(total, currency)) }
     var interest by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(Dates.today()) }
+    var time by remember { mutableStateOf(nowMinute()) }
     var accountId by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
     // One ID per share, fixed while the dialog is open, so a double tap cannot record it twice.
@@ -308,15 +312,15 @@ private fun PersonRepayDialog(person: Debts.Person, direction: String, open: Lis
                 )
                 AmountField(interest, { interest = it }, currency, "Interest or extra (optional)", supporting = if (extra == null) "Enter an amount or leave empty" else "Counts as ${if (lent) "income" else "a cost"}, not as repayment")
                 AccountChooser(currency, accountId, if (lent) "Into" else "From") { accountId = it }
-                DateField("Paid on", date, { date = it }, Modifier.fillMaxWidth(), max = Dates.today())
+                WhenFields("Paid on", date, { date = it }, time, { time = it }, max = Dates.today())
             }
         },
         confirmButton = {
-            TextButton(enabled = !saving && plan.isNotEmpty() && extra != null && extra >= 0 && accountId != null, onClick = {
+            TextButton(enabled = !saving && plan.isNotEmpty() && extra != null && extra >= 0 && accountId != null && !isFuture(date, time), onClick = {
                 saving = true
                 val acc = accountId!!
-                val txs = plan.mapIndexed { i, share -> Debts.movement(share.debt, repayment = true, accountId = acc, amount = share.amount, date = date, id = ids[i]) } +
-                    listOfNotNull(extra?.takeIf { it > 0 }?.let { Debts.movement(plan.first().debt, repayment = true, accountId = acc, amount = it, date = date, id = ids.last(), interest = true) })
+                val txs = plan.mapIndexed { i, share -> Debts.movement(share.debt, repayment = true, accountId = acc, amount = share.amount, date = date, id = ids[i], time = time) } +
+                    listOfNotNull(extra?.takeIf { it > 0 }?.let { Debts.movement(plan.first().debt, repayment = true, accountId = acc, amount = it, date = date, id = ids.last(), interest = true, time = time) })
                 val closed = plan.filter { it.settles }.map { it.debt.copy(closed = true) }
                 scope.launch {
                     c.repo.saveAll(debts = closed, transactions = txs)

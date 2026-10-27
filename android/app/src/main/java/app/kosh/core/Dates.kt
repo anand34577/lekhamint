@@ -59,4 +59,17 @@ object Dates {
 
     /** A time of day in the phone's own clock style: "9:05 pm" or "21:05". */
     fun time(t: LocalTime, h24: Boolean): String = t.format(DateTimeFormatter.ofPattern(if (h24) "HH:mm" else "h:mm a", Locale.getDefault()))
+
+    /**
+     * The time of day of a saved moment, or null when only its date is known: imports and older
+     * entries without a time were saved at exactly midday.
+     */
+    fun timeOf(atMs: Long, zone: ZoneId = ZoneId.systemDefault()): LocalTime? {
+        val t = Instant.ofEpochMilli(atMs).atZone(zone).toLocalTime()
+        return if (t == LocalTime.NOON) null else t.withSecond(0).withNano(0)
+    }
+
+    /** [date] at [time]; without a time, now for today and midday for other days. */
+    fun at(date: LocalDate, time: LocalTime?, zone: ZoneId = ZoneId.systemDefault()): Long =
+        date.atTime(time ?: if (date == today(zone)) LocalTime.now(zone) else LocalTime.NOON).atZone(zone).toInstant().toEpochMilli()
 }

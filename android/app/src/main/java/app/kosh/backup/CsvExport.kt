@@ -10,7 +10,7 @@ import java.io.OutputStream
 /** Spreadsheet-friendly export of transactions (RFC 4180 CSV, UTF-8 with BOM for Excel). */
 object CsvExport {
     private val header = listOf(
-        "date", "type", "amount", "currency", "account", "to_account", "to_amount", "category", "parent_category",
+        "date", "time", "type", "amount", "currency", "account", "to_account", "to_amount", "category", "parent_category",
         "payee", "note", "status", "excluded_from_reports", "is_adjustment", "id",
     )
 
@@ -26,7 +26,8 @@ object CsvExport {
             val parent = cat?.parentId?.let { lookup.categoryById[it] }
             val signed = when (t.type) { "expense", "transfer" -> -t.amount; else -> t.amount }
             val fields = listOf(
-                t.localDate, t.type, Money.toPlain(signed, cur), cur, lookup.accountName(t.accountId),
+                // "HH:mm", empty for entries saved with only a date.
+                t.localDate, app.kosh.core.Dates.timeOf(t.occurredAt)?.toString().orEmpty(), t.type, Money.toPlain(signed, cur), cur, lookup.accountName(t.accountId),
                 t.toAccountId?.let { lookup.accountName(it) }.orEmpty(),
                 t.toAmount?.let { Money.toPlain(it, lookup.currencyOf(t.toAccountId)) }.orEmpty(),
                 cat?.name.orEmpty(), parent?.name.orEmpty(), t.payee.orEmpty(), t.note.orEmpty(), t.status,

@@ -117,7 +117,8 @@ class TransactionsViewModel(private val c: AppContainer) : ViewModel() {
         }
         val summary = Reports.summarize(shown.mapNotNull { it.toReportRow(lookup) }, lookup.categoryById, lookup.baseCurrency)[lookup.baseCurrency]
         TxListState(f, shown, lookup, summary?.income ?: 0, summary?.expense ?: 0, loaded = true)
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TxListState())
+    // Start from the lookup already loaded, so the totals never flash "$0" in the wrong currency.
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TxListState(lookup = c.lookup.value))
 
     fun update(block: (TxFilter) -> TxFilter) { filter.value = block(filter.value) }
 }
