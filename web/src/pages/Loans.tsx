@@ -4,9 +4,9 @@ import { useAccounts, useBalances, useCanWrite, useCategories, useLedger, useLin
 import { LOAN_KINDS, emi, loanKindLabel, loanStatus, monthlyInterest, prepaymentOptions, rateError, schedule, splitPayment, type LoanStatus, type ScheduleRow } from '../lib/loans'
 import { createOp, feeCategory, interestExpenseCategory, linkedTxData } from '../lib/links'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
-import { addMonths, dayLabel, download, isoDate, monthRange, parseDate, plural, uuidv7 } from '../lib/util'
+import { addMonths, dayLabel, download, isFutureTime, isoDate, monthRange, nowTime, parseDate, plural, uuidv7 } from '../lib/util'
 import { workbook, XLSX_TYPE } from '../lib/xlsx'
-import { Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
+import { Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, WhenFields, saveErrorText, toast } from '../components'
 import { SERIES, StackBar } from '../charts'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
@@ -312,6 +312,7 @@ function PayEmi({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose: (
   const today = isoDate()
   const [amount, setAmount] = useState(toPlain(next?.payment ?? s.emi, cur))
   const [date, setDate] = useState(next && next.date <= today ? (s.overdue > 1 ? today : next.date) : today)
+  const [time, setTime] = useState(nowTime())
   const [accountId, setAccountId] = useState(loan.pay_from_account_id && pay.list.some((a) => a.id === loan.pay_from_account_id) ? loan.pay_from_account_id : pay.list[0]?.id ?? '')
   const minor = parseMoney(amount, cur)
   const auto = minor && minor > 0 ? splitPayment(minor, s.outstanding, loan.annual_rate) : { interest: 0, principal: 0 }
@@ -335,10 +336,10 @@ function PayEmi({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose: (
     if (principal > s.outstanding) return setErr(`That repays ${formatMoney(principal, cur)} of principal, but only ${formatMoney(s.outstanding, cur)} is owed. Pay ${formatMoney(s.outstanding + interest, cur)} to close the loan, or use Foreclose.`)
     if (feeMinor === null || feeMinor < 0) return setErr('Enter the late fee or charge as an amount, or leave it empty')
     if (!accountId) return setErr(`Add a ${cur} bank or cash account to pay from`)
-    if (date > today) return setErr('That date is in the future. Record a payment when it is made; upcoming EMIs are already on the schedule.')
+    if (date > today || isFutureTime(date, time)) return setErr('That is in the future. Record a payment when it is made; upcoming EMIs are already on the schedule.')
     if (date < loan.start_date) return setErr(`The loan started on ${dayLabel(loan.start_date)}, so a payment cannot be earlier.`)
     const ops: BatchOp[] = []
-    const base = { account_id: accountId, payee: loan.lender || loan.name, date, loan_id: loan.id }
+    const base = { account_id: accountId, payee: loan.lender || loan.name, date, time, loan_id: loan.id }
     if (principal > 0) ops.push(createOp('transactions', ids[0], linkedTxData({ ...base, type: 'transfer', to_account_id: loan.account_id, amount: principal, note: `${loan.name} EMI · principal`, part: 'principal' })))
     if (interest > 0) ops.push(createOp('transactions', ids[1], linkedTxData({ ...base, type: 'expense', amount: interest, category_id: interestExpenseCategory(cats.data ?? [], loan.kind, loan.interest_category_id), note: `${loan.name} EMI · interest`, part: 'interest' })))
     if (feeMinor && feeMinor > 0) ops.push(createOp('transactions', ids[2], linkedTxData({ ...base, type: 'expense', amount: feeMinor, category_id: feeCategory(cats.data ?? []), note: `${loan.name} · charges`, part: 'fee' })))
@@ -353,10 +354,8 @@ function PayEmi({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose: (
     <Modal title={`Pay EMI · ${loan.name}`} onClose={onClose} footer={<><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="emiform" disabled={write.batch.isPending}>{write.batch.isPending ? 'Saving…' : 'Record payment'}</button></>}>
       <form id="emiform" onSubmit={submit}>
         {next && <p className="muted small">Instalment {next.n}{next.date < today ? `, due ${dayLabel(next.date)} (overdue)` : `, due ${dayLabel(next.date)}`}. Owed now: <Money value={s.outstanding} currency={cur} /></p>}
-        <div className="two">
-          <Field label="Amount paid"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
-          <Field label="Paid on"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={today} /></Field>
-        </div>
+        <Field label="Amount paid"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+        <WhenFields label="Paid on" date={date} time={time} onDate={setDate} onTime={setTime} max={today} />
         <div className="two">
           <Field label="From account" hint={bal !== undefined ? <>Balance <Money value={bal} currency={cur} /></> : undefined}>
             <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
@@ -389,6 +388,7 @@ function Prepay({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose: (
   const [amount, setAmount] = useState('')
   const [charge, setCharge] = useState('')
   const [date, setDate] = useState(isoDate())
+  const [time, setTime] = useState(nowTime())
   const [mode, setMode] = useState<'tenure' | 'emi'>('tenure')
   const [accountId, setAccountId] = useState(loan.pay_from_account_id ?? pay.list[0]?.id ?? '')
   const [err, setErr] = useState('')
@@ -403,9 +403,9 @@ function Prepay({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose: (
     if (minor >= s.outstanding) return setErr(`That is all of the ${formatMoney(s.outstanding, cur)} owed. Use Foreclose to close the loan instead.`)
     if (chargeMinor === null || chargeMinor < 0) return setErr('Enter the prepayment charge as an amount, or leave it empty')
     if (!accountId) return setErr(`Add a ${cur} account to pay from`)
-    if (date > isoDate()) return setErr('Record the prepayment on the day it is made, not in the future')
-    const ops: BatchOp[] = [createOp('transactions', ids[0], linkedTxData({ type: 'transfer', account_id: accountId, to_account_id: loan.account_id, amount: minor, payee: loan.lender || loan.name, note: `${loan.name} · prepayment`, date, loan_id: loan.id, part: 'prepayment' }))]
-    if (chargeMinor && chargeMinor > 0) ops.push(createOp('transactions', ids[1], linkedTxData({ type: 'expense', account_id: accountId, amount: chargeMinor, category_id: feeCategory(cats.data ?? []), payee: loan.lender || loan.name, note: `${loan.name} · prepayment charge`, date, loan_id: loan.id, part: 'fee' })))
+    if (date > isoDate() || isFutureTime(date, time)) return setErr('Record the prepayment when it is made, not in the future')
+    const ops: BatchOp[] = [createOp('transactions', ids[0], linkedTxData({ type: 'transfer', account_id: accountId, to_account_id: loan.account_id, amount: minor, payee: loan.lender || loan.name, note: `${loan.name} · prepayment`, date, time, loan_id: loan.id, part: 'prepayment' }))]
+    if (chargeMinor && chargeMinor > 0) ops.push(createOp('transactions', ids[1], linkedTxData({ type: 'expense', account_id: accountId, amount: chargeMinor, category_id: feeCategory(cats.data ?? []), payee: loan.lender || loan.name, note: `${loan.name} · prepayment charge`, date, time, loan_id: loan.id, part: 'fee' })))
     if (mode === 'emi' && opts) ops.push({ op: 'update', entity: 'loans', id: loan.id, data: { emi_amount: opts.keepTenure.emi } })
     try {
       await write.batch.mutateAsync(ops)
@@ -417,10 +417,8 @@ function Prepay({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose: (
     <Modal title={`Prepay · ${loan.name}`} onClose={onClose} footer={<><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="prepayform" disabled={write.batch.isPending}>Record prepayment</button></>}>
       <form id="prepayform" onSubmit={submit}>
         <p className="muted small">Extra principal paid outside the EMI. Owed now: <Money value={s.outstanding} currency={cur} /></p>
-        <div className="two">
-          <Field label="Prepayment"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
-          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
-        </div>
+        <Field label="Prepayment"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+        <WhenFields label="Paid on" date={date} time={time} onDate={setDate} onTime={setTime} max={isoDate()} />
         <div className="two">
           <Field label="From account"><Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
           <Field label="Prepayment charge (optional)"><NumInput kind="decimal" value={charge} onChange={(e) => setCharge(e.target.value)} placeholder="0" /></Field>
@@ -453,6 +451,7 @@ function CloseLoan({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose
   const cur = loan.currency
   const ids = useState(() => [uuidv7(), uuidv7(), uuidv7()])[0]
   const [date, setDate] = useState(isoDate())
+  const [time, setTime] = useState(nowTime())
   const [accountId, setAccountId] = useState(loan.pay_from_account_id ?? pay.list[0]?.id ?? '')
   const [interest, setInterest] = useState(toPlain(monthlyInterest(s.outstanding, loan.annual_rate), cur))
   const [charge, setCharge] = useState('')
@@ -465,8 +464,9 @@ function CloseLoan({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose
     const c = charge.trim() ? parseMoney(charge, cur) : 0
     if (i === null || i < 0 || c === null || c < 0) return setErr('Interest and charges must be amounts (or empty)')
     if (owed > 0 && !accountId) return setErr(`Add a ${cur} account to pay from`)
+    if (owed > 0 && (date > isoDate() || isFutureTime(date, time))) return setErr('That is in the future. Record the foreclosure when it is paid.')
     const ops: BatchOp[] = []
-    const base = { account_id: accountId, payee: loan.lender || loan.name, date, loan_id: loan.id }
+    const base = { account_id: accountId, payee: loan.lender || loan.name, date, time, loan_id: loan.id }
     if (owed > 0) ops.push(createOp('transactions', ids[0], linkedTxData({ ...base, type: 'transfer', to_account_id: loan.account_id, amount: owed, note: `${loan.name} · foreclosure`, part: 'prepayment' })))
     if (owed > 0 && i > 0) ops.push(createOp('transactions', ids[1], linkedTxData({ ...base, type: 'expense', amount: i, category_id: interestExpenseCategory(cats.data ?? [], loan.kind, loan.interest_category_id), note: `${loan.name} · interest to closure`, part: 'interest' })))
     if (owed > 0 && c > 0) ops.push(createOp('transactions', ids[2], linkedTxData({ ...base, type: 'expense', amount: c, category_id: feeCategory(cats.data ?? []), note: `${loan.name} · foreclosure charge`, part: 'fee' })))
@@ -481,10 +481,8 @@ function CloseLoan({ loan, s, onClose }: { loan: LoanRec; s: LoanStatus; onClose
           <Field label="Interest to the closing date" hint="Calculated for one month; edit to match the letter"><NumInput kind="decimal" value={interest} onChange={(e) => setInterest(e.target.value)} /></Field>
           <Field label="Foreclosure charge"><NumInput kind="decimal" value={charge} onChange={(e) => setCharge(e.target.value)} placeholder="0" /></Field>
         </div>
-        <div className="two">
-          <Field label="From account"><Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
-          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
-        </div>
+        <Field label="From account"><Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{pay.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+        <WhenFields label="Paid on" date={date} time={time} onDate={setDate} onTime={setTime} max={isoDate()} />
       </> : <p>Nothing is owed on this loan, so closing it just moves it to the closed list. Its history stays.</p>}
       {err && <p className="error" role="alert">{err}</p>}
     </Modal>

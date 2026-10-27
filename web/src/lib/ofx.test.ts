@@ -6,7 +6,7 @@ const OFX1 = `OFXHEADER:100
 DATA:OFXSGML
 <OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS><CURDEF>INR<BANKACCTFROM><ACCTID>12345</BANKACCTFROM>
 <BANKTRANLIST>
-<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261020120000[+5:30:IST]<TRNAMT>-450.00<FITID>A1<NAME>SWIGGY &amp; CO<MEMO>UPI dinner
+<STMTTRN><TRNTYPE>DEBIT<DTPOSTED>20261020193000[+5:30:IST]<TRNAMT>-450.00<FITID>A1<NAME>SWIGGY &amp; CO<MEMO>UPI dinner
 <STMTTRN><TRNTYPE>CREDIT<DTPOSTED>20261001<TRNAMT>85000.00<FITID>A2<NAME>SALARY
 </BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>`
 
@@ -39,8 +39,8 @@ describe('statement files', () => {
     const a = parseOfx(OFX1, 'INR')
     expect(a.currency).toBe('INR')
     expect(a.rows).toEqual([
-      { line: 1, date: '2026-10-20', type: 'expense', amount: 45000, description: 'SWIGGY & CO', note: 'UPI dinner', category: '', ref: 'ofx:12345:A1' },
-      { line: 2, date: '2026-10-01', type: 'income', amount: 8500000, description: 'SALARY', note: '', category: '', ref: 'ofx:12345:A2' },
+      { line: 1, date: '2026-10-20', time: '19:30', type: 'expense', amount: 45000, description: 'SWIGGY & CO', note: 'UPI dinner', category: '', ref: 'ofx:12345:A1' },
+      { line: 2, date: '2026-10-01', time: '', type: 'income', amount: 8500000, description: 'SALARY', note: '', category: '', ref: 'ofx:12345:A2' },
     ])
     expect(fingerprints(a.rows)).toEqual(['ofx:12345:A1', 'ofx:12345:A2'])
     const b = parseOfx(OFX2, 'INR')

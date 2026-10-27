@@ -7,8 +7,8 @@ import { estimate, fdValue, rdValue, tenureLabel } from '../lib/deposits'
 import { affordability, findRecurring, goalMonthly, goalMonths, payoff, splitBill, type PayoffDebt, type SplitMode } from '../lib/tools'
 import { createOp, linkedTxData } from '../lib/links'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
-import { addMonths, dayLabel, isoDate, monthRange, parseDate, plural, uuidv7 } from '../lib/util'
-import { Avatar, Card, Check, Field, LineChart, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
+import { addMonths, atTime, dayLabel, isFutureTime, isoDate, monthRange, nowTime, parseDate, plural, uuidv7 } from '../lib/util'
+import { Avatar, Card, Check, Field, LineChart, Money, Segmented, Skeleton, WhenFields, saveErrorText, toast } from '../components'
 import { Columns, Explain, Loading, Meter, RankBars, SERIES, Spinner, StackBar } from '../charts'
 import { Icon } from '../icons'
 import { useLoanStatuses } from './Loans'
@@ -499,17 +499,20 @@ function SaveSplit({ total, names, owes, onClose }: { total: number; names: stri
   const [cat, setCat] = useState('')
   const [what, setWhat] = useState('')
   const [date, setDate] = useState(isoDate())
+  const [time, setTime] = useState(nowTime())
   const [err, setErr] = useState('')
   const save = async () => {
     setErr('')
     if (!acct) return setErr(`Add a ${code} account first`)
     if (!what.trim()) return setErr('Say what the bill was for, e.g. “Dinner at Toit”')
+    if (date > isoDate() || isFutureTime(date, time)) return setErr('That is in the future. Pick when the bill was paid.')
     const ops: BatchOp[] = []
-    if (owes[0] > 0) ops.push(createOp('transactions', ids[0][0], linkedTxData({ type: 'expense', account_id: acct, amount: owes[0], category_id: cat || null, payee: what.trim(), note: `My share of ${formatMoney(total, code)}`, date, part: null })))
+    if (owes[0] > 0) ops.push(createOp('transactions', ids[0][0], linkedTxData({ type: 'expense', account_id: acct, amount: owes[0], category_id: cat || null, payee: what.trim(), note: `My share of ${formatMoney(total, code)}`, date, time, part: null })))
     names.forEach((n, i) => {
       if (i === 0 || owes[i] <= 0) return
-      ops.push(createOp('debts', ids[i][0], { person: n, direction: 'lent', amount: owes[i], currency: code, due_date: null, note: what.trim(), closed: false, created_at: Date.now() }))
-      ops.push(createOp('transactions', ids[i][1], linkedTxData({ type: 'expense', account_id: acct, amount: owes[i], payee: n, note: `${what.trim()} · their share`, date, debt_id: ids[i][0], part: 'principal' })))
+      // Each share is a loan given when the bill was paid, not when it was saved here.
+      ops.push(createOp('debts', ids[i][0], { person: n, direction: 'lent', amount: owes[i], currency: code, due_date: null, note: what.trim(), closed: false, created_at: atTime(date, time) }))
+      ops.push(createOp('transactions', ids[i][1], linkedTxData({ type: 'expense', account_id: acct, amount: owes[i], payee: n, note: `${what.trim()} · their share`, date, time, debt_id: ids[i][0], part: 'principal' })))
     })
     try { await write.batch.mutateAsync(ops); toast(`Saved: your share as spending and ${names.length - 1} ${names.length === 2 ? 'person owes' : 'people owe'} you`); onClose() } catch (x) { setErr(saveErrorText(x)) }
   }
@@ -519,10 +522,8 @@ function SaveSplit({ total, names, owes, onClose }: { total: number; names: stri
         <h2>Save the split</h2>
         <p className="muted small">Records the full {formatMoney(total, code)} leaving your account: {formatMoney(owes[0], code)} as your spending, and the rest as money lent to the others, so you can track their repayments.</p>
         <Field label="What was it?"><input value={what} onChange={(e) => setWhat(e.target.value)} autoFocus /></Field>
-        <div className="two">
-          <Field label="Paid from"><Select value={acct} onChange={(e) => setAcct(e.target.value)}>{list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
-          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
-        </div>
+        <Field label="Paid from"><Select value={acct} onChange={(e) => setAcct(e.target.value)}>{list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+        <WhenFields label="Paid on" date={date} time={time} onDate={setDate} onTime={setTime} max={isoDate()} />
         <Field label="Category for your share"><Select value={cat} onChange={(e) => setCat(e.target.value)}><option value="">Uncategorised</option>{cats.roots('expense').flatMap((c) => [c, ...cats.children(c.id)]).map((c) => <option key={c.id} value={c.id}>{cats.path(c.id)}</option>)}</Select></Field>
         {err && <p className="error">{err}</p>}
         <div className="row"><span className="spacer" /><button onClick={onClose}>Cancel</button><button className="primary" onClick={save} disabled={write.batch.isPending}>{write.batch.isPending ? <><Spinner size={15} /> Saving…</> : 'Save'}</button></div>

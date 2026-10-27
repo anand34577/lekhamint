@@ -4,7 +4,7 @@
 // fields say what it belongs to, and `part` what it does.
 
 import type { BatchOp, Category, Transaction } from './api'
-import { isoDate } from './util'
+import { atTime } from './util'
 
 export type Part = 'principal' | 'interest' | 'fee' | 'prepayment' | null
 
@@ -18,21 +18,19 @@ export interface LinkedTx {
   payee?: string | null
   note?: string | null
   date: string
+  /** Time of day, "HH:MM"; empty means now (today) or noon (another day). */
+  time?: string
   part: Part
   debt_id?: string
   loan_id?: string
   deposit_id?: string
 }
 
-/** Today keeps the current time; other days use noon so the date never shifts across time zones. */
-export function occurredAt(date: string): number {
-  const d = new Date(date + 'T12:00:00')
-  if (date === isoDate()) { const n = new Date(); d.setHours(n.getHours(), n.getMinutes(), n.getSeconds()) }
-  return d.getTime()
-}
+/** [date] at [time] ("HH:MM") when given; otherwise now for today and noon for other days. */
+export const occurredAt = (date: string, time?: string): number => atTime(date, time)
 
 export function linkedTxData(t: LinkedTx): Partial<Transaction> & { created_at: number } {
-  const at = occurredAt(t.date)
+  const at = occurredAt(t.date, t.time)
   return {
     type: t.type, status: 'cleared', account_id: t.account_id, amount: t.amount,
     to_account_id: t.type === 'transfer' ? t.to_account_id ?? null : null,

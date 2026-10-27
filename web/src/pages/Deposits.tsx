@@ -5,9 +5,9 @@ import { COMPOUNDINGS, DEPOSIT_KINDS, PAYOUTS, daysBetween, depositKindLabel, es
 import { rateError } from '../lib/loans'
 import { createOp, feeCategory, interestIncomeCategory, linkedTxData } from '../lib/links'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
-import { addMonths, dayLabel, download, isoDate, parseDate, uuidv7 } from '../lib/util'
+import { addMonths, dayLabel, download, isFutureTime, isoDate, nowTime, parseDate, uuidv7 } from '../lib/util'
 import { workbook, XLSX_TYPE } from '../lib/xlsx'
-import { Bar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
+import { Bar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, WhenFields, saveErrorText, toast } from '../components'
 import { Columns, SERIES } from '../charts'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
@@ -288,6 +288,7 @@ function MatureForm({ x, early, onClose }: { x: DepositEntry; early: boolean; on
   const [received, setReceived] = useState(early ? '' : toPlain(est.maturity, cur))
   const [tax, setTax] = useState('')
   const [date, setDate] = useState(early || dep.maturity_date > today ? today : dep.maturity_date)
+  const [time, setTime] = useState(nowTime())
   const [into, setInto] = useState(dep.payout_account_id ?? banks.list[0]?.id ?? '')
   const [renew, setRenew] = useState(false)
   const [err, setErr] = useState('')
@@ -304,11 +305,11 @@ function MatureForm({ x, early, onClose }: { x: DepositEntry; early: boolean; on
     if (got === null || got <= 0) return setErr('Enter the amount that arrived in your account, as on the bank statement')
     if (taxMinor === null || taxMinor < 0) return setErr('Enter the tax deducted as an amount, or leave it empty')
     if (!into) return setErr(`Add a ${cur} bank account for the money to go to`)
-    if (date > today) return setErr('Record the maturity on the day the money arrives, not before')
+    if (date > today || isFutureTime(date, time)) return setErr('Record the maturity when the money arrives, not before')
     if (date < dep.start_date) return setErr('That date is before the deposit started')
     if (diff !== null && diff < 0 && !early && -diff > balance * 0.05) return setErr(`That is ${formatMoney(-diff, cur)} less than what is in the deposit (${formatMoney(balance, cur)}). If it was closed early with a penalty, use “Close early” instead; otherwise check the amount.`)
     const ops: BatchOp[] = []
-    const base = { payee: dep.institution || dep.name, date, deposit_id: dep.id }
+    const base = { payee: dep.institution || dep.name, date, time, deposit_id: dep.id }
     // 1. Interest not yet credited (or a penalty) adjusts the deposit to what the bank paid in total.
     if (diff && diff > 0) ops.push(createOp('transactions', ids[0], linkedTxData({ ...base, type: 'income', account_id: dep.account_id, amount: diff, category_id: interestIncomeCategory(cats.data ?? []), note: `${dep.name} · interest at ${early ? 'closure' : 'maturity'}`, part: 'interest' })))
     if (diff && diff < 0) ops.push(createOp('transactions', ids[0], linkedTxData({ ...base, type: 'expense', account_id: dep.account_id, amount: -diff, category_id: feeCategory(cats.data ?? []), note: `${dep.name} · early closure penalty`, part: 'fee' })))
@@ -332,10 +333,8 @@ function MatureForm({ x, early, onClose }: { x: DepositEntry; early: boolean; on
           <Field label="Amount received"><NumInput kind="decimal" value={received} onChange={(e) => setReceived(e.target.value)} autoFocus /></Field>
           <Field label="Tax deducted (TDS), if any"><NumInput kind="decimal" value={tax} onChange={(e) => setTax(e.target.value)} placeholder="0" /></Field>
         </div>
-        <div className="two">
-          <Field label="Into account"><Select value={into} onChange={(e) => setInto(e.target.value)} disabled={renew}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
-          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={today} /></Field>
-        </div>
+        <Field label="Into account"><Select value={into} onChange={(e) => setInto(e.target.value)} disabled={renew}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+        <WhenFields label="Received on" date={date} time={time} onDate={setDate} onTime={setTime} max={today} />
         {!early && <Check checked={renew} onChange={setRenew}>The bank renewed it for the same term (the money stays in the deposit)</Check>}
         {diff !== null && diff !== 0 && <p className="small">{diff > 0 ? <>Records <Money value={diff} currency={cur} /> as interest income.</> : <>Records <Money value={-diff} currency={cur} /> as a penalty (a cost).</>}</p>}
         {err && <p className="error" role="alert">{err}</p>}
@@ -355,6 +354,7 @@ function InterestForm({ x, onClose }: { x: DepositEntry; onClose: () => void }) 
   const next = est.payouts.find((p) => !x.moves.some((m) => m.part === 'interest' && m.local_date.slice(0, 7) === p.date.slice(0, 7)))
   const [amount, setAmount] = useState(next ? toPlain(next.amount, cur) : '')
   const [date, setDate] = useState(next && next.date <= isoDate() ? next.date : isoDate())
+  const [time, setTime] = useState(nowTime())
   const [into, setInto] = useState(payout ? dep.payout_account_id ?? banks.list[0]?.id ?? '' : dep.account_id)
   const [err, setErr] = useState('')
   const submit = async (e: React.FormEvent) => {
@@ -363,9 +363,9 @@ function InterestForm({ x, onClose }: { x: DepositEntry; onClose: () => void }) 
     if (write.batch.isPending) return
     const m = parseMoney(amount, cur)
     if (!m || m <= 0) return setErr('Enter the interest amount from your statement')
-    if (date > isoDate()) return setErr('Record interest when it is credited, not in advance')
+    if (date > isoDate() || isFutureTime(date, time)) return setErr('Record interest when it is credited, not in advance')
     try {
-      await write.batch.mutateAsync([createOp('transactions', id, linkedTxData({ type: 'income', account_id: into, amount: m, category_id: interestIncomeCategory(cats.data ?? []), payee: dep.institution || dep.name, note: `${dep.name} · interest`, date, deposit_id: dep.id, part: 'interest' }))])
+      await write.batch.mutateAsync([createOp('transactions', id, linkedTxData({ type: 'income', account_id: into, amount: m, category_id: interestIncomeCategory(cats.data ?? []), payee: dep.institution || dep.name, note: `${dep.name} · interest`, date, time, deposit_id: dep.id, part: 'interest' }))])
       toast('Interest recorded'); onClose()
     } catch (x2) { setErr(saveErrorText(x2)) }
   }
@@ -373,10 +373,8 @@ function InterestForm({ x, onClose }: { x: DepositEntry; onClose: () => void }) 
     <Modal title={`Interest · ${dep.name}`} onClose={onClose} footer={<><button type="button" onClick={onClose}>Cancel</button><button className="primary" form="intform" disabled={write.batch.isPending}>Record</button></>}>
       <form id="intform" onSubmit={submit}>
         <p className="muted small">{payout ? 'Interest paid out to your account. It counts as income.' : 'Interest the bank added to the deposit. It counts as income and grows the deposit.'}</p>
-        <div className="two">
-          <Field label="Interest"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
-          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
-        </div>
+        <Field label="Interest"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+        <WhenFields label="Credited on" date={date} time={time} onDate={setDate} onTime={setTime} max={isoDate()} />
         {payout && <Field label="Paid into"><Select value={into} onChange={(e) => setInto(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>}
         {err && <p className="error" role="alert">{err}</p>}
       </form>
@@ -391,6 +389,7 @@ function InstalmentForm({ x, onClose }: { x: DepositEntry; onClose: () => void }
   const id = useStableId()
   const due = addMonths(dep.start_date, x.rdPaid)
   const [date, setDate] = useState(due <= isoDate() ? due : isoDate())
+  const [time, setTime] = useState(nowTime())
   const [from, setFrom] = useState(banks.list[0]?.id ?? '')
   const [err, setErr] = useState('')
   const bal = from ? banks.bal(from) : undefined
@@ -398,18 +397,17 @@ function InstalmentForm({ x, onClose }: { x: DepositEntry; onClose: () => void }
     setErr('')
     if (write.batch.isPending) return
     if (!from) return setErr(`Add a ${dep.currency} account to pay from`)
+    if (date > isoDate() || isFutureTime(date, time)) return setErr('That is in the future. Record the instalment when it is paid.')
     try {
-      await write.batch.mutateAsync([createOp('transactions', id, linkedTxData({ type: 'transfer', account_id: from, to_account_id: dep.account_id, amount: dep.amount, payee: dep.institution || dep.name, note: `${dep.name} · instalment ${x.rdPaid + 1}`, date, deposit_id: dep.id, part: 'principal' }))])
+      await write.batch.mutateAsync([createOp('transactions', id, linkedTxData({ type: 'transfer', account_id: from, to_account_id: dep.account_id, amount: dep.amount, payee: dep.institution || dep.name, note: `${dep.name} · instalment ${x.rdPaid + 1}`, date, time, deposit_id: dep.id, part: 'principal' }))])
       toast(`Instalment ${x.rdPaid + 1} recorded`); onClose()
     } catch (x2) { setErr(saveErrorText(x2)) }
   }
   return (
     <Modal title={`RD instalment ${x.rdPaid + 1}`} onClose={onClose} footer={<><button type="button" onClick={onClose}>Cancel</button><button className="primary" onClick={submit} disabled={write.batch.isPending}>Record <Money value={dep.amount} currency={dep.currency} /></button></>}>
       <p className="muted small">Due {dayLabel(due)}. Moves the instalment from your account into the deposit; it is saving, not spending.</p>
-      <div className="two">
-        <Field label="From account" hint={bal !== undefined ? <>Balance <Money value={bal} currency={dep.currency} /></> : undefined}><Select value={from} onChange={(e) => setFrom(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
-        <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
-      </div>
+      <Field label="From account" hint={bal !== undefined ? <>Balance <Money value={bal} currency={dep.currency} /></> : undefined}><Select value={from} onChange={(e) => setFrom(e.target.value)}>{banks.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select></Field>
+      <WhenFields label="Paid on" date={date} time={time} onDate={setDate} onTime={setTime} max={isoDate()} />
       {bal !== undefined && bal < dep.amount && <p className="warn-text small"><Icon name="alert" size={14} /> The account has less than the instalment.</p>}
       {err && <p className="error" role="alert">{err}</p>}
     </Modal>
