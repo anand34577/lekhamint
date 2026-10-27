@@ -1,5 +1,58 @@
 # Changelog
 
+## 1.8.0
+
+**Sync**
+- The phone now syncs live while the app is open: it syncs when you open it, sends your edits within a second, and changes made on the web or another phone appear within seconds. Before, it only synced every 15 minutes in the background, so web edits seemed not to arrive. Pull down on Home or Activity to sync by hand.
+- Server: `GET …/sync/pull` takes `wait=N` (up to 25 s) and answers as soon as the book changes. Older apps are unaffected; the phone falls back to polling an older server every 20 s.
+- Home says "Not synced · saved on this phone" when sync fails, instead of only a small cloud icon.
+- Pull down to sync on Home, Activity, Accounts, Budgets, Reports, Insights, Goals, Year & tax, Loans, Deposits, Bills & recurring, Lent & borrowed and the weekly check-in. It shows only when a server is connected, the spinner stays until the sync is done, and a short message says "Up to date", how many changes came in, or why it couldn't sync.
+
+**Connect a phone without typing a password**
+- Web: Settings → Signed-in devices → Connect a phone shows a QR code and a 10-character code, valid for 5 minutes and once. It says when the phone has connected.
+- Android: Sync (and "Sign in to server" when setting up) has Scan code and Enter code. Scanning takes a photo with the camera app and reads the code on the phone (ZXing), so the app still asks for no camera permission; pointing the phone's own camera at the code opens LekhaMint directly too.
+- Server: `POST /auth/pair`, `GET /auth/pair/{code}` and `POST /auth/pair/claim` (docs/07). A "new device connected" security notice goes out like for a sign-in.
+
+**Remove a device from the account**
+- Web: Settings → Signed-in devices shows a phone or browser icon for each, and "Sign out" is now **Remove**, with a confirmation that says what happens (it stops syncing at once; its data stays on it). "Remove all other devices" helps after losing a phone.
+- Android: Sync lists every device on the account ("this phone" first) with **Remove**, and "Sign out" is now **Disconnect this phone**, with a confirmation that mentions changes not uploaded yet.
+- A phone removed on the web or from another device now notices within seconds: sync stops instead of retrying forever, Home says "Removed from the server · Connect again", and Sync explains what happened. Everything recorded on the phone stays; connecting again (server and email filled in) carries on with the same book and uploads anything not yet sent.
+
+**Android: easier to use**
+- More has a search box: find a page or setting by name or everyday words ("dark", "password", "export", "emi"), including tools hidden in simple mode.
+- Activity offers "Categorise" on entries without a category: pick one in place, with Undo.
+- When "Safe to spend" is short, it offers the next step: Bills due, Review budget, or Move money in.
+- Sign in: the server box says what to type, the password has a show button, and the keyboard moves between fields and signs in from Done.
+- The welcome screen shows the LekhaMint logo, and its header stays readable in dark mode (it was white text on light mint).
+
+**Android: installing**
+- Two editions. The downloadable APK no longer includes reading bank and payment alerts: Google Play Protect blocks sideloaded apps that ask for notification access in many countries (India, Brazil, Singapore, Thailand and others), with no "install anyway" option. Share an SMS or alert to LekhaMint instead; the Google Play edition keeps automatic reading.
+
+**Deposits**
+- Terms in years, months and days, with quick picks (7 days, 30 days, 91 days, 6 months, 1–5 years), so 7-day, 46-day and "1 year 4 months 15 days" deposits can be entered. The form shows the maturity date and the number of days; the deposit screen shows the term and how long is left.
+- Renewing a deposit keeps its exact term. It used to round to whole months, so a 7-day deposit renewed for a month.
+
+**Android: dark theme and presentation**
+- Buttons on the coloured cards (receipt import, found payments) were light text on a light button in dark mode; they now use the card's own colour for the label.
+- The Expense / Income / Transfer switch and the busiest days in the spending calendar had white text on light green or orange in dark mode; text colour now follows the fill.
+- Fixed accent colours (category colours, chart series, Accounts, net-worth bars) are lifted in dark mode so they don't sink into the background.
+- Dates follow the phone's region ("Mon, 21 Oct" or "Mon, Oct 21"), and times follow its 12- or 24-hour setting.
+- Amounts are never cut short with "…": in tight spots (the Income / Spent / Net tiles in Activity with lakh-sized figures) they get smaller to fit.
+- "Safe to spend" on Home no longer shows a bare red "0 a day": it says how much is short and why ("Bills due by Oct 31 (₹4,000) need more than the ₹1,345 left in your budget").
+- Closing a new or edited entry with ✕ or Back after typing something asks "Discard this entry?" instead of losing it.
+- Reports: "Which days cost the most" uses a typical day per weekday, so one rent or EMI day no longer makes its weekday look like the expensive one.
+
+**Web**
+- The calendar button on date fields sometimes did nothing: pressing it moved it, so the click was lost. Clicking anywhere on a date field now opens the calendar, and on phones it opens without the keyboard.
+- Deposits take a term in years, months and days with the same quick picks.
+- Live updates: while a tab is open, changes saved on the phone or in another browser show up within seconds, with no reload. Hidden tabs stop waiting and catch up when you come back.
+- Forms ask "Close without saving?" when you press Escape, click outside or press ✕ after typing something, instead of losing it. Cancel still closes at once.
+- Dates follow your region: the date field shows and reads "Oct 25, 2026" and 10/25/2026 where the month comes first, and the calendar starts the week on your region's first day. A typed date that only works one way round (25/10) is read that way anywhere. Month labels on loan, deposit, net-worth and tool charts no longer show the previous month in the Americas.
+- Amounts can be typed the way your region writes them: 1.234,56 · 1 234,56 · 1'234.50.
+- Two categories with the same name in the same group are no longer allowed (they could not be told apart); a failed category delete shows why.
+- Home: "This month" shows how much you saved and what share of income that is; "Where your money went" moved beside Spending pace so the two columns end evenly.
+- Light theme: income, spending, warning and button colours are a shade deeper so text on them is easier to read. Dark theme: Delete buttons and done ticks use dark text on their bright fill instead of white.
+
 ## 1.7.0
 
 **Android: less typing, fewer taps**

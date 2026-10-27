@@ -89,6 +89,14 @@ This is correct because `seq` is global per ledger.
 The client applies each pulled record **only if** `remote.hlc > local.hlc`, or the local copy is
 not dirty. It then saves `next_cursor`.
 
+**Live updates.** `wait=N` (seconds, at most 25) makes the server hold the answer while there is
+nothing after `since`, and answer as soon as a push, REST write or import changes the book. While
+the Android app is on screen it keeps one such request open (`limit=1`) and runs a full sync when it
+returns with a change. The web app does the same while its tab is visible, starting from the book's
+`seq` in `GET /ledgers`, and refreshes the page's data when a change arrives. Only writes made by the same server process wake it; with several processes a
+waiting pull still answers at its deadline. Servers that ignore `wait` answer at once, and the app
+then polls every 20 seconds.
+
 ## Client loop (Android: WorkManager; web: on focus or interval)
 
 ```

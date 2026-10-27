@@ -22,7 +22,7 @@ cd web && npm ci && npm run dev # web app with hot reload on :5173
 - Run the checks for the parts you touched:
   - `cd server && gofmt -l . && go vet ./... && go test ./...`
   - `cd web && npm test && npm run build`
-  - `cd android && ./gradlew testDebugUnitTest`
+  - `cd android && ./gradlew testDirectDebugUnitTest`
 - User-facing changes get a line in `CHANGELOG.md` under *Unreleased*, written for people who use the app.
 - Docs for people running LekhaMint live in `docs/wiki/` and are published to the wiki automatically.
 
