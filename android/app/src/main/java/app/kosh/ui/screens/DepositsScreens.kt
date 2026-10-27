@@ -60,6 +60,9 @@ import app.kosh.ui.LocalSnackbar
 import app.kosh.ui.components.AmountField
 import app.kosh.ui.components.AssumptionNote
 import app.kosh.ui.components.DateField
+import app.kosh.ui.components.WhenFields
+import app.kosh.ui.components.isFuture
+import app.kosh.ui.components.nowMinute
 import app.kosh.ui.components.EmptyState
 import app.kosh.ui.components.ErrorText
 import app.kosh.ui.components.FactRow
@@ -235,6 +238,7 @@ private fun MatureDialog(e: DepositEntry, lookup: Lookup, early: Boolean, onDism
     var received by remember { mutableStateOf(if (early) "" else Money.toPlain(e.est.maturity, d.currency)) }
     var tax by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(if (early) Dates.today() else minOf(Dates.today(), LocalDate.parse(d.maturityDate))) }
+    var time by remember { mutableStateOf(nowMinute()) }
     var into by remember { mutableStateOf(d.payoutAccountId ?: lookup.bankAccounts(d.currency).firstOrNull()?.id) }
     var saving by remember { mutableStateOf(false) }
     val got = Money.parse(received, d.currency)
@@ -245,6 +249,7 @@ private fun MatureDialog(e: DepositEntry, lookup: Lookup, early: Boolean, onDism
         t == null || t < 0 -> "Enter the tax deducted as an amount, or leave it empty"
         into == null -> "Choose the account the money went to"
         !early && diff != null && diff < 0 && -diff > e.balance / 20 -> "That is much less than what is in the deposit. If it closed early with a penalty, use early closure; otherwise check the amount."
+        isFuture(date, time) -> "That time has not come yet today"
         else -> null
     }
     FormSheet(
@@ -255,7 +260,7 @@ private fun MatureDialog(e: DepositEntry, lookup: Lookup, early: Boolean, onDism
                 Text("In the deposit: ${Money.ui(e.balance, d.currency)}. " + if (early) "Banks usually pay a lower rate when closed early; enter what you received." else "Expected about ${Money.ui(e.est.maturity, d.currency)}.", style = MaterialTheme.typography.bodySmall)
                 AmountField(received, { received = it }, d.currency, "Amount received")
                 AmountField(tax, { tax = it }, d.currency, "Tax deducted (optional)")
-                DateField("On", date, { date = it }, max = Dates.today())
+                WhenFields("Received on", date, { date = it }, time, { time = it }, max = Dates.today())
                 AccountPicker("Into account", lookup.bankAccounts(d.currency), into, lookup) { into = it }
                 if (diff != null && diff != 0L && error == null) Text(if (diff > 0) "Records ${Money.ui(diff, d.currency)} as interest income." else "Records ${Money.ui(-diff, d.currency)} as a penalty.", style = MaterialTheme.typography.bodySmall)
                 ErrorText(if (received.isNotBlank()) error else null)
@@ -266,10 +271,10 @@ private fun MatureDialog(e: DepositEntry, lookup: Lookup, early: Boolean, onDism
                 saving = true
                 val payee = d.institution ?: d.name
                 val txs = listOfNotNull(
-                    diff?.takeIf { it > 0 }?.let { linkedTx(ids.first, "income", d.accountId, it, date, "interest", "${d.name} · interest", payee, categoryId = lookup.findCategory("income", "Interest"), depositId = d.id) },
-                    diff?.takeIf { it < 0 }?.let { linkedTx(ids.first, "expense", d.accountId, -it, date, "fee", "${d.name} · early closure penalty", payee, categoryId = lookup.findCategory("expense", "Bank fees"), depositId = d.id) },
-                    t?.takeIf { it > 0 }?.let { linkedTx(ids.second, "expense", d.accountId, it, date, "fee", "${d.name} · tax deducted", payee, categoryId = lookup.findCategory("expense", "Taxes"), depositId = d.id) },
-                    linkedTx(ids.third, "transfer", d.accountId, got!!, date, "principal", "${d.name} · ${if (early) "closed early" else "matured"}", payee, toAccountId = into, depositId = d.id),
+                    diff?.takeIf { it > 0 }?.let { linkedTx(ids.first, "income", d.accountId, it, date, "interest", "${d.name} · interest", payee, categoryId = lookup.findCategory("income", "Interest"), depositId = d.id, time = time) },
+                    diff?.takeIf { it < 0 }?.let { linkedTx(ids.first, "expense", d.accountId, -it, date, "fee", "${d.name} · early closure penalty", payee, categoryId = lookup.findCategory("expense", "Bank fees"), depositId = d.id, time = time) },
+                    t?.takeIf { it > 0 }?.let { linkedTx(ids.second, "expense", d.accountId, it, date, "fee", "${d.name} · tax deducted", payee, categoryId = lookup.findCategory("expense", "Taxes"), depositId = d.id, time = time) },
+                    linkedTx(ids.third, "transfer", d.accountId, got!!, date, "principal", "${d.name} · ${if (early) "closed early" else "matured"}", payee, toAccountId = into, depositId = d.id, time = time),
                 )
                 scope.launch { c.repo.saveAll(deposits = listOf(d.copy(status = if (early) "closed" else "matured", closedDate = date.toString())), transactions = txs); onDismiss() }
             }) { Text("Record") }
@@ -287,6 +292,7 @@ private fun InterestDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> Uni
     val next = e.est.payouts.firstOrNull { p -> e.moves.none { it.part == "interest" && it.localDate.take(7) == p.date.toString().take(7) } }
     var amount by remember { mutableStateOf(next?.let { Money.toPlain(it.amount, d.currency) }.orEmpty()) }
     var date by remember { mutableStateOf(next?.date?.takeIf { !it.isAfter(Dates.today()) } ?: Dates.today()) }
+    var time by remember { mutableStateOf(nowMinute()) }
     val payout = d.payout != "cumulative"
     var into by remember { mutableStateOf(if (payout) d.payoutAccountId ?: lookup.bankAccounts(d.currency).firstOrNull()?.id else d.accountId) }
     val minor = Money.parse(amount, d.currency)
@@ -297,14 +303,14 @@ private fun InterestDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> Uni
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(if (payout) "Interest paid out to your account. It counts as income." else "Interest added to the deposit. It counts as income and grows the deposit.", style = MaterialTheme.typography.bodySmall)
                 AmountField(amount, { amount = it }, d.currency, "Interest")
-                DateField("On", date, { date = it }, max = Dates.today())
+                WhenFields("Credited on", date, { date = it }, time, { time = it }, max = Dates.today())
                 if (payout) AccountPicker("Paid into", lookup.bankAccounts(d.currency), into, lookup) { into = it }
             }
         },
         confirmButton = {
-            TextButton(enabled = minor != null && minor > 0 && into != null, onClick = {
+            TextButton(enabled = minor != null && minor > 0 && into != null && !isFuture(date, time), onClick = {
                 scope.launch {
-                    c.repo.saveAll(transactions = listOf(linkedTx(id, "income", into!!, minor!!, date, "interest", "${d.name} · interest", d.institution ?: d.name, categoryId = lookup.findCategory("income", "Interest"), depositId = d.id)))
+                    c.repo.saveAll(transactions = listOf(linkedTx(id, "income", into!!, minor!!, date, "interest", "${d.name} · interest", d.institution ?: d.name, categoryId = lookup.findCategory("income", "Interest"), depositId = d.id, time = time)))
                     onDismiss()
                 }
             }) { Text("Record") }
@@ -321,6 +327,7 @@ private fun InstalmentDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> U
     val id = remember { Ids.newV7() }
     val due = LocalDate.parse(d.startDate).plusMonths(e.rdPaid.toLong())
     var date by remember { mutableStateOf(minOf(due, Dates.today())) }
+    var time by remember { mutableStateOf(nowMinute()) }
     var from by remember { mutableStateOf(lookup.bankAccounts(d.currency).firstOrNull()?.id) }
     FormSheet(
         onDismissRequest = onDismiss,
@@ -328,14 +335,14 @@ private fun InstalmentDialog(e: DepositEntry, lookup: Lookup, onDismiss: () -> U
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("Due ${Dates.relativeDay(due)}. Moves ${Money.ui(d.amount, d.currency)} into the deposit; it is saving, not spending.", style = MaterialTheme.typography.bodySmall)
-                DateField("On", date, { date = it }, max = Dates.today())
+                WhenFields("Paid on", date, { date = it }, time, { time = it }, max = Dates.today())
                 AccountPicker("From", lookup.bankAccounts(d.currency), from, lookup) { from = it }
             }
         },
         confirmButton = {
-            TextButton(enabled = from != null, onClick = {
+            TextButton(enabled = from != null && !isFuture(date, time), onClick = {
                 scope.launch {
-                    c.repo.saveAll(transactions = listOf(linkedTx(id, "transfer", from!!, d.amount, date, "principal", "${d.name} · instalment ${e.rdPaid + 1}", d.institution ?: d.name, toAccountId = d.accountId, depositId = d.id)))
+                    c.repo.saveAll(transactions = listOf(linkedTx(id, "transfer", from!!, d.amount, date, "principal", "${d.name} · instalment ${e.rdPaid + 1}", d.institution ?: d.name, toAccountId = d.accountId, depositId = d.id, time = time)))
                     onDismiss()
                 }
             }) { Text("Record") }

@@ -71,7 +71,24 @@ describe('ids', () => {
   })
 })
 
-import { daysBetween, nextDayOfMonth } from './util'
+import { atTime, daysBetween, isFutureTime, isoDate, nextDayOfMonth, timeLabel, timeOf } from './util'
+describe('time of day', () => {
+  it('saves a picked time and reads it back', () => {
+    const at = atTime('2026-03-14', '21:05')
+    expect(timeOf(at)).toBe('21:05')
+    expect(new Date(at).getDate()).toBe(14)
+    expect(timeLabel(at)).not.toBe('')
+  })
+  it('treats exactly midday as "no time known" and other days without a time as midday', () => {
+    expect(timeOf(atTime('2026-03-14'))).toBe('12:00')
+    expect(timeLabel(atTime('2026-03-14'))).toBe('')
+  })
+  it('flags a time later than now only for today', () => {
+    expect(isFutureTime(isoDate(), '23:59')).toBe(new Date().getHours() * 60 + new Date().getMinutes() < 23 * 60 + 59)
+    expect(isFutureTime('2020-01-01', '23:59')).toBe(false)
+    expect(isFutureTime(isoDate(), '')).toBe(false)
+  })
+})
 describe('card due dates', () => {
   it('finds the next due date, clamping short months', () => {
     expect(nextDayOfMonth('2026-10-25', 28)).toBe('2026-10-28')

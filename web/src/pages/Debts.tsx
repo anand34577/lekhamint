@@ -5,8 +5,8 @@ import { useAccounts, useBalances, useCanWrite, useCategories, useDebts, useLedg
 import { allocate, debtStart, interestTotal, isInterest, isRepayment, outstanding, people, personKey, repaid, statement, type DebtRec, type Move, type PersonSummary } from '../lib/debts'
 import { createOp, interestExpenseCategory, interestIncomeCategory, linkedTxData } from '../lib/links'
 import { formatMoney, parseMoney, toPlain } from '../lib/money'
-import { dayLabel, isoDate, shortDate, uuidv7 } from '../lib/util'
-import { Avatar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, saveErrorText, toast } from '../components'
+import { atTime, dayLabel, isFutureTime, isoDate, nowTime, shortDate, timeLabel, timeOf, uuidv7, whenLabel } from '../lib/util'
+import { Avatar, Card, Check, Confirm, CurrencySelect, Empty, Field, Modal, Money, Segmented, Skeleton, WhenFields, saveErrorText, toast } from '../components'
 import { Icon } from '../icons'
 import type { PageProps } from '../App'
 import { Select, DateField, NumInput } from '../controls'
@@ -152,6 +152,10 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
   const [note, setNote] = useState(debt?.note ?? '')
   const [date, setDate] = useState(debt ? debtStart(debt, moves) : isoDate())
   const startDate = useMemo(() => (debt ? debtStart(debt, moves) : ''), []) // eslint-disable-line react-hooks/exhaustive-deps
+  // When the money changed hands: the first loan movement, or the debt itself when no account was linked.
+  const startAt = useMemo(() => (debt ? moves.find((m) => !isRepayment(debt, m) && !isInterest(m))?.occurred_at ?? debt.created_at : 0), []) // eslint-disable-line react-hooks/exhaustive-deps
+  const startTime = debt ? (timeLabel(startAt) ? timeOf(startAt) : '') : ''
+  const [time, setTime] = useState(debt ? startTime : nowTime())
   const choices = useAccountChoices(cur)
   const [accountId, setAccountId] = useState('')
   const [link, setLink] = useState(!debt)
@@ -176,23 +180,24 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
     if (!minor || minor <= 0) return setErr('Enter the amount, more than zero')
     if (debt && minor < paidBack) return setErr(`${formatMoney(paidBack, cur)} has already been repaid, so the amount cannot be less than that. To correct a repayment, click it in the history below to edit or delete it.`)
     if (due && due < date) return setErr('The due date is before the date of the loan. Pick a later date or leave it empty.')
+    if (isFutureTime(date, time)) return setErr('That time has not come yet today. Pick an earlier time, or leave it empty for now.')
     try {
       const data = { person: person.trim(), direction, amount: minor, currency: cur, due_date: due || null, note: note.trim() || null }
-      // created_at doubles as the date of the loan (midday, so no time zone moves it to another day), which lets older loans be entered with their real date.
-      const startMs = new Date(`${date}T12:00:00`).getTime()
-      const dateChanged = !debt || date !== startDate
+      // created_at doubles as when the loan was given (date and time), which lets older loans be entered as they happened.
+      const startMs = atTime(date, time)
+      const dateChanged = !debt || date !== startDate || time !== startTime
       const ops: BatchOp[] = [debt ? { op: 'update', entity: 'debts', id, data: dateChanged ? { ...data, created_at: startMs } : data } : createOp('debts', id, { ...data, closed: false, created_at: startMs })]
       // Lending takes money out of an account; borrowing puts money in.
       if (!debt && link && acct) ops.push(createOp('transactions', moveId, linkedTxData({
         type: direction === 'borrowed' ? 'income' : 'expense', account_id: acct.id, amount: minor, payee: person.trim(),
-        note: direction === 'lent' ? 'Lent' : 'Borrowed', date, debt_id: id, part: 'principal',
+        note: direction === 'lent' ? 'Lent' : 'Borrowed', date, time, debt_id: id, part: 'principal',
       })))
       // Changing the amount or date of a debt moves its account entry with it, so the balance and the debt never disagree.
       const principal = debt ? moves.find((m) => !isRepayment(debt, m) && !isInterest(m)) : undefined
-      if (principal && (minor !== debt!.amount || date !== startDate)) {
+      if (principal && (minor !== debt!.amount || dateChanged)) {
         ops.push({ op: 'update', entity: 'transactions', id: principal.id, data: {
           amount: minor,
-          ...(date !== startDate ? { local_date: date, occurred_at: new Date(`${date}T12:00:00`).getTime() } : {}),
+          ...(dateChanged ? { local_date: date, occurred_at: startMs, tz_offset_min: -new Date(startMs).getTimezoneOffset() } : {}),
         } })
       }
       await write.batch.mutateAsync(ops)
@@ -230,12 +235,12 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
             <Field label="Currency" hint={debt ? 'Fixed once recorded' : undefined}><CurrencySelect value={cur} onChange={setCur} disabled={!!debt} /></Field>
             <Field label="Due back by (optional)"><DateField value={due} onChange={(e) => setDue(e.target.value)} /></Field>
           </div>
-          <div className="two">
-            {debt && moves.length > 0
-              ? <Field label={direction === 'lent' ? 'Lent on' : 'Borrowed on'} hint="Taken from its first money movement. Click that movement in the history to change the date."><input value={dayLabel(startDate)} readOnly /></Field>
-              : <Field label={direction === 'lent' ? 'Lent on' : 'Borrowed on'} hint="Pick the real date for an older loan"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>}
-            <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What it was for, any agreement" maxLength={2000} /></Field>
-          </div>
+          {debt && moves.length > 0
+            ? <Field label={direction === 'lent' ? 'Lent on' : 'Borrowed on'} hint="Taken from its first money movement. Click that movement in the history to change the date or time.">
+                <input value={whenLabel(startDate, startAt)} readOnly /></Field>
+            : <WhenFields label={direction === 'lent' ? 'Lent on' : 'Borrowed on'} date={date} time={time} onDate={setDate} onTime={setTime} max={isoDate()}
+                hint={debt ? undefined : 'Pick the real date for an older loan'} />}
+          <Field label="Note"><input value={note} onChange={(e) => setNote(e.target.value)} placeholder="What it was for, any agreement" maxLength={2000} /></Field>
           {!debt && (choices.list.length > 0 ? (
             <div className="subtle-box">
               <Check checked={link} onChange={setLink}>{direction === 'lent' ? 'The money left one of my accounts' : 'The money came into one of my accounts'}</Check>
@@ -243,7 +248,7 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
                 <Field label="Account" hint={balance !== undefined ? <>Balance <Money value={balance} currency={cur} /></> : undefined}>
                   <Select value={acct?.id ?? ''} onChange={(e) => setAccountId(e.target.value)}>{choices.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
                 </Field>
-                <p className="muted small" style={{ alignSelf: 'end', margin: 0 }}>The movement is dated {dayLabel(date)}.</p>
+                <p className="muted small" style={{ alignSelf: 'end', margin: 0 }}>The movement is dated {whenLabel(date, atTime(date, time))}.</p>
               </div>}
               {!link && <p className="muted small">Only the debt is recorded; no account balance changes. Use this for money that moved before you started using LekhaMint.</p>}
               {lowBalance && <p className="warn-text small"><Icon name="alert" size={14} /> This takes {acct!.name} below zero, to {formatMoney(balance! - minor!, cur)}. Check the account, or save anyway if it is right.</p>}
@@ -257,7 +262,7 @@ function DebtForm({ debt, preset, moves, knownPeople, onClose }: { debt?: WithId
                   {moves.map((m) => (
                     <li key={m.id} className={can ? 'clickable' : ''} tabIndex={can ? 0 : undefined} title={can ? 'Edit the date, amount or account' : undefined}
                       onClick={() => can && setEditMove(m)} onKeyDown={(e) => { if (can && e.key === 'Enter') setEditMove(m) }}><div className="grow"><div>{isInterest(m) ? (m.part === 'fee' ? 'Fee' : 'Interest') : m.note ?? (m.type === (debt.direction === 'lent' ? 'income' : 'expense') ? 'Repayment' : debt.direction === 'lent' ? 'Lent' : 'Borrowed')}</div>
-                      <div className="sub">{dayLabel(m.local_date)} · {accName(m.account_id)}</div></div>
+                      <div className="sub">{whenLabel(m.local_date, m.occurred_at)} · {accName(m.account_id)}</div></div>
                       <Money value={m.type === 'income' ? m.amount : -m.amount} currency={debt.currency} signed /></li>
                   ))}
                 </ul>
@@ -315,6 +320,7 @@ function RepayForm({ debts, moves, name, currency, direction, onClose }: { debts
   const [interest, setInterest] = useState('')
   const [accountId, setAccountId] = useState(choices.list[0]?.id ?? '')
   const [date, setDate] = useState(isoDate())
+  const [time, setTime] = useState(nowTime())
   const [err, setErr] = useState('')
   const lent = direction === 'lent'
   const minor = parseMoney(amount, currency)
@@ -331,15 +337,15 @@ function RepayForm({ debts, moves, name, currency, direction, onClose }: { debts
     if (extra === null || extra < 0) return setErr('Enter the interest as an amount, or leave it empty')
     if (minor > owed) return setErr(`${lent ? `${name} owes you` : `You owe ${name}`} ${formatMoney(owed, currency)} in total. Enter up to that amount. If ${lent ? 'they' : 'you'} paid more as interest or a gift, put the extra in “Interest or extra”.`)
     if (!accountId) return setErr(`Add a ${currency} account first, so the money has somewhere to go`)
-    if (date > isoDate()) return setErr('The date is in the future. Record repayments when they happen.')
+    if (date > isoDate() || isFutureTime(date, time)) return setErr('That is in the future. Record repayments when they happen.')
     const ops: BatchOp[] = []
     plan!.parts.forEach((p, i) => {
-      ops.push(createOp('transactions', ids[i], linkedTxData({ type: lent ? 'income' : 'expense', account_id: accountId, amount: p.amount, payee: p.debt.person, note: 'Repayment', date, debt_id: p.debt.id, part: 'principal' })))
+      ops.push(createOp('transactions', ids[i], linkedTxData({ type: lent ? 'income' : 'expense', account_id: accountId, amount: p.amount, payee: p.debt.person, note: 'Repayment', date, time, debt_id: p.debt.id, part: 'principal' })))
       if (p.settles) ops.push({ op: 'update', entity: 'debts', id: p.debt.id, data: { closed: true } })
     })
     if (extra && extra > 0) {
       const cat = lent ? interestIncomeCategory(cats.data ?? []) : interestExpenseCategory(cats.data ?? [], 'personal')
-      ops.push(createOp('transactions', interestId, linkedTxData({ type: lent ? 'income' : 'expense', account_id: accountId, amount: extra, payee: name, note: 'Interest', category_id: cat, date, debt_id: plan!.parts[0].debt.id, part: 'interest' })))
+      ops.push(createOp('transactions', interestId, linkedTxData({ type: lent ? 'income' : 'expense', account_id: accountId, amount: extra, payee: name, note: 'Interest', category_id: cat, date, time, debt_id: plan!.parts[0].debt.id, part: 'interest' })))
     }
     try {
       await write.batch.mutateAsync(ops)
@@ -353,10 +359,8 @@ function RepayForm({ debts, moves, name, currency, direction, onClose }: { debts
       <button className="primary" form="repayform" disabled={write.batch.isPending}>{write.batch.isPending ? 'Saving…' : 'Record'}</button></>}>
       <form id="repayform" onSubmit={submit}>
         <p className="muted">Outstanding: <strong><Money value={owed} currency={currency} /></strong>{open.length > 1 ? ` across ${open.length} debts` : ''}</p>
-        <div className="two">
-          <Field label="Amount repaid"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
-          <Field label="On"><DateField value={date} onChange={(e) => setDate(e.target.value)} max={isoDate()} /></Field>
-        </div>
+        <Field label="Amount repaid"><NumInput kind="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} autoFocus /></Field>
+        <WhenFields label="Paid on" date={date} time={time} onDate={setDate} onTime={setTime} max={isoDate()} />
         <div className="two">
           <Field label={lent ? 'Into account' : 'From account'} hint={balance !== undefined ? <>Balance <Money value={balance} currency={currency} /></> : undefined}>
             <Select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{choices.list.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</Select>
@@ -388,7 +392,7 @@ function PersonSheet({ p, moves, onClose, onAdd, onEditDebt, onPrint }: { p: Per
   const iOwe = p.debts.some((d) => !d.closed && d.direction === 'borrowed' && outstanding(d, moves.get(d.id) ?? []) > 0)
   const copy = async () => {
     const lines = [`Statement with ${p.name} (${p.currency})`, '']
-    for (const r of rows) lines.push(`${r.date ?? ''}  ${notes ? r.text : r.text.replace(/ · .*/, '')}  ${r.change ? formatMoney(r.change, p.currency, { signed: true }) : ''}${r.interest ? ` interest ${formatMoney(r.interest, p.currency)}` : ''}  balance ${formatMoney(r.balance, p.currency)}`)
+    for (const r of rows) lines.push(`${r.date ?? ''}${r.at && timeLabel(r.at) ? ' ' + timeLabel(r.at) : ''}  ${notes ? r.text : r.text.replace(/ · .*/, '')}  ${r.change ? formatMoney(r.change, p.currency, { signed: true }) : ''}${r.interest ? ` interest ${formatMoney(r.interest, p.currency)}` : ''}  balance ${formatMoney(r.balance, p.currency)}`)
     lines.push('', p.net > 0 ? `${p.name} owes ${formatMoney(p.net, p.currency)}` : p.net < 0 ? `I owe ${p.name} ${formatMoney(-p.net, p.currency)}` : 'All settled')
     try { await navigator.clipboard.writeText(lines.join('\n')); toast('Statement copied. Paste it into a message to share.') } catch { toast('Could not copy. Use Print / PDF instead.') }
   }
@@ -438,7 +442,7 @@ function PersonSheet({ p, moves, onClose, onAdd, onEditDebt, onPrint }: { p: Per
         {rows.map((r, i) => (
           <li key={i} className="clickable" tabIndex={0} onClick={() => { const d = p.debts.find((x) => x.id === r.debtId); if (d) onEditDebt(d as WithId<Debt>) }}
             onKeyDown={(e) => { if (e.key === 'Enter') { const d = p.debts.find((x) => x.id === r.debtId); if (d) onEditDebt(d as WithId<Debt>) } }}>
-            <div className="grow"><div>{r.text}</div><div className="sub">{r.date ? dayLabel(r.date) : 'No date'}</div></div>
+            <div className="grow"><div>{r.text}</div><div className="sub">{r.date ? (r.at ? whenLabel(r.date, r.at) : dayLabel(r.date)) : 'No date'}</div></div>
             <div className="right">
               {r.change ? <Money value={r.change} currency={p.currency} signed /> : r.interest ? <span className="muted small"><Money value={r.interest} currency={p.currency} /> interest</span> : null}
               <div className="muted small">balance <Money value={r.balance} currency={p.currency} /></div>

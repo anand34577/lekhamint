@@ -30,15 +30,17 @@ export function parseOfx(text: string, currency: string): Parsed {
       if (v) f[m[1].toUpperCase()] = v
     }
     const line = k + 1
-    const date = /^(\d{4})(\d{2})(\d{2})/.exec(f.DTPOSTED ?? f.DTUSER ?? '')
+    // DTPOSTED is YYYYMMDD, optionally followed by HHMMSS; midnight is a padded bare date.
+    const date = /^(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2}))?/.exec(f.DTPOSTED ?? f.DTUSER ?? '')
     if (!date) { errors.push({ line, message: 'No date' }); return }
+    const time = date[4] && date[5] && +date[4] < 24 && +date[5] < 60 && date[4] + date[5] !== '0000' ? `${date[4]}:${date[5]}` : ''
     const amtRaw = f.TRNAMT ?? ''
     const amount = parseAmount(amtRaw, cur ?? currency, /,\d{1,2}$/.test(amtRaw) && !amtRaw.includes('.'))
     if (amount === null || amount === 0) { errors.push({ line, message: `Unreadable amount “${amtRaw}”` }); return }
     const name = f.NAME ?? f.PAYEE ?? ''
     const memo = f.MEMO ?? ''
     rows.push({
-      line, date: `${date[1]}-${date[2]}-${date[3]}`, type: amount < 0 ? 'expense' : 'income', amount: Math.abs(amount),
+      line, date: `${date[1]}-${date[2]}-${date[3]}`, time, type: amount < 0 ? 'expense' : 'income', amount: Math.abs(amount),
       description: (name || memo).replace(/\s+/g, ' '), note: name && memo && memo !== name ? memo : '', category: '',
       ref: f.FITID ? `ofx:${acct ?? ''}:${f.FITID}` : undefined,
     })
@@ -77,7 +79,7 @@ export function parseQif(text: string, currency: string, preferUS = false): Pars
     // Categories in brackets are transfers to another account; keep the name as a note.
     const cat = r.L && !/^\[.*\]$/.test(r.L) ? r.L.replace(/:/g, ' · ') : ''
     rows.push({
-      line, date, type: amount < 0 ? 'expense' : 'income', amount: Math.abs(amount),
+      line, date, time: '', type: amount < 0 ? 'expense' : 'income', amount: Math.abs(amount),
       description: (r.P ?? r.M ?? '').replace(/\s+/g, ' '), note: [r.P ? r.M : '', r.L && !cat ? `Transfer ${r.L}` : '', r.N ? `#${r.N}` : ''].filter(Boolean).join(' · '),
       category: cat,
     })

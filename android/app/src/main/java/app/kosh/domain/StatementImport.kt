@@ -2,6 +2,7 @@ package app.kosh.domain
 
 import app.kosh.core.Money
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.temporal.ChronoUnit
 
 /**
@@ -23,6 +24,8 @@ object StatementImport {
         val category: String = "",
         /** A bank's own ID for the transaction (OFX FITID): the most reliable fingerprint. */
         val ref: String? = null,
+        /** The time of day when the file gives one. */
+        val time: LocalTime? = null,
     )
 
     data class RowError(val line: Int, val message: String)
@@ -98,11 +101,12 @@ object StatementImport {
     // --- Columns ----------------------------------------------------------------------
 
     enum class Role(val label: String) {
-        DATE("Date"), DESCRIPTION("Description / payee"), NOTE("Note"), AMOUNT("Amount (signed)"), DEBIT("Money out (debit)"),
+        DATE("Date"), TIME("Time"), DESCRIPTION("Description / payee"), NOTE("Note"), AMOUNT("Amount (signed)"), DEBIT("Money out (debit)"),
         CREDIT("Money in (credit)"), CATEGORY("Category"), TYPE("Type (Dr / Cr)"), IGNORE("Ignore"),
     }
 
     private val GUESS = listOf(
+        Role.TIME to Regex("""^(txn |transaction )?time$""", RegexOption.IGNORE_CASE),
         Role.DATE to Regex("""^(txn |tran |transaction |value |posting |posted |booking )?date|^date$|^when$|^txn dt""", RegexOption.IGNORE_CASE),
         Role.DEBIT to Regex("""debit|withdrawal|money out|paid out|^dr\.?$|^out$""", RegexOption.IGNORE_CASE),
         Role.CREDIT to Regex("""credit|deposit|money in|paid in|^cr\.?$|^in$""", RegexOption.IGNORE_CASE),
@@ -172,6 +176,22 @@ object StatementImport {
         return runCatching { LocalDate.of(y, m, d) }.getOrNull()
     }
 
+    /**
+     * The time of day in a cell ("14:35", "2:35 PM", "24/10/2026 14:35:10", "2026-10-24T09:05"), or null.
+     * Midnight with no am/pm is how many banks pad a bare date, so it counts as no time.
+     */
+    fun parseTime(raw: String): LocalTime? {
+        val m = Regex("""(?:^|[T\s])(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*([ap]\.?m\.?)?""", RegexOption.IGNORE_CASE).find(raw.trim()) ?: return null
+        var h = m.groupValues[1].toInt()
+        val min = m.groupValues[2].toInt()
+        val ap = m.groupValues[3].lowercase().replace(".", "")
+        if (ap == "pm" && h < 12) h += 12
+        if (ap == "am" && h == 12) h = 0
+        if (h > 23 || min > 59) return null
+        if (h == 0 && min == 0 && ap.isEmpty()) return null
+        return LocalTime.of(h, min)
+    }
+
     /** Picks the order that reads every sample; day-first wins ties (common outside the US). */
     fun detectDateFormat(samples: List<String>, preferUS: Boolean = false): DateFormat {
         val order = if (preferUS) listOf(DateFormat.MDY, DateFormat.DMY, DateFormat.YMD) else listOf(DateFormat.DMY, DateFormat.MDY, DateFormat.YMD)
@@ -221,6 +241,7 @@ object StatementImport {
         fun col(r: Role) = o.roles.indexOf(r)
         val iDate = col(Role.DATE); val iDesc = col(Role.DESCRIPTION); val iNote = col(Role.NOTE); val iAmt = col(Role.AMOUNT)
         val iDebit = col(Role.DEBIT); val iCredit = col(Role.CREDIT); val iCat = col(Role.CATEGORY); val iType = col(Role.TYPE)
+        val iTime = col(Role.TIME)
         val rows = ArrayList<Row>()
         val errors = ArrayList<RowError>()
         for ((k, cells) in table.withIndex()) {
@@ -261,6 +282,7 @@ object StatementImport {
             rows += Row(
                 line, date, if (signed < 0) "expense" else "income", kotlin.math.abs(signed),
                 get(iDesc).replace(Regex("""\s+"""), " "), get(iNote), get(iCat),
+                time = parseTime(get(iTime)) ?: parseTime(rawDate),
             )
         }
         return Parsed(rows, errors)
@@ -283,9 +305,14 @@ object StatementImport {
                 if (v.isNotEmpty()) f[m.groupValues[1].uppercase()] = v
             }
             val line = k + 1
-            val dm = Regex("""^(\d{4})(\d{2})(\d{2})""").find(f["DTPOSTED"] ?: f["DTUSER"] ?: "")
+            // DTPOSTED is YYYYMMDD, optionally followed by HHMMSS; midnight is a padded bare date.
+            val dm = Regex("""^(\d{4})(\d{2})(\d{2})(?:(\d{2})(\d{2}))?""").find(f["DTPOSTED"] ?: f["DTUSER"] ?: "")
             val date = dm?.let { runCatching { LocalDate.of(it.groupValues[1].toInt(), it.groupValues[2].toInt(), it.groupValues[3].toInt()) }.getOrNull() }
             if (date == null) { errors += RowError(line, "No date"); continue }
+            val time = dm!!.groupValues[4].takeIf { it.isNotEmpty() }?.let { h ->
+                val mi = dm.groupValues[5]
+                runCatching { LocalTime.of(h.toInt(), mi.toInt()) }.getOrNull()?.takeIf { it != LocalTime.MIDNIGHT }
+            }
             val amtRaw = f["TRNAMT"].orEmpty()
             val amount = parseAmount(amtRaw, cur ?: currency, Regex(""",\d{1,2}$""").containsMatchIn(amtRaw) && '.' !in amtRaw)
             if (amount == null || amount == 0L) { errors += RowError(line, "Unreadable amount “$amtRaw”"); continue }
@@ -295,6 +322,7 @@ object StatementImport {
                 line, date, if (amount < 0) "expense" else "income", kotlin.math.abs(amount),
                 name.ifEmpty { memo }.replace(Regex("""\s+"""), " "), if (name.isNotEmpty() && memo.isNotEmpty() && memo != name) memo else "", "",
                 f["FITID"]?.let { "ofx:${acct.orEmpty()}:$it" },
+                time = time,
             )
         }
         return Parsed(rows, errors, cur, acct)

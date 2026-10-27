@@ -164,9 +164,10 @@ object Debts {
         now: Long = System.currentTimeMillis(),
         id: String = Ids.newV7(now),
         interest: Boolean = false,
+        time: LocalTime? = null,
     ): TransactionEntity {
         val moneyIn = (d.direction == "lent") == repayment
-        val at = date.atTime(if (date == Dates.today()) LocalTime.now(zone) else LocalTime.NOON).atZone(zone).toInstant().toEpochMilli()
+        val at = Dates.at(date, time, zone)
         return TransactionEntity(
             id = id, type = if (moneyIn) "income" else "expense", accountId = accountId, amount = amount,
             payee = d.person, note = if (interest) "Interest" else if (repayment) "Repayment" else if (d.direction == "lent") "Lent" else "Borrowed",

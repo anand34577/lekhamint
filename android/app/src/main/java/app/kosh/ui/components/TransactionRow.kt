@@ -63,7 +63,10 @@ fun TransactionRow(
         !t.payee.isNullOrBlank() -> t.payee
         else -> categoryLabel
     }
+    val h24 = android.text.format.DateFormat.is24HourFormat(androidx.compose.ui.platform.LocalContext.current)
     val subtitle = buildList {
+        // When in the day it happened; entries saved with only a date have no time to show.
+        Dates.timeOf(t.occurredAt)?.let { add(Dates.time(it, h24)) }
         if (!transfer && !t.payee.isNullOrBlank()) add(categoryLabel)
         lookup.tagNames(t.tagIds).takeIf { it.isNotEmpty() }?.let { add(it.joinToString(" ") { n -> "#$n" }) }
         if (!transfer && forAccount == null) add(lookup.accountName(t.accountId))

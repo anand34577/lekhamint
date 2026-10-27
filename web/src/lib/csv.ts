@@ -57,14 +57,15 @@ export function parseCsv(text: string, delimiter = ','): string[][] {
 
 // --- Columns --------------------------------------------------------------------
 
-export type Role = 'date' | 'description' | 'note' | 'amount' | 'debit' | 'credit' | 'category' | 'type' | 'ignore'
+export type Role = 'date' | 'time' | 'description' | 'note' | 'amount' | 'debit' | 'credit' | 'category' | 'type' | 'ignore'
 
 export const ROLE_LABELS: Record<Role, string> = {
-  date: 'Date', description: 'Description / payee', note: 'Note', amount: 'Amount (signed)', debit: 'Money out (debit)',
+  date: 'Date', time: 'Time', description: 'Description / payee', note: 'Note', amount: 'Amount (signed)', debit: 'Money out (debit)',
   credit: 'Money in (credit)', category: 'Category', type: 'Type (expense / income, Dr / Cr)', ignore: 'Ignore',
 }
 
 const GUESS: [Role, RegExp][] = [
+  ['time', /^(txn |transaction )?time$/i],
   ['date', /^(txn |transaction |value |posting |posted |booking )?date|^date$|^when$/i],
   ['debit', /debit|withdrawal|money out|paid out|^dr\.?$|^out$/i],
   ['credit', /credit|deposit|money in|paid in|^cr\.?$|^in$/i],
@@ -114,6 +115,24 @@ export function parseDateIn(raw: string, fmt: DateFormat): string | null {
   const dt = new Date(Date.UTC(y, m - 1, d))
   if (dt.getUTCMonth() !== m - 1) return null // 31 Feb
   return `${y}-${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+}
+
+/**
+ * The time of day in a cell ("14:35", "2:35 PM", "24/10/2026 14:35:10", "2026-10-24T09:05") as "HH:MM",
+ * or '' when there is none. Midnight with no clock text is how many banks pad a bare date, so
+ * "00:00" alone is taken as no time.
+ */
+export function parseTimeIn(raw: string): string {
+  const m = raw.match(/(?:^|[T\s])(\d{1,2}):(\d{2})(?::\d{2}(?:\.\d+)?)?\s*([ap]\.?m\.?)?/i)
+  if (!m) return ''
+  let h = Number(m[1])
+  const min = Number(m[2])
+  const ap = m[3]?.toLowerCase().replace(/\./g, '')
+  if (ap === 'pm' && h < 12) h += 12
+  if (ap === 'am' && h === 12) h = 0
+  if (h > 23 || min > 59) return ''
+  if (h === 0 && min === 0 && !ap) return ''
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`
 }
 
 /** Picks the order that parses every sample; day-first wins ties (common outside the US). */
@@ -166,6 +185,8 @@ export interface ImportOptions {
 export interface ParsedRow {
   line: number // 1-based line in the file, for messages
   date: string
+  /** "HH:MM" when the file gives a time of day, else ''. */
+  time: string
   type: 'expense' | 'income'
   amount: number // positive minor units
   description: string
@@ -179,8 +200,8 @@ export interface RowError { line: number; message: string }
 
 export function toRows(table: string[][], o: ImportOptions): { rows: ParsedRow[]; errors: RowError[] } {
   const col = (r: Role) => o.roles.indexOf(r)
-  const [iDate, iDesc, iNote, iAmt, iDebit, iCredit, iCat, iType] =
-    (['date', 'description', 'note', 'amount', 'debit', 'credit', 'category', 'type'] as Role[]).map(col)
+  const [iDate, iDesc, iNote, iAmt, iDebit, iCredit, iCat, iType, iTime] =
+    (['date', 'description', 'note', 'amount', 'debit', 'credit', 'category', 'type', 'time'] as Role[]).map(col)
   const rows: ParsedRow[] = [], errors: RowError[] = []
   const body = o.hasHeader ? table.slice(1) : table
   body.forEach((cells, k) => {
@@ -206,7 +227,7 @@ export function toRows(table: string[][], o: ImportOptions): { rows: ParsedRow[]
     }
     if (signed === 0) { errors.push({ line, message: 'Amount is zero' }); return }
     rows.push({
-      line, date, type: signed < 0 ? 'expense' : 'income', amount: Math.abs(signed),
+      line, date, time: parseTimeIn(get(iTime)) || parseTimeIn(get(iDate)), type: signed < 0 ? 'expense' : 'income', amount: Math.abs(signed),
       description: get(iDesc).replace(/\s+/g, ' '), note: get(iNote), category: get(iCat),
     })
   })

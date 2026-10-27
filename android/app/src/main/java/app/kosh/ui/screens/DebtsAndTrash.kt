@@ -57,6 +57,9 @@ import androidx.compose.foundation.verticalScroll
 import app.kosh.ui.components.AmountField
 import app.kosh.ui.components.CurrencyPickerSheet
 import app.kosh.ui.components.DateField
+import app.kosh.ui.components.WhenFields
+import app.kosh.ui.components.isFuture
+import app.kosh.ui.components.nowMinute
 import app.kosh.ui.components.EmptyState
 import app.kosh.ui.components.IconBadge
 import app.kosh.ui.components.KoshTopBar
@@ -102,6 +105,9 @@ internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (
     // The day the money changed hands. Older loans can be entered with their real date.
     var date by remember { mutableStateOf(existing?.createdAt?.let { java.time.Instant.ofEpochMilli(it).atZone(java.time.ZoneId.systemDefault()).toLocalDate() } ?: Dates.today()) }
     val originalDate = remember { date }
+    // ...and the time of day; an older entry saved without one reads as midday.
+    var time by remember { mutableStateOf(existing?.createdAt?.let { Dates.timeOf(it) ?: java.time.LocalTime.NOON } ?: nowMinute()) }
+    val originalTime = remember { time }
     var due by remember { mutableStateOf(existing?.dueDate?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }) }
     var amount by remember { mutableStateOf(existing?.let { Money.toPlain(it.amount, it.currency) }.orEmpty()) }
     var note by remember { mutableStateOf(existing?.note.orEmpty()) }
@@ -134,15 +140,13 @@ internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (
                         else -> null
                     })
                 if (existing == null) OutlinedButton(onClick = { pickCurrency = true }, modifier = Modifier.fillMaxWidth()) { Text("Currency: $currency") }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    DateField(if (direction == "lent") "Lent on" else "Borrowed on", date, { date = it; if (due != null && due!!.isBefore(it)) due = null }, Modifier.weight(1f), max = Dates.today())
-                    Column(Modifier.weight(1f)) {
-                        if (due != null) {
-                            DateField("Due back by", due!!, { due = it }, Modifier.fillMaxWidth())
-                            TextButton(onClick = { due = null }) { Text("Clear due date") }
-                        } else OutlinedButton(onClick = { due = date.plusMonths(1) }, modifier = Modifier.fillMaxWidth().padding(top = 18.dp)) { Text("Add due date") }
+                WhenFields(if (direction == "lent") "Lent on" else "Borrowed on", date, { date = it; if (due != null && due!!.isBefore(it)) due = null }, time, { time = it }, max = Dates.today())
+                if (due != null) {
+                    Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DateField("Due back by", due!!, { due = it }, Modifier.weight(1f))
+                        TextButton(onClick = { due = null }) { Text("Clear") }
                     }
-                }
+                } else OutlinedButton(onClick = { due = date.plusMonths(1) }, modifier = Modifier.fillMaxWidth()) { Text("Add a due date") }
                 OutlinedTextField(note, { note = it }, label = { Text("Note") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                 if (existing == null) {
                     Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.clickable { linkAccount = !linkAccount }) {
@@ -154,14 +158,15 @@ internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (
                     TextButton(onClick = { onRepay(existing) }) { Text(if (existing.direction == "lent") "Record a repayment" else "Record a payment") }
                 }
                 if (existing != null) {
-                    val history = moves.filter { it.debtId == existing.id }.sortedByDescending { it.localDate }
+                    val history = moves.filter { it.debtId == existing.id }.sortedWith(compareByDescending<app.kosh.data.db.TransactionEntity> { it.localDate }.thenByDescending { it.occurredAt })
+                    val h24 = android.text.format.DateFormat.is24HourFormat(androidx.compose.ui.platform.LocalContext.current)
                     if (history.isNotEmpty()) {
                         Text("History (tap to edit the date or amount)", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Column(Modifier.heightIn(max = 180.dp).verticalScroll(rememberScrollState())) {
                             history.forEach { m ->
                                 val back = Debts.isRepayment(existing, m)
                                 Row(Modifier.fillMaxWidth().clickable { onDismiss(); nav.navigate(Routes.editTx(m.id)) }.padding(vertical = 8.dp), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    Text("${Dates.relativeDay(java.time.LocalDate.parse(m.localDate))} · ${m.note ?: if (back) "Repayment" else if (existing.direction == "lent") "Lent" else "Borrowed"}", style = MaterialTheme.typography.bodyMedium)
+                                    Text("${Dates.relativeDay(java.time.LocalDate.parse(m.localDate))}${Dates.timeOf(m.occurredAt)?.let { ", " + Dates.time(it, h24) } ?: ""} · ${m.note ?: if (back) "Repayment" else if (existing.direction == "lent") "Lent" else "Borrowed"}", style = MaterialTheme.typography.bodyMedium)
                                     Text(Money.ui(m.amount, existing.currency), style = MaterialTheme.typography.bodyMedium)
                                 }
                             }
@@ -172,22 +177,23 @@ internal fun DebtDialog(existing: DebtEntity?, onDismiss: () -> Unit, onRepay: (
         },
         confirmButton = {
             val minor = Money.parse(amount, currency)
-            TextButton(enabled = !saving && person.isNotBlank() && minor != null && minor > 0 && minor >= paidBack, onClick = {
+            TextButton(enabled = !saving && person.isNotBlank() && minor != null && minor > 0 && minor >= paidBack && !isFuture(date, time), onClick = {
                 saving = true
                 val now = System.currentTimeMillis()
                 val base = existing ?: DebtEntity(id = debtId, person = person, direction = direction, amount = minor!!, currency = currency, createdAt = now)
-                // created_at doubles as the date of the loan (midday, so no time zone moves it to another day).
-                val startMs = date.atTime(12, 0).atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+                // created_at doubles as when the loan was given, date and time.
+                val startMs = Dates.at(date, time)
+                val whenChanged = date != originalDate || time != originalTime
                 val debt = base.copy(person = person.trim(), direction = direction, amount = minor!!, note = note.trim().ifEmpty { null },
-                    createdAt = if (existing == null || date != originalDate) startMs else existing.createdAt,
+                    createdAt = if (existing == null || whenChanged) startMs else existing.createdAt,
                     dueDate = due?.toString(),
                     closed = base.closed || (existing != null && minor == paidBack))
                 // Editing the amount or date of a debt keeps its account entry in step, so balance and debt never disagree.
                 val principal = existing?.let { e -> moves.filter { it.debtId == e.id }.sortedWith(compareBy({ it.localDate }, { it.occurredAt })).firstOrNull { !Debts.isRepayment(e, it) && !Debts.isInterest(it) } }
                 val move = if (existing == null) {
-                    accountId?.takeIf { linkAccount }?.let { Debts.movement(debt, repayment = false, accountId = it, amount = minor, date = date, id = moveId) }
-                } else principal?.takeIf { minor != existing.amount || date != originalDate }?.let { p ->
-                    val moved = if (date != originalDate) Debts.movement(debt, repayment = false, accountId = p.accountId, amount = minor, date = date, id = p.id) else null
+                    accountId?.takeIf { linkAccount }?.let { Debts.movement(debt, repayment = false, accountId = it, amount = minor, date = date, id = moveId, time = time) }
+                } else principal?.takeIf { minor != existing.amount || whenChanged }?.let { p ->
+                    val moved = if (whenChanged) Debts.movement(debt, repayment = false, accountId = p.accountId, amount = minor, date = date, id = p.id, time = time) else null
                     moved?.copy(createdAt = p.createdAt, note = p.note, categoryId = p.categoryId, tagIds = p.tagIds) ?: p.copy(amount = minor)
                 }
                 scope.launch {
@@ -231,6 +237,7 @@ internal fun RepayDialog(debt: DebtEntity, outstanding: Long, onDismiss: () -> U
     var amount by remember { mutableStateOf(Money.toPlain(outstanding, debt.currency)) }
     var interest by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(Dates.today()) }
+    var time by remember { mutableStateOf(nowMinute()) }
     var accountId by remember { mutableStateOf<String?>(null) }
     val moveId = remember { Ids.newV7() }
     val interestId = remember { Ids.newV7() }
@@ -254,14 +261,14 @@ internal fun RepayDialog(debt: DebtEntity, outstanding: Long, onDismiss: () -> U
                 AmountField(interest, { interest = it }, debt.currency, "Interest or extra (optional)",
                     supporting = if (extra == null) "Enter an amount or leave empty" else "Counts as ${if (lent) "income" else "a cost"}, not as repayment")
                 AccountChooser(debt.currency, accountId, if (lent) "Into" else "From") { accountId = it }
-                DateField("Paid on", date, { date = it }, Modifier.fillMaxWidth(), max = Dates.today())
+                WhenFields("Paid on", date, { date = it }, time, { time = it }, max = Dates.today())
             }
         },
         confirmButton = {
-            TextButton(enabled = !saving && minor != null && minor > 0 && minor <= outstanding && extra != null && extra >= 0 && accountId != null, onClick = {
+            TextButton(enabled = !saving && minor != null && minor > 0 && minor <= outstanding && extra != null && extra >= 0 && accountId != null && !isFuture(date, time), onClick = {
                 saving = true
-                val move = Debts.movement(debt, repayment = true, accountId = accountId!!, amount = minor!!, date = date, id = moveId)
-                val moves = listOfNotNull(move, extra?.takeIf { it > 0 }?.let { Debts.movement(debt, repayment = true, accountId = accountId!!, amount = it, date = date, id = interestId, interest = true) })
+                val move = Debts.movement(debt, repayment = true, accountId = accountId!!, amount = minor!!, date = date, id = moveId, time = time)
+                val moves = listOfNotNull(move, extra?.takeIf { it > 0 }?.let { Debts.movement(debt, repayment = true, accountId = accountId!!, amount = it, date = date, id = interestId, interest = true, time = time) })
                 scope.launch {
                     c.repo.saveAll(debts = listOf(if (minor == outstanding) debt.copy(closed = true) else debt), transactions = moves)
                     onDismiss()

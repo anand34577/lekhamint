@@ -5,7 +5,7 @@ import { isLiability, useAccounts, useAttachments, useBalances, useCanWrite, use
 import { evaluate } from '../lib/finance'
 import { applyRules, type RuleOutcome } from '../lib/rules'
 import { currency, formatMoney, parseMoney, toPlain } from '../lib/money'
-import { addDays, csvEscape, dayLabel, download, isoDate, monthLabel, monthRange, uuidv7 } from '../lib/util'
+import { addDays, csvEscape, dayLabel, download, isoDate, monthLabel, monthRange, timeLabel, timeOf, uuidv7 } from '../lib/util'
 import { Card, Check, Empty, Field, Modal, Money, Segmented, Skeleton, errorText, saveErrorText, toast } from '../components'
 import { CatIcon, Icon } from '../icons'
 import { SplitEditor, TagInput, splitMinor, type SplitDraft } from './parts'
@@ -122,8 +122,8 @@ export function Transactions({ params, go }: PageProps) {
   }
   const title = (t: TxRow) => (t.type === 'transfer' ? `${accName(t.account_id)} → ${accName(t.to_account_id)}` : t.payee || categoryLabel(t))
   const exportCsv = () => {
-    const head = ['date', 'type', 'amount', 'currency', 'account', 'to_account', 'category', 'payee', 'note', 'tags', 'status']
-    const lines = rows.map((t) => [t.local_date, t.type, toPlain(t.type === 'income' ? t.amount : -t.amount, cur(t.account_id)), cur(t.account_id),
+    const head = ['date', 'time', 'type', 'amount', 'currency', 'account', 'to_account', 'category', 'payee', 'note', 'tags', 'status']
+    const lines = rows.map((t) => [t.local_date, timeLabel(t.occurred_at) ? timeOf(t.occurred_at) : '', t.type, toPlain(t.type === 'income' ? t.amount : -t.amount, cur(t.account_id)), cur(t.account_id),
       accName(t.account_id), t.to_account_id ? accName(t.to_account_id) : '', t.type === 'transfer' ? '' : categoryLabel(t),
       t.payee ?? '', t.note ?? '', t.tag_ids.map((id) => tags.name(id)).filter(Boolean).join(' '), t.status].map(csvEscape).join(','))
     download(`lekhamint-transactions-${ranged ? from.slice(0, 7) : isoDate()}.csv`, new Blob(['﻿' + [head.join(','), ...lines].join('\r\n')], { type: 'text/csv' }))
@@ -227,8 +227,8 @@ export function Transactions({ params, go }: PageProps) {
                           {transfer && <Icon name="transfer" size={14} className="muted hide-sm" />}{title(t)}
                         </div>
                         <div className="muted small tx-sub">
-                          <span className="show-sm">{transfer ? 'Transfer' : categoryLabel(t)} · {accName(t.account_id)}{t.note || tagText ? ' · ' : ''}</span>
-                          {t.note}{t.note && tagText ? ' · ' : ''}{tagText}
+                          <span className="show-sm">{transfer ? 'Transfer' : categoryLabel(t)} · {accName(t.account_id)}{timeLabel(t.occurred_at) || t.note || tagText ? ' · ' : ''}</span>
+                          {[timeLabel(t.occurred_at), t.note, tagText].filter(Boolean).join(' · ')}
                         </div>
                       </td>
                       <td className="hide-sm">{transfer ? <span className="muted">Transfer</span> : <span className="row nowrap">{categoryLabel(t)}</span>}</td>

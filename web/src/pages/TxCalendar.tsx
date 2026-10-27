@@ -2,7 +2,10 @@ import { useContext } from 'react'
 import type { TxRow } from '../lib/api'
 import { compactMoney } from '../lib/money'
 import { HideAmounts } from '../components'
-import { monthRange, parseDate, plural } from '../lib/util'
+import { isoDate, monthRange, parseDate, plural } from '../lib/util'
+import { firstWeekday } from '../controls'
+
+const WEEK = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
 /**
  * A month as a calendar: each day shows money out and in (main currency), and
@@ -18,8 +21,9 @@ export function TxCalendar({ month, rows, currency, isMain, picked, onPick, spen
   const [from, to] = monthRange(month)
   const first = parseDate(from)
   const days = parseDate(to).getDate()
-  // Weeks start on Monday.
-  const lead = (first.getDay() + 6) % 7
+  // Weeks start on the reader's first weekday, as in the date picker (Sunday in the US, Monday in most places).
+  const weekStart = firstWeekday()
+  const lead = (first.getDay() - weekStart + 7) % 7
   const totals = new Map<string, { out: number; in: number; n: number }>()
   for (const t of rows) {
     if (!isMain(t)) continue
@@ -28,7 +32,8 @@ export function TxCalendar({ month, rows, currency, isMain, picked, onPick, spen
     totals.set(t.local_date, { out: cur.out + s.out, in: cur.in + s.in, n: cur.n + 1 })
   }
   const max = Math.max(1, ...[...totals.values()].map((v) => v.out))
-  const today = new Date().toISOString().slice(0, 10)
+  // The local day: toISOString gives the UTC one, which is yesterday or tomorrow for some hours of the day.
+  const today = isoDate()
   const cells: (string | null)[] = [...Array(lead).fill(null), ...Array.from({ length: days }, (_, i) => `${from.slice(0, 8)}${String(i + 1).padStart(2, '0')}`)]
   while (cells.length % 7) cells.push(null)
   const spent = [...totals.values()].reduce((a, v) => a + v.out, 0)
@@ -36,7 +41,7 @@ export function TxCalendar({ month, rows, currency, isMain, picked, onPick, spen
   return (
     <div className="txcal">
       <div className="txcal-grid" role="grid" aria-label="Spending by day">
-        {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => <div key={d} className="txcal-head" role="columnheader">{d}</div>)}
+        {Array.from({ length: 7 }, (_, i) => WEEK[(weekStart + i) % 7]).map((d) => <div key={d} className="txcal-head" role="columnheader">{d}</div>)}
         {cells.map((d, i) => {
           if (!d) return <div key={'e' + i} className="txcal-cell empty" />
           const v = totals.get(d)

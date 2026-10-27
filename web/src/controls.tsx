@@ -36,7 +36,9 @@ function Floating({ anchor, onClose, children, matchWidth, className = '', label
     const r = a.getBoundingClientRect()
     const h = f.offsetHeight, w = matchWidth ? r.width : Math.max(f.offsetWidth, r.width)
     const below = innerHeight - r.bottom - 8, above = r.top - 8
-    const up = below < Math.min(h, 280) && above > below
+    // Open upwards when the panel does not fit below and there is more room above (a calendar near
+    // the bottom of a dialog would otherwise be cut short and need its own scrolling).
+    const up = below < h && above > below
     const maxHeight = Math.max(160, up ? above : below)
     const left = Math.min(Math.max(8, r.left), Math.max(8, innerWidth - w - 8))
     setPos({ left, top: up ? Math.max(8, r.top - Math.min(h, maxHeight) - 6) : r.bottom + 6, width: matchWidth ? r.width : undefined, maxHeight })

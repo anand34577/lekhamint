@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { detectDateFormat, detectDelimiter, findDuplicates, fingerprints, guessRoles, matchCategory, parseAmount, parseCsv, parseDateIn, toRows } from './csv'
+import { detectDateFormat, detectDelimiter, findDuplicates, fingerprints, guessRoles, matchCategory, parseAmount, parseCsv, parseDateIn, parseTimeIn, toRows } from './csv'
 import { ID_NAMESPACE, uuidv5 } from './util'
 
 describe('csv parsing', () => {
@@ -32,6 +32,15 @@ describe('dates and amounts', () => {
     expect(detectDateFormat(['01/02/2026', '13/02/2026'])).toBe('DMY')
     expect(detectDateFormat(['02/13/2026', '02/01/2026'])).toBe('MDY')
     expect(detectDateFormat(['2026-10-01', '2026-10-05'])).toBe('YMD')
+  })
+  it('keeps the time of day when a statement has one', () => {
+    expect(parseTimeIn('2026-10-24 13:45:00')).toBe('13:45')
+    expect(parseTimeIn('24/10/2026 2:05 PM')).toBe('14:05')
+    expect(parseTimeIn('12:30 a.m.')).toBe('00:30')
+    expect(parseTimeIn('2026-10-24T09:05')).toBe('09:05')
+    expect(parseTimeIn('24/10/2026 00:00:00')).toBe('') // a bare date padded with midnight
+    expect(parseTimeIn('24/10/2026')).toBe('')
+    expect(guessRoles(['Date', 'Time', 'Details', 'Amount'])).toEqual(['date', 'time', 'description', 'amount'])
   })
   it('parses signed amounts exactly', () => {
     expect(parseAmount('-1,250.50', 'INR')).toBe(-125050)

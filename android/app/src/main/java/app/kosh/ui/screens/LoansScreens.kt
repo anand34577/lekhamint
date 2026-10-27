@@ -64,6 +64,9 @@ import app.kosh.ui.Routes
 import app.kosh.ui.components.AmountField
 import app.kosh.ui.components.AssumptionNote
 import app.kosh.ui.components.DateField
+import app.kosh.ui.components.WhenFields
+import app.kosh.ui.components.isFuture
+import app.kosh.ui.components.nowMinute
 import app.kosh.ui.components.EmptyState
 import app.kosh.ui.components.ErrorText
 import app.kosh.ui.components.FactRow
@@ -85,13 +88,14 @@ import java.time.ZoneId
  * transfer into it plus an interest expense, linked by loan_id.
  */
 
-/** A transaction linked to a loan, deposit or debt, dated [date] (noon unless today). */
+/** A transaction linked to a loan, deposit or debt, at [date] and [time] (without a time: now today, else midday). */
 fun linkedTx(
     id: String, type: String, accountId: String, amount: Long, date: LocalDate, part: String?, note: String?, payee: String?,
     toAccountId: String? = null, categoryId: String? = null, loanId: String? = null, depositId: String? = null,
+    time: LocalTime? = null,
 ): TransactionEntity {
     val zone = ZoneId.systemDefault()
-    val at = date.atTime(if (date == Dates.today()) LocalTime.now(zone) else LocalTime.NOON).atZone(zone).toInstant().toEpochMilli()
+    val at = Dates.at(date, time, zone)
     val now = System.currentTimeMillis()
     return TransactionEntity(
         id = id, type = type, accountId = accountId, amount = amount, toAccountId = toAccountId, toAmount = if (type == "transfer") amount else null,
@@ -337,6 +341,7 @@ private fun PayEmiDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
     var interestText by remember { mutableStateOf("") }
     var fee by remember { mutableStateOf("") }
     var date by remember { mutableStateOf(if (next != null && !next.date.isAfter(today)) next.date else today) }
+    var time by remember { mutableStateOf(nowMinute()) }
     val choices = lookup.payAccounts(l.currency)
     var accountId by remember { mutableStateOf(l.payFromAccountId?.takeIf { id -> choices.any { it.id == id } } ?: choices.firstOrNull()?.id) }
     var saving by remember { mutableStateOf(false) }
@@ -352,6 +357,7 @@ private fun PayEmiDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
         principal != null && principal > s.outstanding -> "That repays more than the ${Money.ui(s.outstanding, l.currency)} owed. Use Foreclose to close the loan."
         feeMinor == null || feeMinor < 0 -> "Enter the charges as an amount, or leave them empty"
         accountId == null -> "Choose the account it was paid from"
+        isFuture(date, time) -> "That time has not come yet today"
         else -> null
     }
     FormSheet(
@@ -364,7 +370,7 @@ private fun PayEmiDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
                 AmountField(interestText, { interestText = it }, l.currency, "Interest part (optional)",
                     supporting = "Calculated ${Money.ui(auto?.first ?: 0, l.currency)}; type your statement's figure if different")
                 AmountField(fee, { fee = it }, l.currency, "Late fee or charges (optional)")
-                DateField("Paid on", date, { date = it }, max = today)
+                WhenFields("Paid on", date, { date = it }, time, { time = it }, max = today)
                 AccountPicker("Paid from", choices, accountId, lookup) { accountId = it }
                 if (principal != null && interest != null && error == null) {
                     Text("Split: ${Money.ui(principal, l.currency)} principal + ${Money.ui(interest, l.currency)} interest" +
@@ -377,7 +383,7 @@ private fun PayEmiDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
             TextButton(enabled = error == null && !saving, onClick = {
                 saving = true
                 val base = { id: String, type: String, amt: Long, part: String, note: String, to: String?, cat: String? ->
-                    linkedTx(id, type, accountId!!, amt, date, part, note, l.lender ?: l.name, toAccountId = to, categoryId = cat, loanId = l.id)
+                    linkedTx(id, type, accountId!!, amt, date, part, note, l.lender ?: l.name, toAccountId = to, categoryId = cat, loanId = l.id, time = time)
                 }
                 val txs = listOfNotNull(
                     principal!!.takeIf { it > 0 }?.let { base(ids.first, "transfer", it, "principal", "${l.name} EMI · principal", l.accountId, null) },
@@ -408,6 +414,7 @@ private fun PrepayDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
     val choices = lookup.payAccounts(l.currency)
     var accountId by remember { mutableStateOf(l.payFromAccountId ?: choices.firstOrNull()?.id) }
     var date by remember { mutableStateOf(Dates.today()) }
+    var time by remember { mutableStateOf(nowMinute()) }
     var saving by remember { mutableStateOf(false) }
     val minor = Money.parse(amount, l.currency)
     val left = minor?.let { s.outstanding - it }
@@ -420,6 +427,7 @@ private fun PrepayDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
         minor == null || minor <= 0 -> "Enter the amount you are prepaying"
         minor >= s.outstanding -> "That is all of the ${Money.ui(s.outstanding, l.currency)} owed. Use Foreclose instead."
         accountId == null -> "Choose the account"
+        isFuture(date, time) -> "That time has not come yet today"
         else -> null
     }
     FormSheet(
@@ -428,7 +436,7 @@ private fun PrepayDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 AmountField(amount, { amount = it }, l.currency, "Prepayment")
-                DateField("On", date, { date = it }, max = Dates.today())
+                WhenFields("Paid on", date, { date = it }, time, { time = it }, max = Dates.today())
                 AccountPicker("From", choices, accountId, lookup) { accountId = it }
                 if (keepEmiSched != null && keepTenureSched != null && newEmi != null) {
                     FilterChip(keepEmi, { keepEmi = true }, label = { Text("Keep EMI: ${keepEmiSched.rows.size} left (saves ${Money.ui(before.totalInterest - keepEmiSched.totalInterest, l.currency)})") })
@@ -441,7 +449,7 @@ private fun PrepayDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit) {
         confirmButton = {
             TextButton(enabled = error == null && !saving, onClick = {
                 saving = true
-                val tx = linkedTx(id, "transfer", accountId!!, minor!!, date, "prepayment", "${l.name} · prepayment", l.lender ?: l.name, toAccountId = l.accountId, loanId = l.id)
+                val tx = linkedTx(id, "transfer", accountId!!, minor!!, date, "prepayment", "${l.name} · prepayment", l.lender ?: l.name, toAccountId = l.accountId, loanId = l.id, time = time)
                 scope.launch {
                     c.repo.saveAll(loans = if (!keepEmi && newEmi != null) listOf(l.copy(emiAmount = newEmi)) else emptyList(), transactions = listOf(tx))
                     onDismiss()
@@ -464,6 +472,7 @@ private fun CloseLoanDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit)
     val choices = lookup.payAccounts(l.currency)
     var accountId by remember { mutableStateOf(l.payFromAccountId ?: choices.firstOrNull()?.id) }
     var date by remember { mutableStateOf(Dates.today()) }
+    var time by remember { mutableStateOf(nowMinute()) }
     var saving by remember { mutableStateOf(false) }
     val i = if (interest.isBlank()) 0L else Money.parse(interest, l.currency)
     val ch = if (charge.isBlank()) 0L else Money.parse(charge, l.currency)
@@ -476,19 +485,19 @@ private fun CloseLoanDialog(e: LoanEntry, lookup: Lookup, onDismiss: () -> Unit)
                     Text("Pays the remaining ${Money.ui(owed, l.currency)} of principal and closes the loan. Use the figures from your lender's foreclosure letter.")
                     AmountField(interest, { interest = it }, l.currency, "Interest to the closing date")
                     AmountField(charge, { charge = it }, l.currency, "Foreclosure charge")
-                    DateField("On", date, { date = it }, max = Dates.today())
+                    WhenFields("Paid on", date, { date = it }, time, { time = it }, max = Dates.today())
                     AccountPicker("From", choices, accountId, lookup) { accountId = it }
                 } else Text("Nothing is owed, so this moves the loan to the closed list. Its history stays.")
                 ErrorText(if (i == null || ch == null) "Interest and charges must be amounts" else null)
             }
         },
         confirmButton = {
-            TextButton(enabled = !saving && i != null && ch != null && (owed == 0L || accountId != null), onClick = {
+            TextButton(enabled = !saving && i != null && ch != null && (owed == 0L || (accountId != null && !isFuture(date, time))), onClick = {
                 saving = true
                 val txs = if (owed == 0L) emptyList() else listOfNotNull(
-                    linkedTx(ids.first, "transfer", accountId!!, owed, date, "prepayment", "${l.name} · foreclosure", l.lender ?: l.name, toAccountId = l.accountId, loanId = l.id),
-                    i!!.takeIf { it > 0 }?.let { linkedTx(ids.second, "expense", accountId!!, it, date, "interest", "${l.name} · interest to closure", l.lender ?: l.name, categoryId = lookup.loanInterestCategory(l), loanId = l.id) },
-                    ch!!.takeIf { it > 0 }?.let { linkedTx(ids.third, "expense", accountId!!, it, date, "fee", "${l.name} · foreclosure charge", l.lender ?: l.name, categoryId = lookup.findCategory("expense", "Bank fees"), loanId = l.id) },
+                    linkedTx(ids.first, "transfer", accountId!!, owed, date, "prepayment", "${l.name} · foreclosure", l.lender ?: l.name, toAccountId = l.accountId, loanId = l.id, time = time),
+                    i!!.takeIf { it > 0 }?.let { linkedTx(ids.second, "expense", accountId!!, it, date, "interest", "${l.name} · interest to closure", l.lender ?: l.name, categoryId = lookup.loanInterestCategory(l), loanId = l.id, time = time) },
+                    ch!!.takeIf { it > 0 }?.let { linkedTx(ids.third, "expense", accountId!!, it, date, "fee", "${l.name} · foreclosure charge", l.lender ?: l.name, categoryId = lookup.findCategory("expense", "Bank fees"), loanId = l.id, time = time) },
                 )
                 scope.launch { c.repo.saveAll(loans = listOf(l.copy(closed = true, closedDate = date.toString())), transactions = txs); onDismiss() }
             }) { Text(if (owed > 0) "Pay off and close" else "Close") }

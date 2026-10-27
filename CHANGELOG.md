@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.9.0
+
+**Time of day on every money entry**
+- Lent & borrowed, loans, deposits and split bills now record the time as well as the date, on the web and on Android. A Time field sits next to the date, filled in with the current time; change it to when the money actually moved. A time later today is refused, since these record what already happened.
+  - Lent & borrowed: lending or borrowing, and every repayment (also when repaying a person across several debts).
+  - Loans: EMI payments, prepayments and foreclosure.
+  - Deposits: maturity or early closure, interest credited, and RD instalments.
+  - Split a bill (web): the shares lent to others are also dated when the bill was paid, not when it was saved.
+- Transaction lists show each entry's time on both apps, and Lent & borrowed shows it in a debt's history and in each person's statement (also in the copied statement).
+- Importing a bank statement keeps the time when the file has one, from the date cell ("24/10/2026 14:35") or a separate Time column, and from OFX files. Statements with only dates are saved as before.
+- CSV and Excel exports have a Time column.
+- Older entries saved with only a date show no time rather than a made-up "12:00 PM".
+
+**Web: hover and dark mode**
+- Selected options keep their look on hover: segmented switches (List / Calendar, I lent / I borrowed), date chips, choice cards, the selected month or year in the date picker, and the spending calendar's coloured days used to lose their highlight, which in dark mode read as the selection going dark.
+- Browsers that force a dark mode on websites (Chrome's "dark theme for websites", Edge, Samsung Internet) no longer recolour LekhaMint; it has its own light and dark themes, and the forced colours turned hovered text dark on dark.
+- The hover highlight is clearly visible in dark and black themes.
+- A date picker near the bottom of a dialog opens upwards instead of being cut off.
+- The loading bar under the top bar no longer keeps animating while hidden, which used power all the time.
+
+**Fixes**
+- Transactions calendar: "today" was the UTC day, so in India it marked the previous day until 5:30 am; weeks now start on your region's first day, like the date picker.
+- Android: Activity no longer flashes "$0" in the wrong currency while it loads.
+
 ## 1.8.0
 
 **Sync**

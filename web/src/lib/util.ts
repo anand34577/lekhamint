@@ -69,6 +69,42 @@ export function dayLabel(s: string): string {
   return d.toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short', ...(d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {}) })
 }
 
+/** The time now as "HH:MM", the value an <input type="time"> uses. */
+export function nowTime(d = new Date()): string {
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
+/** "HH:MM" of a saved moment, for editing it. */
+export const timeOf = (ms: number) => nowTime(new Date(ms))
+
+/** The moment [date] at [time] ("HH:MM"); without a time, now for today and noon for other days. */
+export function atTime(date: string, time?: string): number {
+  const d = new Date(date + 'T12:00:00')
+  const m = time ? /^(\d{1,2}):(\d{2})$/.exec(time) : null
+  if (m) d.setHours(Math.min(23, +m[1]), Math.min(59, +m[2]), 0, 0)
+  else if (date === isoDate()) { const n = new Date(); d.setHours(n.getHours(), n.getMinutes(), n.getSeconds(), 0) }
+  return d.getTime()
+}
+
+/** A time picked for today that has not come yet. */
+export const isFutureTime = (date: string, time: string) => date === isoDate() && /^\d{1,2}:\d{2}$/.test(time) && time.padStart(5, '0') > nowTime()
+
+/**
+ * The time of a saved entry in the reader's clock ("9:05 pm" or "21:05"), or '' when only its date
+ * is known: imports and older entries without a time were saved at exactly noon.
+ */
+export function timeLabel(ms: number): string {
+  const d = new Date(ms)
+  if (d.getHours() === 12 && d.getMinutes() === 0 && d.getSeconds() === 0 && d.getMilliseconds() === 0) return ''
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+}
+
+/** "Today, 3:45 pm" or "Mon, 21 Oct" when the time is not known. */
+export function whenLabel(date: string, ms: number): string {
+  const t = timeLabel(ms)
+  return t ? `${dayLabel(date)}, ${t}` : dayLabel(date)
+}
+
 export function shortDate(s: string): string {
   return parseDate(s).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
 }

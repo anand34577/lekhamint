@@ -2,7 +2,8 @@ import { Component, createContext, useContext, useEffect, useRef, useState, type
 import { ApiError } from './lib/api'
 import { compactMoney, currencies, formatMoney } from './lib/money'
 import { Icon } from './icons'
-import { Select } from './controls'
+import { DateField, Select } from './controls'
+import { isFutureTime, isoDate, nowTime } from './lib/util'
 
 export const HideAmounts = createContext(false)
 
@@ -96,6 +97,27 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
       {children}
       {error ? <span className="field-error">{error}</span> : hint ? <span className="field-hint">{hint}</span> : null}
     </label>
+  )
+}
+
+/**
+ * When money moved: a date and a time of day side by side. An empty time means "now" for today;
+ * the hint says so, and a time later than now today is flagged.
+ */
+export function WhenFields({ label, date, time, onDate, onTime, max, min, hint }: {
+  label: string; date: string; time: string; onDate: (v: string) => void; onTime: (v: string) => void; max?: string; min?: string; hint?: ReactNode
+}) {
+  const future = isFutureTime(date, time)
+  return (
+    <div className="two">
+      <Field label={label} hint={hint}><DateField value={date} onChange={(e) => onDate(e.target.value)} max={max} min={min} required /></Field>
+      <Field label="Time" error={future ? 'That time has not come yet today' : undefined} hint={time ? undefined : date === isoDate() ? 'Empty means now' : 'Empty means midday'}>
+        <div className="time-row">
+          <input type="time" value={time} onChange={(e) => onTime(e.target.value)} aria-invalid={future || undefined} />
+          {date === isoDate() && time !== nowTime() && <button type="button" className="link" onClick={() => onTime(nowTime())}>Now</button>}
+        </div>
+      </Field>
+    </div>
   )
 }
 

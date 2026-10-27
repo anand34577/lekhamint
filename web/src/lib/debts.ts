@@ -26,6 +26,9 @@ export const personKey = (name: string) => name.trim().toLowerCase().replace(/\s
 
 export interface StatementRow {
   date: string | null
+  /** When it happened (epoch ms), for its time of day and to order a day's rows. */
+  at?: number
+  sortAt?: number
   text: string
   debtId: string
   /** Positive: they owe you more (you lent / they were paid back by you). Negative: they paid you, or you borrowed. */
@@ -77,7 +80,10 @@ export function people(debts: DebtRec[], moves: Map<string, Move[]>, today: stri
 /** The start of a debt: its first linked movement, else when it was recorded. */
 export function debtStart(d: DebtRec, ms: Move[]): string {
   const first = ms.find((m) => !isRepayment(d, m) && !isInterest(m))
-  return first?.local_date ?? ms[0]?.local_date ?? new Date(d.created_at || Date.now()).toISOString().slice(0, 10)
+  if (first ?? ms[0]) return (first ?? ms[0]).local_date
+  // The local day it was recorded on (toISOString would give the UTC day, a day off east or west of it).
+  const t = new Date(d.created_at || Date.now())
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`
 }
 
 /** A chronological statement for one person in one currency. */
@@ -88,20 +94,22 @@ export function statement(debts: DebtRec[], moves: Map<string, Move[]>): Stateme
     const sign = d.direction === 'lent' ? 1 : -1
     const principalMove = ms.find((m) => !isRepayment(d, m) && !isInterest(m))
     const label = d.note ? ` · ${d.note}` : ''
-    events.push({ date: debtStart(d, ms), text: (d.direction === 'lent' ? 'You lent' : 'You borrowed') + label + (principalMove ? '' : ' (no account linked)'), debtId: d.id, change: sign * d.amount, interest: 0 })
+    events.push({ date: debtStart(d, ms), at: principalMove?.occurred_at ?? (ms.length ? undefined : d.created_at), text: (d.direction === 'lent' ? 'You lent' : 'You borrowed') + label + (principalMove ? '' : ' (no account linked)'), debtId: d.id, change: sign * d.amount, interest: 0 })
     for (const m of ms) {
       if (m === principalMove) continue
-      if (isInterest(m)) events.push({ date: m.local_date, text: m.part === 'fee' ? 'Fee' : d.direction === 'lent' ? 'Interest received' : 'Interest paid', debtId: d.id, change: 0, interest: m.amount })
-      else if (isRepayment(d, m)) events.push({ date: m.local_date, text: d.direction === 'lent' ? 'They paid you' : 'You paid them', debtId: d.id, change: -sign * m.amount, interest: 0 })
+      if (isInterest(m)) events.push({ date: m.local_date, at: m.occurred_at, text: m.part === 'fee' ? 'Fee' : d.direction === 'lent' ? 'Interest received' : 'Interest paid', debtId: d.id, change: 0, interest: m.amount })
+      else if (isRepayment(d, m)) events.push({ date: m.local_date, at: m.occurred_at, text: d.direction === 'lent' ? 'They paid you' : 'You paid them', debtId: d.id, change: -sign * m.amount, interest: 0 })
       // A second "loan" movement on the same debt: the debt amount is what counts, so this one is listed for reference only.
-      else events.push({ date: m.local_date, text: 'Linked movement (the debt amount already covers it)', debtId: d.id, change: 0, interest: 0 })
+      else events.push({ date: m.local_date, at: m.occurred_at, text: 'Linked movement (the debt amount already covers it)', debtId: d.id, change: 0, interest: 0 })
     }
     if (d.closed) {
       const left = outstanding(d, ms)
-      if (left !== 0) events.push({ date: ms.length ? ms[ms.length - 1].local_date : null, text: left > 0 ? 'Marked settled; the rest was written off' : 'Marked settled; overpayment kept', debtId: d.id, change: -sign * left, interest: 0 })
+      // No time of its own (sortAt only orders it after that debt's last movement).
+      if (left !== 0) events.push({ date: ms.length ? ms[ms.length - 1].local_date : null, sortAt: ms.length ? ms[ms.length - 1].occurred_at : undefined, text: left > 0 ? 'Marked settled; the rest was written off' : 'Marked settled; overpayment kept', debtId: d.id, change: -sign * left, interest: 0 })
     }
   }
-  events.sort((a, b) => (a.date ?? '9999').localeCompare(b.date ?? '9999'))
+  const when = (e: Omit<StatementRow, 'balance'>) => e.at ?? e.sortAt ?? 0
+  events.sort((a, b) => (a.date ?? '9999').localeCompare(b.date ?? '9999') || when(a) - when(b))
   let bal = 0
   return events.map((e) => ({ ...e, balance: (bal += e.change) }))
 }

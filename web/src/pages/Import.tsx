@@ -8,7 +8,7 @@ import {
 } from '../lib/csv'
 import { applyRules } from '../lib/rules'
 import { parseOfx, parseQif, statementKind, type Parsed } from '../lib/ofx'
-import { ID_NAMESPACE, uuidv5 } from '../lib/util'
+import { ID_NAMESPACE, atTime, uuidv5 } from '../lib/util'
 import { Card, Field, Money, errorText, toast } from '../components'
 import { CategorySelect } from './Transactions'
 import type { PageProps } from '../App'
@@ -110,7 +110,8 @@ export function Import({ go }: PageProps) {
       for (let i = 0; i < plan.length; i++) {
         const p = plan[i]
         if (!p.include) continue
-        const at = new Date(p.row.date + 'T12:00:00').getTime()
+        // The statement's own time when it has one; a bare date is saved at midday (shown without a time).
+        const at = p.row.time ? atTime(p.row.date, p.row.time) : new Date(p.row.date + 'T12:00:00').getTime()
         ops.push({
           op: 'create_if_missing', entity: 'transactions', id: await uuidv5(ID_NAMESPACE, `import:${accountId}:${fp[i]}`),
           data: {
