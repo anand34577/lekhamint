@@ -57,6 +57,7 @@ func (s *Server) meta(w http.ResponseWriter, r *http.Request) {
 			"max_attachment_size": s.maxAttachment(),
 			"fx_fetch":            s.FXURL != "",
 			"history":             true,
+			"pairing":             true,
 		},
 	})
 }
@@ -114,6 +115,41 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.securityNotice(u, "New sign-in", "Your account was just signed in on "+deviceLabel(in.DeviceName)+" at "+time.Now().Format("2 Jan 2006 15:04 MST")+". If this was not you, change your password and sign out other devices under Settings.")
 	s.setSessionCookie(w, r, token)
+	writeJSON(w, http.StatusOK, map[string]any{"user": u, "token": token})
+}
+
+// pairStart gives the signed-in browser a one-time code that connects a phone
+// (see auth/pairing.go). The browser shows it as a QR code and as text.
+func (s *Server) pairStart(w http.ResponseWriter, r *http.Request) {
+	code, exp, err := s.Auth.StartPairing(currentUser(r).ID)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"code": code, "expires_at": exp.UnixMilli()})
+}
+
+// pairStatus tells the browser whether its code has been used, and by which device.
+func (s *Server) pairStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.Auth.PairingState(currentUser(r).ID, r.PathValue("code")))
+}
+
+// pairClaim trades a pairing code for a session on the phone that scanned it.
+func (s *Server) pairClaim(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Code       string `json:"code"`
+		DeviceName string `json:"device_name"`
+	}
+	if err := decode(w, r, smallBody, &in); err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	u, token, err := s.Auth.ClaimPairing(r.Context(), in.Code, in.DeviceName)
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	s.securityNotice(u, "New device connected", "A device ("+deviceLabel(in.DeviceName)+") was connected to your account with a code from the web app at "+time.Now().Format("2 Jan 2006 15:04 MST")+". If this was not you, sign out other devices under Settings.")
 	writeJSON(w, http.StatusOK, map[string]any{"user": u, "token": token})
 }
 
@@ -354,7 +390,13 @@ func (s *Server) pull(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, err)
 		return
 	}
-	res, err := s.Sync.Pull(r.Context(), lid, since, limit)
+	// wait=N (seconds) holds the answer until something changes, so open apps see edits live.
+	wait, err := queryInt(r, "wait", 0, int(syncer.MaxPullWait/time.Second))
+	if err != nil {
+		s.fail(w, r, err)
+		return
+	}
+	res, err := s.Sync.PullWait(r.Context(), lid, since, limit, time.Duration(wait)*time.Second)
 	if err != nil {
 		s.fail(w, r, err)
 		return

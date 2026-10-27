@@ -17,6 +17,11 @@ describe('money', () => {
   it('parses exactly, without float drift', () => {
     expect(parseMoney('1,250.50', 'INR')).toBe(125050)
     expect(parseMoney('12,50', 'EUR')).toBe(1250)
+    expect(parseMoney('1.234,56', 'EUR')).toBe(123456)
+    expect(parseMoney('1 234,56', 'EUR')).toBe(123456)
+    expect(parseMoney("1'234.50", 'CHF')).toBe(123450)
+    expect(parseMoney('1.234.567', 'EUR')).toBe(123456700)
+    expect(parseMoney('1,234,567.8', 'USD')).toBe(123456780)
     expect(parseMoney('1,250', 'INR')).toBe(125000)
     expect(parseMoney('1,50,000', 'INR')).toBe(15000000)
     expect(parseMoney('0.1', 'USD')).toBe(10)

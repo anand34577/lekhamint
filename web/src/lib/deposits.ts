@@ -14,7 +14,7 @@
 // Banks differ in day counts, rounding and tax deduction, so the bank's own
 // maturity value (maturity_amount) always wins when it is entered.
 
-import { addMonths, parseDate } from './util'
+import { addDays, addMonths, parseDate } from './util'
 
 export interface DepositTerms {
   kind: string // fd | rd | other
@@ -39,6 +39,18 @@ export function monthsAndDays(a: string, b: string): { months: number; days: num
   let m = 0
   while (addMonths(a, m + 1) <= b) m++
   return { months: m, days: daysBetween(addMonths(a, m), b) }
+}
+
+/** The end of a term of [years], [months] and [days] from [start]: months first, then days, as banks count it. */
+export function termEnd(start: string, years: number, months: number, days: number): string {
+  return addDays(addMonths(start, years * 12 + months), days)
+}
+
+/** A renewal keeps the same term ("7 days", "1 year 4 months 15 days"), now starting on [from]. */
+export function renewedEnd(oldStart: string, oldEnd: string, from: string): string {
+  const { months, days } = monthsAndDays(oldStart, oldEnd)
+  const end = termEnd(from, 0, months, days)
+  return end > from ? end : addDays(from, 1)
 }
 
 const rateOf = (s: string) => Number(s) / 100

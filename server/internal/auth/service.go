@@ -76,6 +76,9 @@ type Service struct {
 
 	otpMu    sync.Mutex
 	otpFails map[string]*otpFailures
+
+	pairMu sync.Mutex
+	pairs  map[string]*pairing // pairing codes; see pairing.go
 }
 
 // otpLocked reports whether this account's code checks are paused after too many wrong codes.

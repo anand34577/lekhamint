@@ -180,6 +180,15 @@ const L = (lid: string) => `/ledgers/${lid}`
 
 export const api = {
   meta: () => call<Meta>('GET', '/meta'),
+  /**
+   * Waits up to 25 seconds for the book to change after [since] (its change-feed position).
+   * Answers at once when it already has; older servers always answer at once.
+   */
+  waitForChange: async (lid: string, since: number, signal: AbortSignal) => {
+    const res = await fetch(`/api/v1${L(lid)}/sync/pull?since=${since}&limit=1&wait=25`, { headers: { Accept: 'application/json', 'X-Kosh-Client': 'web' }, signal })
+    if (!res.ok) throw new ApiError(res.status, `http_${res.status}`, res.statusText)
+    return res.json() as Promise<{ changes: unknown[]; next_cursor: number; has_more: boolean }>
+  },
   oidcExchange: (code: string) => call<{ user: User; token: string }>('POST', '/auth/oidc/exchange', { code }),
   notifications: () => call<NotificationPrefs>('GET', '/notifications'),
   saveNotifications: (patch: Partial<Omit<NotificationPrefs, 'gotify_token_set' | 'channels'>> & { gotify_token?: string }) => call<NotificationPrefs>('PUT', '/notifications', patch),
@@ -205,6 +214,9 @@ export const api = {
   saveAiKey: (key: string) => call<{ key_set: boolean }>('PUT', '/ai/key', { key }),
   clearAiKey: () => call<void>('DELETE', '/ai/key'),
   sessions: () => call<{ sessions: Session[] }>('GET', '/auth/sessions').then((r) => r.sessions),
+  /** A one-time code (5 minutes) that connects the phone app to this account; see docs/07. */
+  pairStart: () => call<{ code: string; expires_at: number }>('POST', '/auth/pair'),
+  pairStatus: (code: string) => call<{ claimed: boolean; device?: string; expired: boolean }>('GET', `/auth/pair/${encodeURIComponent(code)}`),
   revokeSession: (id: string) => call<void>('DELETE', `/auth/sessions/${id}`),
   changePassword: (current_password: string, new_password: string) => call<void>('POST', '/auth/password', { current_password, new_password }),
   deleteAccount: (password: string) => call<{ deleted_ledgers: string[] }>('DELETE', '/auth/me', { password }),

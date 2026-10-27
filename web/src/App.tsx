@@ -33,6 +33,7 @@ const Assistant = lazy(() => import('./pages/Assistant').then((m) => ({ default:
 const Print = lazy(() => import('./pages/Print').then((m) => ({ default: m.Print })))
 import { CommandPalette, type Command, type Resolved } from './pages/QuickAdd'
 import { flushOutbox, outbox } from './lib/outbox'
+import { useLiveUpdates } from './lib/live'
 import { clearSettings, loadSettings, settingsLoaded, useSetting } from './lib/settings'
 
 // [route, label, icon, nav section]
@@ -225,6 +226,7 @@ function Shell({ ledger, ledgers, pick, route, params, go, hidden, toggleHidden,
   const [adding, setAdding] = useState<{ draft: Resolved | null } | null>(null)
   const [help, setHelp] = useState(false)
   useAutoRecurring()
+  useLiveUpdates(ledger.id, ledger.seq)
   const canWrite = ledger.role !== 'viewer'
   const online = useOnline()
   // The installed app's “Add transaction” shortcut opens #/…?add=1.

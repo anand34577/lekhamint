@@ -113,6 +113,9 @@ func (s *Server) Handler() http.Handler {
 	public("GET /api/v1/auth/oidc/start", s.limited(s.oidcStart))
 	public("GET /api/v1/auth/oidc/callback", s.limited(s.oidcCallback))
 	public("POST /api/v1/auth/oidc/exchange", s.limited(s.oidcExchange))
+	private("POST /api/v1/auth/pair", s.perUser(s.pairStart))
+	private("GET /api/v1/auth/pair/{code}", s.pairStatus)
+	public("POST /api/v1/auth/pair/claim", s.limited(s.pairClaim))
 
 	private("GET /api/v1/notifications", s.getPrefs)
 	private("PUT /api/v1/notifications", s.putPrefs)

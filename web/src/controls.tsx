@@ -212,13 +212,46 @@ function parseIso(s: string): [number, number, number] | null {
 const todayIso = () => { const n = new Date(); return toIso(n.getFullYear(), n.getMonth(), n.getDate()) }
 const addDaysIso = (s: string, n: number) => { const [y, m, d] = parseIso(s)!; const t = new Date(y, m, d + n); return toIso(t.getFullYear(), t.getMonth(), t.getDate()) }
 
-export function formatDate(s: string): string {
-  const p = parseIso(s)
-  return p ? `${p[2]} ${MONTHS[p[1]].slice(0, 3)} ${p[0]}` : ''
+/** Whether the reader's region writes the month before the day (10/25/2026 in the US), from the browser's locale. */
+export type DateOrder = 'dmy' | 'mdy'
+let cachedOrder: DateOrder | null = null
+export function dateOrder(): DateOrder {
+  if (cachedOrder) return cachedOrder
+  try {
+    const parts = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'numeric', year: 'numeric' }).formatToParts(new Date(2026, 9, 25))
+    const types = parts.map((x) => x.type)
+    cachedOrder = types.indexOf('month') < types.indexOf('day') && types.indexOf('year') > types.indexOf('day') ? 'mdy' : 'dmy'
+  } catch { cachedOrder = 'dmy' }
+  return cachedOrder
 }
 
-/** Understands what people type: 25 Oct 2026, 25/10/2026, 25-10-26, 2026-10-25, today, yesterday. */
-export function parseTypedDate(raw: string): string | null {
+/** The first day of the week in the reader's region: 0 Sunday, 1 Monday, 6 Saturday. Monday when the browser can't say. */
+export function firstWeekday(): number {
+  try {
+    const loc = new Intl.Locale(navigator.language) as Intl.Locale & { weekInfo?: { firstDay: number }; getWeekInfo?: () => { firstDay: number } }
+    const first = (loc.getWeekInfo?.() ?? loc.weekInfo)?.firstDay
+    if (first) return first % 7
+  } catch { /* older browsers */ }
+  return 1
+}
+
+/** 25 Oct 2026, or Oct 25, 2026 where the month comes first. The month is a word, so neither reading is ambiguous. */
+export function formatDate(s: string, order: DateOrder = dateOrder()): string {
+  const p = parseIso(s)
+  if (!p) return ''
+  const mon = MONTHS[p[1]].slice(0, 3)
+  return order === 'mdy' ? `${mon} ${p[2]}, ${p[0]}` : `${p[2]} ${mon} ${p[0]}`
+}
+
+/** An example in the reader's own order, for hints and error messages. */
+export const dateExample = (order: DateOrder = dateOrder()) => (order === 'mdy' ? 'Oct 25, 2026 or 10/25/2026' : '25 Oct 2026 or 25/10/2026')
+
+/**
+ * Understands what people type: 25 Oct 2026, Oct 25 2026, 25/10/2026 (10/25/2026 where the month
+ * comes first), 25-10-26, 2026-10-25, today, yesterday. A number pair that only works one way
+ * round (25/10 is never month 25) is read that way, whatever the region.
+ */
+export function parseTypedDate(raw: string, order: DateOrder = dateOrder()): string | null {
   const t = raw.trim().toLowerCase()
   if (!t) return null
   if (t === 'today' || t === 't') return todayIso()
@@ -229,12 +262,15 @@ export function parseTypedDate(raw: string): string | null {
   let m = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(t)
   if (m) return make(+m[1], +m[2] - 1, +m[3])
   m = /^(\d{1,2})[-/. ](\d{1,2})[-/. ](\d{2,4})$/.exec(t)
-  if (m) return make(fix(+m[3]), +m[2] - 1, +m[1])
-  m = /^(\d{1,2})[-/. ]*([a-z]{3,9})[-/. ,]*(\d{2,4})$/.exec(t)
   if (m) {
-    const mi = MONTHS.findIndex((x) => x.toLowerCase().startsWith(m![2].slice(0, 3)))
-    return mi < 0 ? null : make(fix(+m[3]), mi, +m[1])
+    const [a, b, y] = [+m[1], +m[2], fix(+m[3])]
+    return order === 'mdy' ? make(y, a - 1, b) ?? make(y, b - 1, a) : make(y, b - 1, a) ?? make(y, a - 1, b)
   }
+  const month = (w: string) => (w.length >= 3 ? MONTHS.findIndex((x) => x.toLowerCase().startsWith(w.slice(0, 3))) : -1)
+  m = /^(\d{1,2})(?:st|nd|rd|th)?[-/. ]*([a-z]{3,9})\.?[-/. ,]*(\d{2,4})$/.exec(t)
+  if (m) { const mi = month(m[2]); return mi < 0 ? null : make(fix(+m[3]), mi, +m[1]) }
+  m = /^([a-z]{3,9})\.?[-/. ]*(\d{1,2})(?:st|nd|rd|th)?[-/. ,]+(\d{2,4})$/.exec(t)
+  if (m) { const mi = month(m[1]); return mi < 0 ? null : make(fix(+m[3]), mi, +m[2]) }
   return null
 }
 
@@ -284,7 +320,7 @@ export function DateField({ value, onChange, min, max, required, disabled, id, c
   const commit = (raw: string) => {
     if (!raw.trim()) { setBad(''); if (value) emit(''); return }
     const iso = parseTypedDate(raw)
-    if (!iso) { setBad('Enter a date like 25 Oct 2026 or 25/10/2026'); return }
+    if (!iso) { setBad(`Enter a date like ${dateExample()}`); return }
     const msg = rangeMsg(iso)
     if (msg) { setBad(msg); return }
     setBad(''); setText(formatDate(iso))
@@ -302,12 +338,13 @@ export function DateField({ value, onChange, min, max, required, disabled, id, c
   }
   const shiftMonth = (d: number) => setView((v) => { const t = new Date(v.y, v.m + d, 1); return { y: t.getFullYear(), m: t.getMonth() } })
 
-  // First day shown is the Monday on or before the 1st; six rows keep the height steady.
+  // Weeks start on the reader's first weekday (Sunday in the US, Monday in most places); six rows keep the height steady.
+  const weekStart = useMemo(firstWeekday, [])
   const cells = useMemo(() => {
     const first = new Date(view.y, view.m, 1)
-    const lead = (first.getDay() + 6) % 7
+    const lead = (first.getDay() - weekStart + 7) % 7
     return Array.from({ length: 42 }, (_, i) => { const t = new Date(view.y, view.m, 1 - lead + i); return { iso: toIso(t.getFullYear(), t.getMonth(), t.getDate()), day: t.getDate(), other: t.getMonth() !== view.m } })
-  }, [view])
+  }, [view, weekStart])
   const yearStart = Math.floor(view.y / 12) * 12
 
   useEffect(() => { if (open && mode === 'days') grid.current?.querySelector<HTMLElement>(`[data-iso="${focusIso}"]`)?.focus() }, [open, mode, focusIso, view])
@@ -320,14 +357,17 @@ export function DateField({ value, onChange, min, max, required, disabled, id, c
       const p = parseIso(focusIso)!; const t = new Date(p[0], p[1] + d, Math.min(p[2], 28)); const n = toIso(t.getFullYear(), t.getMonth(), t.getDate())
       setFocusIso(n); setView({ y: t.getFullYear(), m: t.getMonth() })
     } else if (e.key === 'Home' || e.key === 'End') {
-      e.preventDefault(); const p = parseIso(focusIso)!; const n = addDaysIso(focusIso, e.key === 'Home' ? -((new Date(p[0], p[1], p[2]).getDay() + 6) % 7) : 6 - ((new Date(p[0], p[1], p[2]).getDay() + 6) % 7)); const q = parseIso(n)!; setFocusIso(n); setView({ y: q[0], m: q[1] })
+      e.preventDefault(); const p = parseIso(focusIso)!; const n = addDaysIso(focusIso, e.key === 'Home' ? -((new Date(p[0], p[1], p[2]).getDay() - weekStart + 7) % 7) : 6 - ((new Date(p[0], p[1], p[2]).getDay() - weekStart + 7) % 7)); const q = parseIso(n)!; setFocusIso(n); setView({ y: q[0], m: q[1] })
     }
   }
 
   return (
     <div className={`dp ${bad ? 'bad' : ''} ${open ? 'open' : ''}`} ref={anchor} style={style}>
-      <input id={id} className={`dp-input ${className}`} value={text} disabled={disabled} autoFocus={autoFocus} autoComplete="off" inputMode="text"
+      <input id={id} className={`dp-input ${className}`} value={text} disabled={disabled} autoFocus={autoFocus} autoComplete="off"
         placeholder={placeholder ?? 'Select a date'} aria-label={rest['aria-label']} aria-invalid={bad ? true : undefined}
+        // Phones get the calendar instead of the keyboard; a click anywhere on the field opens it too.
+        inputMode={typeof matchMedia === 'function' && matchMedia(SHEET_QUERY).matches ? 'none' : 'text'}
+        onClick={() => { if (!open) openCal() }}
         onFocus={(e) => { setEditing(true); e.currentTarget.select() }}
         onBlur={() => { setEditing(false); commit(text) }}
         onChange={(e) => { setText(e.target.value); setBad('') }}
@@ -349,7 +389,7 @@ export function DateField({ value, onChange, min, max, required, disabled, id, c
           </div>
           {mode === 'days' && (
             <div ref={grid} role="grid" aria-label={`${MONTHS[view.m]} ${view.y}`} onKeyDown={onGridKey}>
-              <div className="cal-week" role="row">{WEEK.map((w) => <span key={w} role="columnheader">{w}</span>)}</div>
+              <div className="cal-week" role="row">{[...WEEK.slice((weekStart + 6) % 7), ...WEEK.slice(0, (weekStart + 6) % 7)].map((w) => <span key={w} role="columnheader">{w}</span>)}</div>
               <div className="cal-days">
                 {cells.map((c) => {
                   const off = !inRange(c.iso)

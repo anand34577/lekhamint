@@ -40,21 +40,38 @@ export function Modal({ title, onClose, children, footer, wide }: { title: strin
   useEffect(() => {
     const d = ref.current
     if (!d) return
-    // React has already focused any autoFocus field; showModal() then moves focus to the first
-    // button (Close). Give it back, so typing starts in the field the form asked for.
-    const wanted = d.contains(document.activeElement) ? document.activeElement as HTMLElement : d.querySelector<HTMLElement>('[data-autofocus]')
+    // A field can't take focus while the dialog is still closed, so React's autoFocus is lost and
+    // showModal() puts focus on the first button (Close). Put it where typing should start: the field
+    // marked data-autofocus, or else (with a mouse or trackpad, where no keyboard pops up) the first field.
     d.showModal()
-    wanted?.focus()
+    const marked = d.querySelector<HTMLElement>('[data-autofocus]')
+    const first = matchMedia('(pointer: fine)').matches
+      ? d.querySelector<HTMLElement>('.modal-body :is(input:not([type=checkbox], [type=radio], [type=range], [type=file], .proxy), textarea):not(:disabled, [readonly])')
+      : null
+    ;(marked ?? first)?.focus()
   }, [])
   // A press that starts and ends on the backdrop closes; a drag out of a text field does not.
   const downOnBackdrop = useRef(false)
+  // Something typed or ticked by the person (not set by the page) makes a stray click outside,
+  // Escape or the close button ask first, so a half-filled form is not lost. Cancel stays direct.
+  const dirty = useRef(false)
+  const [asking, setAsking] = useState(false)
+  const tryClose = () => { if (dirty.current) setAsking(true); else onClose() }
+  const touched = (e: { nativeEvent: Event }) => { if (e.nativeEvent.isTrusted) dirty.current = true }
   return (
-    <dialog ref={ref} className={`modal ${wide ? 'wide' : ''}`} onClose={onClose} onCancel={(e) => { e.preventDefault(); onClose() }} aria-label={title}
+    <dialog ref={ref} className={`modal ${wide ? 'wide' : ''}`} onClose={onClose} onCancel={(e) => { e.preventDefault(); if (asking) setAsking(false); else tryClose() }} aria-label={title}
+      onInput={touched} onChange={touched}
       onMouseDown={(e) => { downOnBackdrop.current = e.target === ref.current }}
-      onMouseUp={(e) => { if (downOnBackdrop.current && e.target === ref.current) onClose(); downOnBackdrop.current = false }}>
-      <header className="modal-head"><h2>{title}</h2><button type="button" className="icon-btn" onClick={onClose} aria-label="Close"><Icon name="x" /></button></header>
+      onMouseUp={(e) => { if (downOnBackdrop.current && e.target === ref.current) tryClose(); downOnBackdrop.current = false }}>
+      <header className="modal-head"><h2>{title}</h2><button type="button" className="icon-btn" onClick={tryClose} aria-label="Close"><Icon name="x" /></button></header>
       <div className="modal-body">{children}</div>
-      {footer && <footer className="modal-foot">{footer}</footer>}
+      {asking ? (
+        <footer className="modal-foot discard" role="alertdialog" aria-label="Discard changes?">
+          <span className="grow"><Icon name="alert" size={16} /> Close without saving? What you entered will be lost.</span>
+          <button type="button" autoFocus onClick={() => setAsking(false)}>Keep editing</button>
+          <button type="button" className="danger-solid" onClick={onClose}>Discard</button>
+        </footer>
+      ) : footer && <footer className="modal-foot">{footer}</footer>}
     </dialog>
   )
 }
