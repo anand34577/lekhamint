@@ -6,6 +6,7 @@ It includes the following work by others. Tap one below to read its licence.
 - PaddleOCR PP-OCRv5 text models by the PaddlePaddle Authors, Apache 2.0 (PaddleOCR-Apache-2.0.txt)
 - PdfBox-Android, Apache 2.0 (PdfBox-Android-Apache-2.0.txt)
 - Bouncy Castle, MIT-style licence (opens password-protected PDF statements)
+- ZXing core by the ZXing authors, Apache 2.0 (ZXing-Apache-2.0.txt): reads the "Connect a phone" QR code
 - AndroidX, Jetpack Compose, Kotlin, kotlinx and OkHttp libraries, Apache 2.0
 
 Receipts are read on the phone with the models above. No Google Play services and no network are used.

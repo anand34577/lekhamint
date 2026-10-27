@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -91,7 +92,8 @@ fun WeeklyScreen() {
 
     Scaffold(topBar = { KoshTopBar("Weekly check-in", onBack = { nav.popBackStack() }) }) { padding ->
         val s = summary
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             item { if (s != null) WeekHero(s) }
 
             if (queue.isNotEmpty()) {
@@ -192,6 +194,7 @@ fun WeeklyScreen() {
                 }
             }
         }
+        }
     }
     reconcile?.let { a ->
         ReconcileDialog(a, lookup.balances[a.id] ?: a.openingBalance, onDismiss = { reconcile = null }) { actual ->
@@ -208,10 +211,9 @@ fun WeeklyScreen() {
 @Composable
 private fun WeekHero(s: WeeklyCheckIn.Summary) {
     val lookup by LocalContainer.current.lookup.collectAsStateWithLifecycle()
-    val fmt = DateTimeFormatter.ofPattern("d MMM")
     HeroCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
         val on = LocalOnHero.current
-        Text("${s.from.format(fmt)} – ${s.to.format(fmt)}", style = MaterialTheme.typography.labelLarge, color = on.copy(alpha = 0.8f))
+        Text("${app.kosh.core.Dates.short(s.from)} – ${app.kosh.core.Dates.short(s.to)}", style = MaterialTheme.typography.labelLarge, color = on.copy(alpha = 0.8f))
         Text("Spent this week", style = MaterialTheme.typography.bodyMedium, color = on.copy(alpha = 0.85f), modifier = Modifier.padding(top = 6.dp))
         MoneyText(s.spent, s.currency, style = MaterialTheme.typography.displaySmall, color = on)
         if (s.lastWeek > 0) {

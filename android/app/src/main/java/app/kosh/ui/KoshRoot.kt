@@ -173,7 +173,8 @@ private fun MainNav(container: AppContainer, onboarded: Boolean, launch: Mutable
     val request by launch.collectAsStateWithLifecycle()
     LaunchedEffect(request, onboarded) {
         val r = request ?: return@LaunchedEffect
-        if (onboarded) {
+        // Connecting with a code from the web works before a book is set up, too.
+        if (onboarded || r.route == Routes.SYNC) {
             if (r.route != null) nav.navigate(r.route) { launchSingleTop = true }
             else nav.navigate(Routes.editTx(type = r.addType ?: "expense", amount = r.amount))
             launch.value = null

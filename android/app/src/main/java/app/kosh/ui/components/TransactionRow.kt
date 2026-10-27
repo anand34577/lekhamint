@@ -3,6 +3,7 @@ package app.kosh.ui.components
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -38,6 +39,8 @@ fun signedAmount(t: TransactionEntity, accountId: String? = null): Long = when (
 fun TransactionRow(
     t: TransactionEntity, lookup: Lookup, onClick: () -> Unit, forAccount: String? = null,
     selected: Boolean = false, onLongClick: (() -> Unit)? = null,
+    /** Set to offer a one-tap "Categorise" on an entry that has no category yet. */
+    onCategorise: (() -> Unit)? = null,
 ) {
     val transfer = t.type == "transfer"
     val split = !transfer && t.categoryId == null && lookup.isSplit(t.id)
@@ -103,6 +106,16 @@ fun TransactionRow(
             )
             if (t.originalAmount != null && t.originalCurrency != null) {
                 MoneyText(t.originalAmount, t.originalCurrency, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            val needsCategory = !transfer && !split && !loan && t.categoryId == null && t.loanId == null && t.depositId == null && !t.isAdjustment
+            if (onCategorise != null && needsCategory) {
+                Text(
+                    "Categorise", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.padding(top = 4.dp)
+                        .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f), androidx.compose.foundation.shape.RoundedCornerShape(50))
+                        .clickable(onClickLabel = "Choose a category") { onCategorise() }
+                        .padding(horizontal = 10.dp, vertical = 4.dp),
+                )
             }
         }
     }

@@ -5,6 +5,8 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.scale
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -17,6 +19,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import app.kosh.ui.components.IconTile
 import app.kosh.ui.components.KoshCard
 import androidx.compose.foundation.layout.Arrangement
@@ -31,7 +34,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AccountBalanceWallet
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -75,12 +77,18 @@ fun OnboardingScreen(onDone: () -> Unit) {
         // Brand header.
         Box(
             Modifier.fillMaxWidth()
-                .background(Brush.verticalGradient(listOf(MaterialTheme.colorScheme.primary, androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.primary, Color.Black, 0.3f))))
+                .background(Brush.verticalGradient(heroBrandColors()))
                 .safeDrawingPadding().padding(horizontal = 24.dp, vertical = 32.dp),
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                Box(Modifier.size(84.dp).clip(RoundedCornerShape(26.dp)).background(Color.White.copy(alpha = 0.16f)), contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.AccountBalanceWallet, null, Modifier.size(48.dp), tint = Color.White)
+                // The app's own logo, the same as on the home screen and the splash.
+                Box(
+                    Modifier.size(88.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                        .border(3.dp, Color.White.copy(alpha = 0.22f), androidx.compose.foundation.shape.CircleShape),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(app.kosh.R.drawable.ic_launcher_background), null, Modifier.fillMaxSize())
+                    androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(app.kosh.R.drawable.ic_launcher_foreground), null, Modifier.fillMaxSize().scale(1.3f))
                 }
                 Spacer(Modifier.height(16.dp))
                 Text("LekhaMint", style = MaterialTheme.typography.displaySmall, color = Color.White)
@@ -162,4 +170,15 @@ private fun Promise(icon: androidx.compose.ui.graphics.vector.ImageVector, title
             Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+}
+
+/**
+ * The welcome header's colours. White text sits on it, so it stays a deep shade of the brand colour
+ * in both themes (in dark mode the theme's primary is a light mint, which white text can't be read on).
+ */
+@androidx.compose.runtime.Composable
+private fun heroBrandColors(): List<Color> {
+    val p = MaterialTheme.colorScheme.primary
+    val base = if (p.luminance() > 0.3f) androidx.compose.ui.graphics.lerp(p, Color.Black, 0.55f) else p
+    return listOf(base, androidx.compose.ui.graphics.lerp(base, Color.Black, 0.3f))
 }

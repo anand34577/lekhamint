@@ -149,7 +149,7 @@ fun parseColor(hex: String?, fallback: Color): Color = runCatching {
 /** A coloured circle with an icon: the visual identity of a category or account. */
 @Composable
 fun IconBadge(icon: String?, color: String?, modifier: Modifier = Modifier, size: Dp = 40.dp) {
-    val c = parseColor(color, MaterialTheme.colorScheme.primary)
+    val c = parseColor(color, MaterialTheme.colorScheme.primary).readable()
     Box(
         modifier.size(size).background(c.copy(alpha = 0.16f), CircleShape),
         contentAlignment = Alignment.Center,

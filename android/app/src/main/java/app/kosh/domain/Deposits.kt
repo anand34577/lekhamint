@@ -24,6 +24,17 @@ object Deposits {
         return m to days(a.plusMonths(m.toLong()), b)
     }
 
+    /** "7 days", "6 months", "1 year 4 months 15 days": the term the way the bank's receipt states it. */
+    fun termLabel(start: LocalDate, end: LocalDate): String {
+        val (m, d) = monthsAndDays(start, end)
+        val parts = listOfNotNull(
+            (m / 12).takeIf { it > 0 }?.let { "$it year${if (it == 1) "" else "s"}" },
+            (m % 12).takeIf { it > 0 }?.let { "$it month${if (it == 1) "" else "s"}" },
+            d.takeIf { it > 0 }?.let { "$it day${if (it == 1L) "" else "s"}" },
+        )
+        return parts.joinToString(" ").ifEmpty { "0 days" }
+    }
+
     private fun rate(s: String) = s.toDouble() / 100
 
     fun fdValue(p: Long, rate: String, start: LocalDate, end: LocalDate, compounding: String): Long {

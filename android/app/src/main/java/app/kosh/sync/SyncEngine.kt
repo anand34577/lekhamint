@@ -57,6 +57,9 @@ class SyncEngine(private val repo: Repository) {
             report
         } catch (e: Exception) {
             settings.setSyncResult(System.currentTimeMillis(), describe(e))
+            // The sign-in was revoked (this phone removed on the web or from another device): stop syncing
+            // instead of retrying forever, and keep everything on the phone.
+            if (e is ApiException && e.status == 401 && e.code == "unauthenticated") settings.markRemoved()
             throw e
         } finally {
             _running.value = false

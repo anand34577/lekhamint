@@ -34,6 +34,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.lerp
@@ -49,6 +50,33 @@ import app.kosh.ui.theme.LocalDarkTheme
 
 /** Text and icon colour on top of [HeroCard]. */
 val LocalOnHero = androidx.compose.runtime.staticCompositionLocalOf { Color.White }
+
+/**
+ * A fixed accent (category colours, the violet of "Accounts", a user-picked hex) made readable on the current
+ * background: in dark mode a deep colour is lifted toward white so icons and labels do not sink into the page.
+ */
+@Composable
+fun Color.readable(): Color {
+    if (!LocalDarkTheme.current) return this
+    val l = luminance()
+    return if (l >= 0.35f) this else lerp(this, Color.White, (0.45f - l).coerceIn(0.15f, 0.45f))
+}
+
+/** Black-ish or white text, whichever reads on [bg] (a solid fill such as a selected chip). */
+fun contentOn(bg: Color): Color = if (bg.luminance() > 0.42f) Color(0xFF0E1412) else Color.White
+
+/** The hero's own background colour (its darker end is close to it), for text on a light button inside it. */
+val LocalHeroBackground = androidx.compose.runtime.staticCompositionLocalOf { Color(0xFF0B7A6E) }
+
+/**
+ * A solid button on a [HeroCard]: the hero's text colour as the fill and the hero's background as the label,
+ * so it reads in both themes. (Using the theme's primary for the label fails in dark mode, where primary
+ * is a light tint: light text on a light button.)
+ */
+@Composable
+fun heroButtonColors() = androidx.compose.material3.ButtonDefaults.buttonColors(
+    containerColor = LocalOnHero.current, contentColor = LocalHeroBackground.current,
+)
 
 /**
  * The one strong surface on a screen: a brand gradient for the figure that matters most
@@ -72,7 +100,7 @@ fun HeroCard(modifier: Modifier = Modifier, onClick: (() -> Unit)? = null, conte
                 drawCircle(on.copy(alpha = 0.07f), radius = size.minDimension * 0.55f, center = Offset(size.width * 1.02f, -size.height * 0.05f))
                 drawCircle(on.copy(alpha = 0.05f), radius = size.minDimension * 0.38f, center = Offset(size.width * 0.92f, size.height * 1.05f))
             }
-            CompositionLocalProvider(LocalOnHero provides on, androidx.compose.material3.LocalContentColor provides on) {
+            CompositionLocalProvider(LocalOnHero provides on, LocalHeroBackground provides lerp(start, end, 0.3f), androidx.compose.material3.LocalContentColor provides on) {
                 Column(Modifier.padding(20.dp), content = content)
             }
         }
@@ -116,6 +144,7 @@ fun StatusPill(text: String, color: Color, modifier: Modifier = Modifier, icon: 
         modifier.clip(CircleShape).background(color.copy(alpha = 0.14f)).padding(horizontal = 10.dp, vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        val color = color.readable()
         if (icon != null) {
             Icon(icon, null, Modifier.size(14.dp), tint = color)
             Spacer(Modifier.width(4.dp))
@@ -127,6 +156,7 @@ fun StatusPill(text: String, color: Color, modifier: Modifier = Modifier, icon: 
 /** A round action with a label underneath, for the quick-action row on Home. */
 @Composable
 fun QuickAction(icon: ImageVector, label: String, tint: Color, modifier: Modifier = Modifier, onClick: () -> Unit) {
+    val tint = tint.readable()
     Column(
         modifier.clip(RoundedCornerShape(18.dp)).clickable(role = Role.Button, onClick = onClick).padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -142,6 +172,7 @@ fun QuickAction(icon: ImageVector, label: String, tint: Color, modifier: Modifie
 /** A rounded square with a tinted icon: the leading visual of settings rows and menus. */
 @Composable
 fun IconTile(icon: ImageVector, tint: Color, size: Dp = 40.dp) {
+    val tint = tint.readable()
     Box(Modifier.size(size).clip(RoundedCornerShape(size * 0.32f)).background(tint.copy(alpha = 0.13f)), contentAlignment = Alignment.Center) {
         Icon(icon, null, Modifier.size(size * 0.55f), tint = tint)
     }

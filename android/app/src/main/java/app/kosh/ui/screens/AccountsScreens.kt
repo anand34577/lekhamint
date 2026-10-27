@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -96,7 +97,8 @@ fun AccountsScreen() {
             }
         },
     ) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
                 app.kosh.ui.components.HeroCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
                     val on = app.kosh.ui.components.LocalOnHero.current
@@ -142,6 +144,7 @@ fun AccountsScreen() {
                 item { SectionHeader("Archived") }
                 items(archived, key = { it.id }) { a -> AccountRow(a, lookup.balances[a.id] ?: a.openingBalance) { nav.navigate(Routes.account(a.id)) } }
             }
+        }
         }
     }
 }

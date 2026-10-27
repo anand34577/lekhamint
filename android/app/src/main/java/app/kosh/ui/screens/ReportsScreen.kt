@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -174,7 +175,8 @@ fun ReportsScreen() {
     val money = LocalMoneyColors.current
 
     Scaffold(topBar = { KoshTopBar("Reports", onBack = { nav.popBackStack() }) }) { padding ->
-        LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
+        app.kosh.ui.components.SyncRefreshBox(Modifier.padding(padding)) {
+        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 32.dp)) {
             item {
                 Column(Modifier.padding(horizontal = 16.dp)) {
                     SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
@@ -269,19 +271,20 @@ fun ReportsScreen() {
                 }
                 if (perDay.size >= 7) {
                     item {
-                        val byWeekday = LongArray(7)
-                        val counts = IntArray(7)
+                        // The typical day (median) for each weekday, days with nothing included: one rent or
+                        // EMI day would otherwise make its weekday look like the expensive one.
+                        val days = List(7) { ArrayList<Long>() }
                         val (from, to) = ReportsViewModel.range(q)
                         var d = from
                         val last = minOf(to, LocalDate.now())
-                        while (!d.isAfter(last)) { counts[d.dayOfWeek.value - 1]++; d = d.plusDays(1) }
-                        for ((day, v) in perDay) byWeekday[day.dayOfWeek.value - 1] += v
-                        val avg = (0 until 7).map { if (counts[it] == 0) 0L else byWeekday[it] / counts[it] }
-                        val peak = avg.indexOf(avg.max())
+                        while (!d.isAfter(last)) { days[d.dayOfWeek.value - 1] += perDay[d] ?: 0L; d = d.plusDays(1) }
+                        val typical = days.map { v -> if (v.isEmpty()) 0L else v.sorted().let { (it[(it.size - 1) / 2] + it[it.size / 2]) / 2 } }
+                        val peak = typical.indexOf(typical.max())
                         SectionCard(
                             "Which days cost the most",
-                            subtitle = "Average spending per weekday · most on ${java.time.DayOfWeek.of(peak + 1).getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())}s",
-                        ) { WeekdayBars(avg, s.currency) }
+                            subtitle = if (typical.max() <= 0L) "Typical spending on each weekday" else
+                                "Typical spending on each weekday · most on ${java.time.DayOfWeek.of(peak + 1).getDisplayName(java.time.format.TextStyle.FULL, java.util.Locale.getDefault())}s",
+                        ) { WeekdayBars(typical, s.currency) }
                     }
                 }
 
@@ -359,6 +362,7 @@ fun ReportsScreen() {
                     }
                 }
             }
+        }
         }
     }
 }

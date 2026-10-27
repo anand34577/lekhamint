@@ -23,6 +23,12 @@ data class ApiUser(val id: String, val email: String, val name: String = "", val
 data class AuthResponse(val user: ApiUser, val token: String)
 
 @Serializable
+data class ApiSession(val id: String, val device_name: String = "", val created_at: Long = 0, val last_used_at: Long = 0, val current: Boolean = false)
+
+@Serializable
+data class SessionList(val sessions: List<ApiSession> = emptyList())
+
+@Serializable
 data class ApiLedger(val id: String, val name: String, val base_currency: String, val seq: Long = 0, val role: String = "")
 
 @Serializable
@@ -67,6 +73,7 @@ data class ApiMember(val user_id: String, val email: String = "", val name: Stri
 @Serializable private data class LedgerResponse(val ledger: ApiLedger)
 @Serializable private data class LoginBody(val email: String, val password: String, val device_name: String, val name: String? = null, val otp: String? = null)
 @Serializable private data class PasswordBody(val password: String)
+@Serializable private data class PairBody(val code: String, val device_name: String)
 @Serializable private data class CreateLedgerBody(val id: String, val name: String, val base_currency: String, val seed_default_categories: Boolean = false)
 
 /** An error response from the server: `{error: {code, message}}`. */
@@ -103,6 +110,18 @@ class KoshApi(baseUrl: String, private val token: () -> String?) {
 
     suspend fun register(email: String, password: String, name: String, device: String): AuthResponse =
         post("/api/v1/auth/register", LoginBody(email, password, device, name), LoginBody.serializer(), AuthResponse.serializer(), auth = false)
+
+    /** Trades a one-time code from the web app (Settings → Connect a phone) for a session. */
+    suspend fun claimPairing(code: String, device: String): AuthResponse =
+        post("/api/v1/auth/pair/claim", PairBody(code, device), PairBody.serializer(), AuthResponse.serializer(), auth = false)
+
+    /** Every device and browser signed in to this account. */
+    suspend fun sessions(): List<ApiSession> = get("/api/v1/auth/sessions", SessionList.serializer()).sessions
+
+    /** Removes a device: its sign-in stops working at once. */
+    suspend fun deleteSession(id: String) {
+        send(Request.Builder().url("$base/api/v1/auth/sessions/$id").delete(), auth = true)
+    }
 
     suspend fun logout() {
         runCatching { send(Request.Builder().url("$base/api/v1/auth/logout").post(EMPTY), auth = true) }
@@ -167,6 +186,36 @@ class KoshApi(baseUrl: String, private val token: () -> String?) {
 
     suspend fun pull(ledgerId: String, since: Long, limit: Int = 1000): PullResponse =
         get("/api/v1/ledgers/$ledgerId/sync/pull?since=$since&limit=$limit", PullResponse.serializer())
+
+    /**
+     * Asks the server to answer only once something after [since] changes (or after about 25 s). Servers
+     * older than 1.8 ignore `wait` and answer at once. Cancelling the coroutine cancels the request.
+     */
+    suspend fun waitForChange(ledgerId: String, since: Long): PullResponse {
+        val b = Request.Builder().url("$base/api/v1/ledgers/$ledgerId/sync/pull?since=$since&limit=1&wait=25").get()
+            .header("Accept", "application/json")
+        token()?.let { b.header("Authorization", "Bearer $it") }
+        val call = http.newCall(b.build())
+        val text = kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            cont.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: IOException) { if (!cont.isCompleted) cont.resumeWith(Result.failure(e)) }
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    val r = try {
+                        response.use { resp ->
+                            val body = resp.body?.string().orEmpty()
+                            if (resp.isSuccessful) Result.success(body)
+                            else Result.failure(ApiException(resp.code, "http_${resp.code}", "HTTP ${resp.code}"))
+                        }
+                    } catch (e: IOException) {
+                        Result.failure(e)
+                    }
+                    if (!cont.isCompleted) cont.resumeWith(r)
+                }
+            })
+        }
+        return KoshJson.decodeFromString(PullResponse.serializer(), text)
+    }
 
     private suspend fun <T> get(path: String, out: KSerializer<T>, auth: Boolean = true): T {
         val body = send(Request.Builder().url(base + path).get(), auth)

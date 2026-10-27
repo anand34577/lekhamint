@@ -110,7 +110,9 @@ fun FoundPaymentsScreen() {
         }
     }) { padding ->
         LazyColumn(Modifier.padding(padding), contentPadding = PaddingValues(bottom = 32.dp)) {
-            if (!access) {
+            if (!app.kosh.BuildConfig.READS_ALERTS) {
+                item { ShareInsteadCard() }
+            } else if (!access) {
                 item { SetupCard(onTurnOn = { runCatching { context.startActivity(CaptureStore.accessSettingsIntent(context)) } }) }
             } else {
                 item {
@@ -190,12 +192,30 @@ private fun SetupCard(onTurnOn: () -> Unit) {
         Spacer(Modifier.height(14.dp))
         Button(
             onClick = onTurnOn,
-            colors = androidx.compose.material3.ButtonDefaults.buttonColors(containerColor = on, contentColor = MaterialTheme.colorScheme.primary),
+            colors = app.kosh.ui.components.heroButtonColors(),
         ) { Text("Turn on in settings") }
         Text(
             "Android will ask you to allow notification access for LekhaMint. You can turn it off there at any time.",
             style = MaterialTheme.typography.bodySmall, color = on.copy(alpha = 0.75f), modifier = Modifier.padding(top = 8.dp),
         )
+    }
+}
+
+/** The downloadable edition cannot read alerts (Play Protect blocks it); sharing a message does the same job. */
+@Composable
+private fun ShareInsteadCard() {
+    KoshCard(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+        Column {
+            Text("Add a payment from a message", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Open the bank SMS, card alert or payment app message, tap Share and pick LekhaMint. The amount, payee and date are filled in for you to check.",
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 6.dp),
+            )
+            Text(
+                "Reading alerts automatically is in the Google Play edition of LekhaMint. Android blocks it in apps installed from a downloaded file.",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 10.dp),
+            )
+        }
     }
 }
 
