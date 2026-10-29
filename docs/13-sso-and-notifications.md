@@ -27,8 +27,13 @@ users have an email address (marked verified).
 The first person to sign in to an empty server becomes the administrator. Accounts created through SSO have no
 password; deleting one asks for the email address instead. A provider that reports `email_verified: false` is refused.
 
-**Security notes:** the session token is never placed in a URL; the browser receives a one-time code (valid one
-minute) and trades it for the token. State and PKCE are single-use and expire after 10 minutes. Behind a reverse
+**Two-step sign-in:** the provider's sign-in stands in for the password only. An account with two-step sign-in
+turned on is asked for its 6-digit code (or a recovery code) before a session is made, with the same lockout after
+five wrong codes as a password sign-in.
+
+**Security notes:** no session exists until the browser trades the one-time code from the redirect (valid five
+minutes, usable once) at `POST /api/v1/auth/oidc/exchange`, so nothing usable is ever placed in a URL. An account with
+two-step sign-in answers `otp_required` there, and the browser sends the same code again with `otp`. State and PKCE are single-use and expire after 10 minutes. Behind a reverse
 proxy, set `LEKHAMINT_TRUST_PROXY=true` so rate limits see real client addresses.
 
 ## Email (SMTP)
