@@ -77,6 +77,12 @@ type PullResult struct {
 // cleared out of the Trash, so it must download the whole book again.
 var ErrResyncRequired = errors.New("this device has been away longer than the server keeps deleted items; it will download the book again")
 
+// ErrCursorAhead means the device has seen changes the server no longer has: the
+// server was restored from an older backup, or the book was deleted and made again.
+// Answering with an empty page would leave the device skipping every change numbered
+// up to its cursor, so it must send everything it has and download the book again.
+var ErrCursorAhead = errors.New("the server's copy of this book is older than this device's; the device will send its data and download the book again")
+
 // Actor is who is writing: saved with each version in the change history.
 type Actor struct {
 	UserID string
@@ -315,6 +321,9 @@ func (s *Service) Pull(ctx context.Context, ledgerID string, since int64, limit 
 	if err != nil {
 		return PullResult{}, err
 	}
+	if since > l.Seq {
+		return PullResult{}, ErrCursorAhead
+	}
 	if since > 0 {
 		purged, err := store.PurgedSeq(ctx, s.DB, ledgerID)
 		if err != nil {
@@ -350,6 +359,9 @@ type WriteOp struct {
 	// a create into a no-op when the record exists, even in the Trash.
 	// MustExistDeleted restores a record from the Trash.
 	MustExist, MustNotExist, SkipIfExists, MustExistDeleted bool
+	// EditedAt (Unix ms) is when the person made this update, for one sent late (saved
+	// while offline). Fields someone else changed after that keep their newer value.
+	EditedAt int64
 }
 
 // WriteResult reports what happened to one WriteOp.
@@ -384,6 +396,27 @@ func (s *Service) Write(ctx context.Context, ledgerID string, ops []WriteOp) ([]
 		}
 	}
 	return out, nil
+}
+
+// lateEdit keeps the fields of a late update (op.EditedAt) that nobody changed after it
+// was made: it compares the record now with the version current at EditedAt, from the
+// change history. When the record has not changed since, or the history does not reach
+// back, the update is used whole, as before.
+func (s *Service) lateEdit(ctx context.Context, q db.Querier, spec *entity.Spec, ledgerID string, existing store.Record, op WriteOp) (map[string]any, error) {
+	if ts, err := hlc.Parse(existing.HLC); err != nil || ts.Wall <= op.EditedAt {
+		return op.Data, nil
+	}
+	base, ok, err := store.VersionAt(ctx, q, ledgerID, spec.Name, existing.ID, op.EditedAt)
+	if err != nil || !ok {
+		return op.Data, err
+	}
+	keep := map[string]any{}
+	for k, v := range op.Data {
+		if sameValue(existing.Data[k], base[k]) {
+			keep[k] = v
+		}
+	}
+	return keep, nil
 }
 
 // WriteResults is Write with a per-op outcome, including skipped ops.
@@ -422,6 +455,17 @@ func (s *Service) WriteResults(ctx context.Context, ledgerID string, ops []Write
 				return store.ErrNotFound
 			case op.MustNotExist && found:
 				return ErrExists
+			}
+			if found && op.EditedAt > 0 && !op.Deleted && op.Data != nil {
+				data, err := s.lateEdit(ctx, tx, spec, ledgerID, existing, op)
+				if err != nil {
+					return err
+				}
+				if len(data) == 0 {
+					out = append(out, WriteResult{Entity: spec.Name, ID: id, Status: "skipped"})
+					continue
+				}
+				op.Data = data
 			}
 			if found {
 				s.Clock.Observe(existing.HLC) // our stamp must beat the stored one

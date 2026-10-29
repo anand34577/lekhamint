@@ -51,7 +51,7 @@ func TestAssistantProxy(t *testing.T) {
 		DB: d, Auth: auth.NewService(d, true, time.Hour), Sync: sync,
 		Ledgers: &ledger.Service{DB: d, Sync: sync}, Reports: &report.Service{DB: d},
 		Log: slog.New(slog.NewTextHandler(io.Discard, nil)), Version: "test", MaxImportSize: 1 << 20,
-		AI: &httpapi.AIProxy{BaseURL: upstream.URL + "/v1", APIKey: "sk-secret", Model: "llama3.1:8b", Timeout: 5 * time.Second},
+		AI: &httpapi.AIProxy{BaseURL: upstream.URL + "/v1", APIKey: "sk-secret", Model: "llama3.1:8b", Models: []string{"qwen2.5:7b", "bad-key"}, Timeout: 5 * time.Second},
 	}
 	srv := httptest.NewServer(api.Handler())
 	defer srv.Close()
@@ -74,6 +74,11 @@ func TestAssistantProxy(t *testing.T) {
 	c.do("POST", "/api/v1/ai/chat/completions", map[string]any{"model": "qwen2.5:7b", "messages": []any{}}, http.StatusOK)
 	if got.model != "qwen2.5:7b" {
 		t.Fatalf("model override ignored: %q", got.model)
+	}
+	// A model the administrator did not list is not used; the request goes to the default.
+	c.do("POST", "/api/v1/ai/chat/completions", map[string]any{"model": "gpt-expensive", "messages": []any{}}, http.StatusOK)
+	if got.model != "llama3.1:8b" {
+		t.Fatalf("unlisted model %q reached the upstream", got.model)
 	}
 	// A streamed answer is relayed as server-sent events.
 	streamed := c.do("POST", "/api/v1/ai/chat/completions", map[string]any{"stream": true, "messages": []any{}}, http.StatusOK)

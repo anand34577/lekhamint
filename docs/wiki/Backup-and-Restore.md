@@ -40,7 +40,7 @@ docker compose exec lekhamint /lekhamint backup                               # 
    docker compose run --rm -v "$PWD:/restore" lekhamint restore --from /restore/lekhamint-20261024-020000.db
    ```
    The current database is kept next to it as `lekhamint.db.pre-restore-<time>`, so a restore can be undone.
-3. Start the server again. Phones and browsers pick up the restored data on their next sync.
+3. Start the server again. Phones and browsers pick up the restored data on their next sync. A phone that synced after the backup was taken sends everything it has again, so changes made since the backup are not lost as long as some phone still has them.
 
 ## One book at a time
 

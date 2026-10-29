@@ -126,6 +126,15 @@ applied atomically. `op` is `create`, `create_if_missing` (skips existing record
 and recurring occurrences), `update`, `delete` or `restore`. The response has a `status` per op:
 `created`, `updated`, `deleted`, `restored` or `skipped`. Viewers get 403.
 
+An `update` saved while offline and sent later carries `edited_at` (Unix ms, when the person made it). If the record
+changed after that, the server compares it with the version current at `edited_at` (from the change history) and
+keeps only the fields nobody changed since; a field someone else changed later keeps their newer value. When nothing
+is left to take, the op is `skipped`. Without `edited_at`, or when the history does not reach back, the update is
+applied whole.
+
+Attachment uploads (`POST /ledgers/{lid}/blobs`) answer `413 storage_full` once the book's files would pass
+`LEKHAMINT_MAX_LEDGER_STORAGE_MB`; uploading a file the book already has is always accepted.
+
 ## Backup
 
 | Method & path | Notes |

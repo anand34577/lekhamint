@@ -70,7 +70,7 @@ func ListTransactions(ctx context.Context, q db.Querier, ledgerID string, f TxFi
 	}
 	if f.TagID != "" {
 		// tag_ids is a JSON array of UUIDs; a quoted UUID cannot match by accident.
-		add("t.tag_ids LIKE ?", `%"`+f.TagID+`"%`)
+		add(`t.tag_ids LIKE ? ESCAPE '\'`, `%"`+escapeLike(f.TagID)+`"%`)
 	}
 	if f.DebtID == AnyDebtFilter {
 		add("t.debt_id IS NOT NULL")

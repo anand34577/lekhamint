@@ -234,6 +234,23 @@ func (s *Server) putBlob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sum := sha256.Sum256(data)
+	if s.MaxLedgerStorage > 0 {
+		used, err := store.LedgerBlobBytes(r.Context(), s.DB, lid)
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		has, err := store.HasBlob(r.Context(), s.DB, lid, hex.EncodeToString(sum[:]))
+		if err != nil {
+			s.fail(w, r, err)
+			return
+		}
+		if !has && used+int64(len(data)) > s.MaxLedgerStorage {
+			writeError(w, http.StatusRequestEntityTooLarge, "storage_full",
+				fmt.Sprintf("this book's attachments have reached the server's limit of %d MB; ask the administrator to raise LEKHAMINT_MAX_LEDGER_STORAGE_MB", s.MaxLedgerStorage>>20), nil)
+			return
+		}
+	}
 	b := store.Blob{LedgerID: lid, SHA256: hex.EncodeToString(sum[:]), Mime: mime, Size: int64(len(data)), Data: data, CreatedAt: time.Now().UnixMilli()}
 	if err := store.PutBlob(r.Context(), s.DB, b); err != nil {
 		s.fail(w, r, err)

@@ -89,6 +89,17 @@ This is correct because `seq` is global per ledger.
 The client applies each pulled record **only if** `remote.hlc > local.hlc`, or the local copy is
 not dirty. It then saves `next_cursor`.
 
+Two answers make the client start over, both `410 Gone`:
+
+- `resync_required`: `since` is older than the deleted items the server has cleared out of the
+  Trash. The client downloads the whole book and marks unchanged local records the server no
+  longer has as deleted.
+- `cursor_ahead`: `since` is past the book's `seq`. The server was restored from an older backup,
+  or the book was deleted and made again, so it may have lost records this device already sent.
+  The client marks everything it has as unsent, pushes it all (the newer version still wins), then
+  downloads the whole book. An empty page here would leave the device skipping every change
+  numbered up to its old cursor.
+
 **Live updates.** `wait=N` (seconds, at most 25) makes the server hold the answer while there is
 nothing after `since`, and answer as soon as a push, REST write or import changes the book. While
 the Android app is on screen it keeps one such request open (`limit=1`) and runs a full sync when it

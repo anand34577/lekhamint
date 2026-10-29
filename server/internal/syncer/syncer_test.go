@@ -3,6 +3,7 @@ package syncer_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -65,6 +66,26 @@ func TestPushThenPull(t *testing.T) {
 	pull, _ = svc.Pull(ctx, lid, pull.NextCursor, 100)
 	if len(pull.Changes) != 0 || pull.NextCursor != 1 {
 		t.Fatalf("second pull %+v", pull)
+	}
+}
+
+// A device whose cursor is past the ledger's seq (the server was restored from an older
+// backup) must be told, not handed an empty page: it would skip every change numbered
+// up to its cursor.
+func TestPullCursorAhead(t *testing.T) {
+	svc, _, lid := setup(t)
+	dv := newDevice()
+	if _, err := svc.Push(ctx, lid, []syncer.Change{dv.change("accounts", ids.NewV7(), account("HDFC"))}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Pull(ctx, lid, 1, 100); err != nil {
+		t.Fatalf("pull at the head: %v", err)
+	}
+	if _, err := svc.Pull(ctx, lid, 5, 100); !errors.Is(err, syncer.ErrCursorAhead) {
+		t.Fatalf("pull past the head: got %v, want ErrCursorAhead", err)
+	}
+	if _, err := svc.PullWait(ctx, lid, 5, 100, time.Second); !errors.Is(err, syncer.ErrCursorAhead) {
+		t.Fatalf("waiting pull past the head: got %v, want ErrCursorAhead", err)
 	}
 }
 
@@ -335,5 +356,44 @@ func TestStaleEditSameFieldKeepsNewer(t *testing.T) {
 	res, _ := svc.Push(ctx, lid, []syncer.Change{stale})
 	if len(res.Conflicts) != 1 || res.Conflicts[0].Data["name"] != "Laptop name" {
 		t.Fatalf("%+v", res)
+	}
+}
+
+// An update saved while offline and sent later keeps the fields nobody changed after
+// it was made; a field someone else changed later keeps their newer value.
+func TestLateEditKeepsNewerChanges(t *testing.T) {
+	svc, _, lid := setup(t)
+	actx := syncer.WithActor(ctx, syncer.Actor{UserID: "u", Device: "web"}) // history is kept for people's writes
+	a := ids.NewV7()
+	acct := account("HDFC")
+	acct["note"] = "salary account"
+	if _, err := svc.Write(actx, lid, []syncer.WriteOp{{Entity: "accounts", ID: a, Data: acct}}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	editedAt := time.Now().UnixMilli() // the offline browser renames it and changes the note
+	time.Sleep(5 * time.Millisecond)
+	if _, err := svc.Write(actx, lid, []syncer.WriteOp{{Entity: "accounts", ID: a, Data: map[string]any{"name": "HDFC Savings"}, MustExist: true}}); err != nil {
+		t.Fatal(err)
+	}
+	late := syncer.WriteOp{Entity: "accounts", ID: a, MustExist: true, EditedAt: editedAt,
+		Data: map[string]any{"name": "My bank", "note": "joint with Ravi"}}
+	recs, err := svc.Write(actx, lid, []syncer.WriteOp{late})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := recs[0].Data; got["name"] != "HDFC Savings" || got["note"] != "joint with Ravi" {
+		t.Fatalf("after the late edit: name=%v note=%v", got["name"], got["note"])
+	}
+
+	// Sent again with only the field changed later: nothing to take, nothing written.
+	res, err := svc.WriteResults(actx, lid, []syncer.WriteOp{{Entity: "accounts", ID: a, MustExist: true, EditedAt: editedAt, Data: map[string]any{"name": "My bank"}}})
+	if err != nil || res[0].Status != "skipped" {
+		t.Fatalf("stale-only edit: %+v %v", res, err)
+	}
+	// An update with no EditedAt is an ordinary edit and wins whole.
+	recs, err = svc.Write(actx, lid, []syncer.WriteOp{{Entity: "accounts", ID: a, MustExist: true, Data: map[string]any{"name": "My bank"}}})
+	if err != nil || recs[0].Data["name"] != "My bank" {
+		t.Fatalf("ordinary edit: %v %v", recs, err)
 	}
 }

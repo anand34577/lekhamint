@@ -52,6 +52,8 @@ type Server struct {
 	PublicURL string
 	// MaxAttachment is the largest attachment file accepted, in bytes.
 	MaxAttachment int64
+	// MaxLedgerStorage caps the attachment bytes one ledger holds; 0 means no cap.
+	MaxLedgerStorage int64
 	// FXURL is the Frankfurter-compatible exchange rate service used when
 	// someone asks to fetch rates; empty turns the button off.
 	FXURL string

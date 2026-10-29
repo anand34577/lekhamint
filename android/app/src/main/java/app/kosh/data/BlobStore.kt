@@ -21,6 +21,9 @@ class BlobStore(private val context: Context) {
     fun isUploaded(sha: String) = File(dir, "$sha.up").isFile
     fun markUploaded(sha: String) { File(dir, "$sha.up").writeText("") }
 
+    /** Forgets which files are on the server (it lost them in a restore), so the next sync sends them again. */
+    fun forgetUploaded() { dir.listFiles { f -> f.name.endsWith(".up") }?.forEach { it.delete() } }
+
     data class Stored(val sha256: String, val size: Long, val mime: String, val name: String)
 
     /**

@@ -230,3 +230,22 @@ func TestFetchRates(t *testing.T) {
 		}
 	}
 }
+
+// A book's attachments stop growing at the server's storage limit; the same file again
+// takes no new space and is still accepted.
+func TestAttachmentStorageLimit(t *testing.T) {
+	api, base := newFeatureServer(t)
+	api.MaxLedgerStorage = 200
+	alice := signUp(t, base, "alice@example.com", http.StatusCreated)
+	lid := ids.NewV7()
+	alice.do("POST", "/api/v1/ledgers", map[string]any{"id": lid, "name": "Home", "base_currency": "INR"}, http.StatusCreated)
+	L := "/api/v1/ledgers/" + lid
+	png := func(fill byte) []byte { return append([]byte("\x89PNG\r\n\x1a\n"), bytes.Repeat([]byte{fill}, 92)...) }
+	alice.do("POST", L+"/blobs", png(1), http.StatusCreated) // 100 bytes
+	alice.do("POST", L+"/blobs", png(2), http.StatusCreated) // 200 bytes: at the limit
+	full := alice.do("POST", L+"/blobs", png(3), http.StatusRequestEntityTooLarge)
+	if e := full["error"].(map[string]any); e["code"] != "storage_full" {
+		t.Fatalf("over the limit: %v", e)
+	}
+	alice.do("POST", L+"/blobs", png(1), http.StatusCreated)
+}

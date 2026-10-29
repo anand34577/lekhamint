@@ -108,7 +108,14 @@ class SyncEngine(private val repo: Repository) {
             .mapNotNull(app.kosh.domain.Attachment::parse)
         for (a in pending) {
             if (repo.blobs.isUploaded(a.sha256) || !repo.blobs.has(a.sha256)) continue
-            api.uploadBlob(ledgerId, repo.blobs.file(a.sha256).readBytes(), a.mime)
+            try {
+                api.uploadBlob(ledgerId, repo.blobs.file(a.sha256).readBytes(), a.mime)
+            } catch (e: ApiException) {
+                // The book is at the server's storage limit: keep the file on this phone and try again
+                // on later syncs, rather than letting one receipt stop everything else from syncing.
+                if (e.code == "storage_full") continue
+                throw e
+            }
             repo.blobs.markUploaded(a.sha256)
         }
     }
@@ -157,13 +164,27 @@ class SyncEngine(private val repo: Repository) {
         return try {
             pullFrom(api, ledgerId, settings.syncCursor, null)
         } catch (e: ApiException) {
-            // The server cleared deleted items older than this phone's last sync, so it can no
-            // longer say which records were deleted since. Download the whole book again; any
-            // synced record the server no longer has was deleted elsewhere.
-            if (e.code != "resync_required") throw e
+            when (e.code) {
+                // The server cleared deleted items older than this phone's last sync, so it can no
+                // longer say which records were deleted since. Download the whole book again; any
+                // synced record the server no longer has was deleted elsewhere.
+                "resync_required" -> {}
+                // The server's copy is older than what this phone has seen (restored from a backup, or
+                // the book made again): it may have lost records this phone sent. Send everything again
+                // first, so the full download below finds them on the server instead of dropping them.
+                "cursor_ahead" -> resend(api, ledgerId)
+                else -> throw e
+            }
             settings.resyncPending = true
             fullDownload(api, ledgerId)
         }
+    }
+
+    /** Marks every local record unsent and pushes them all. The server keeps whichever version is newer. */
+    private suspend fun resend(api: KoshApi, ledgerId: String) {
+        repo.markEverythingDirty()
+        repo.blobs.forgetUploaded()
+        push(api, ledgerId)
     }
 
     /**
