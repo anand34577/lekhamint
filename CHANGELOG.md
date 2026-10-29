@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.10.0
+
+**Security**
+- Single sign-on now asks for your two-step code when your account has two-step sign-in on. The identity provider's sign-in replaces the password, not the code. The sign-in link from the provider is now usable once, for five minutes, and no session exists until the code is checked.
+- Administrators choose which assistant models the server's API key pays for. With `LEKHAMINT_AI_MODEL` set, a request for any model not in the new `LEKHAMINT_AI_MODELS` list uses the default model instead.
+- Each book's attachments are limited to `LEKHAMINT_MAX_LEDGER_STORAGE_MB` (5 GB by default; 0 for no limit), so one account cannot fill the server's disk. A phone keeps a receipt the server refused and tries again later; the rest of its sync carries on.
+
+**Sync**
+- Web: an edit saved while offline and sent later no longer overwrites changes someone else made to the same fields after you made yours. Fields nobody touched still take your edit.
+
+**Fixes**
+- Restoring the server from an older backup no longer leaves phones out of step. A phone that had already synced past the backup used to skip new changes and never send back what the server lost; it now sends everything it has again and downloads the book afresh. Needs this server and Android app version together.
+- Android: a `lekhamint://pair` link opened from outside the app (a camera app, a message, a web page) now fills in the server address and code for you to check and tap Connect, instead of connecting at once. Anyone can make such a link, so it could otherwise connect your phone to a server you don't know. Scanning the code from inside the app still connects straight away.
+- Wrong two-step codes typed when turning two-step sign-in off or making new recovery codes now count towards the same 15-minute lock as wrong codes at sign-in.
+- Asking the server to create a book with an ID that belongs to someone else's book now answers "not found", like every other request about a book you can't see, instead of "no permission", which revealed that it exists.
+- Docker: `LEKHAMINT_MAX_ATTACHMENT_MB`, `LEKHAMINT_HISTORY_DAYS`, `LEKHAMINT_TRASH_DAYS` and `LEKHAMINT_FX_URL` set in `.env` are now passed to the container by all three compose files; before, they were silently ignored.
+- The transaction list's tag filter matches only that tag; a value with `%` or `_` used to match every tagged transaction.
+
 ## 1.9.0
 
 **Time of day on every money entry**
