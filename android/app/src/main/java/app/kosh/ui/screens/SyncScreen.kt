@@ -144,6 +144,18 @@ class SyncViewModel(private val c: AppContainer) : ViewModel() {
         connectWithCode()
     }
 
+    /**
+     * A link that opened the app from elsewhere (a camera app, a message, a web page) only fills in the form:
+     * anyone can make such a link, so the person sees which server it names and taps Connect themselves.
+     */
+    fun prefillPairLink(p: app.kosh.sync.PairLink) {
+        pairServer = p.server
+        pairCode = p.code
+        showCodeEntry = true
+        errorNearCode = false
+        error = null
+    }
+
     fun connectWithCode() {
         errorNearCode = true
         if (c.settings.current.syncEnabled) {
@@ -306,9 +318,10 @@ fun SyncScreen(onJoined: () -> Unit) {
     var confirmDisconnect by androidx.compose.runtime.remember { mutableStateOf(false) }
     LaunchedEffect(s.syncEnabled) { if (s.syncEnabled) vm.loadDevices() }
     LaunchedEffect(vm.joined) { if (vm.joined) onJoined() }
-    // Opened from the web app's QR code (lekhamint://pair…): connect straight away.
+    // Opened from a lekhamint://pair… link (the web app's QR code read by the phone's camera): show the
+    // server and code for the person to confirm, so a link from someone else cannot connect this phone.
     val link by app.kosh.sync.PairLink.pending.collectAsStateWithLifecycle()
-    LaunchedEffect(link) { link?.let { app.kosh.sync.PairLink.pending.value = null; vm.usePairLink(it) } }
+    LaunchedEffect(link) { link?.let { app.kosh.sync.PairLink.pending.value = null; vm.prefillPairLink(it) } }
     val context = androidx.compose.ui.platform.LocalContext.current
     var shotUri by androidx.compose.runtime.remember { mutableStateOf<android.net.Uri?>(null) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
