@@ -21,6 +21,8 @@ type batchOp struct {
 	Entity string         `json:"entity"`
 	ID     string         `json:"id"`
 	Data   map[string]any `json:"data"`
+	// EditedAt (Unix ms) marks an update saved while offline and sent later; see syncer.WriteOp.
+	EditedAt int64 `json:"edited_at"`
 }
 
 // batch applies up to MaxBatchOps writes atomically: either every op is
@@ -71,7 +73,7 @@ func (s *Server) batch(w http.ResponseWriter, r *http.Request) {
 			wo.MustNotExist = op.Op == "create"
 			wo.SkipIfExists = op.Op == "create_if_missing"
 		case "update":
-			wo.MustExist = true
+			wo.MustExist, wo.EditedAt = true, op.EditedAt
 		case "delete":
 			wo.MustExist, wo.Deleted, wo.Data = true, true, nil
 		case "restore":

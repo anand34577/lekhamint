@@ -105,7 +105,11 @@ export interface BudgetProgress {
 }
 export interface TagTotal { tag_id: string; currency: string; expense: number; income: number; count: number }
 export interface Converted { currency: string; income: number; expense: number; net: number; missing_rates: string[]; rates: { from: string; rate: string; effective_date: string; inverted: boolean }[] }
-export interface BatchOp { op: 'create' | 'create_if_missing' | 'update' | 'delete' | 'restore'; entity: string; id?: string; data?: object }
+export interface BatchOp {
+  op: 'create' | 'create_if_missing' | 'update' | 'delete' | 'restore'; entity: string; id?: string; data?: object
+  /** When an update was made (Unix ms), for one saved offline and sent later: fields others changed since keep their newer value. */
+  edited_at?: number
+}
 export interface BatchResult { entity: string; id: string; status: 'created' | 'updated' | 'deleted' | 'restored' | 'skipped' }
 
 /** Largest batch the server accepts (meta.limits.batch_ops). */
@@ -189,7 +193,8 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, `http_${res.status}`, res.statusText)
     return res.json() as Promise<{ changes: unknown[]; next_cursor: number; has_more: boolean }>
   },
-  oidcExchange: (code: string) => call<{ user: User; token: string }>('POST', '/auth/oidc/exchange', { code }),
+  /** Trades the single sign-on code for a session; accounts with two-step sign-in also send otp. */
+  oidcExchange: (code: string, otp?: string) => call<{ user: User; token: string }>('POST', '/auth/oidc/exchange', { code, ...(otp ? { otp } : {}) }),
   notifications: () => call<NotificationPrefs>('GET', '/notifications'),
   saveNotifications: (patch: Partial<Omit<NotificationPrefs, 'gotify_token_set' | 'channels'>> & { gotify_token?: string }) => call<NotificationPrefs>('PUT', '/notifications', patch),
   testNotification: (channel: 'email' | 'gotify', gotify_token?: string) => call<{ sent: boolean }>('POST', '/notifications/test', { channel, ...(gotify_token ? { gotify_token } : {}) }),

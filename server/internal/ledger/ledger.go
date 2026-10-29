@@ -102,7 +102,8 @@ func (s *Service) Create(ctx context.Context, userID string, in CreateInput) (l 
 	})
 	if errors.Is(err, store.ErrDuplicate) {
 		if _, aerr := s.Authorize(ctx, id, userID, Read); aerr != nil {
-			return store.Ledger{}, false, ErrForbidden
+			// Not a member: answer as for any unknown ledger, so IDs cannot be probed.
+			return store.Ledger{}, false, aerr
 		}
 		existing, err := s.Get(ctx, id, userID)
 		return existing, false, err

@@ -25,6 +25,16 @@ describe('offline outbox', () => {
     expect(outbox.list()).toEqual([])
     expect(batch.mock.calls.map((c) => (c[1] as { id: string }[])[0].id)).toEqual(['a', 'b', 'c', 'c'])
   })
+  it('tells the server when a queued update was made', async () => {
+    outbox.add('L', [{ op: 'update', entity: 'accounts', id: 'a', data: { name: 'x' } }, { op: 'delete', entity: 'tags', id: 't' }], 'Edited account')
+    const at = outbox.list()[0].at
+    batch.mockResolvedValueOnce([])
+    await flushOutbox()
+    expect(batch.mock.calls[0][1]).toEqual([
+      { op: 'update', entity: 'accounts', id: 'a', data: { name: 'x' }, edited_at: at },
+      { op: 'delete', entity: 'tags', id: 't' },
+    ])
+  })
   it('keeps changes when the server has a temporary problem', async () => {
     outbox.add('L', [{ op: 'delete', entity: 'tags', id: 'x' }], 'Deleted tag')
     batch.mockRejectedValueOnce(new ApiError(503, 'unavailable', 'down'))

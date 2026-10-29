@@ -80,4 +80,15 @@ func TestTransactionFilters(t *testing.T) {
 	if got := list(store.TxFilter{Query: "400", QueryAmount: 40000}); len(got) != 1 {
 		t.Fatalf("search by transfer amount = %v", got)
 	}
+	// A tag filter matches that tag only; LIKE wildcards in it match nothing.
+	trip := put("tags", map[string]any{"name": "Trip"})
+	tagged := tx("expense", 60000, map[string]any{"tag_ids": []any{trip}})
+	if got := list(store.TxFilter{TagID: trip}); len(got) != 1 || got[0] != tagged {
+		t.Fatalf("tag = %v, want only %s", got, tagged)
+	}
+	for _, wild := range []string{"%", "_%"} {
+		if got := list(store.TxFilter{TagID: wild}); len(got) != 0 {
+			t.Fatalf("tag %q = %v, want none", wild, got)
+		}
+	}
 }

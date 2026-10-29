@@ -35,6 +35,8 @@ export function Login({ onDone }: { onDone: () => void }) {
   const [busy, setBusy] = useState(false)
   const [meta, setMeta] = useState<Meta | null>(null)
   const sso = meta?.oidc?.enabled ? meta.oidc : null
+  // A single sign-on code waiting for the two-step code (accounts with two-step sign-in on).
+  const [ssoCode, setSsoCode] = useState('')
   useEffect(() => { api.meta().then(setMeta).catch(() => setMeta(null)) }, [])
 
   // Finish a single sign-on round trip: trade the one-time code for a session.
@@ -44,7 +46,10 @@ export function Login({ onDone }: { onDone: () => void }) {
     history.replaceState(null, '', location.pathname + location.search + '#/dashboard') // keep the code out of the history
     if (error) { setErr(error); return }
     setBusy(true)
-    api.oidcExchange(code).then((r) => { session.start(r.token); onDone() }).catch((x) => setErr(errorText(x))).finally(() => setBusy(false))
+    api.oidcExchange(code).then((r) => { session.start(r.token); onDone() }).catch((x) => {
+      if (x instanceof ApiError && x.code === 'otp_required') { setSsoCode(code); setModeRaw('otp'); setOtp(''); return }
+      setErr(errorText(x))
+    }).finally(() => setBusy(false))
   }, []) // eslint-disable-line
 
   const passwordOff = sso?.only === true
@@ -65,7 +70,9 @@ export function Login({ onDone }: { onDone: () => void }) {
         setPassword(''); setMode('done')
         return
       }
-      const r = mode === 'register' ? await api.register(email.trim(), password, name.trim()) : await api.login(email.trim(), password, mode === 'otp' ? otp.trim() : undefined)
+      const r = mode === 'otp' && ssoCode ? await api.oidcExchange(ssoCode, otp.trim())
+        : mode === 'register' ? await api.register(email.trim(), password, name.trim())
+        : await api.login(email.trim(), password, mode === 'otp' ? otp.trim() : undefined)
       session.start(r.token)
       onDone()
     } catch (x) {
@@ -119,7 +126,7 @@ export function Login({ onDone }: { onDone: () => void }) {
                 placeholder="123 456" className="otp-input" />
             </Field>
             <button className="primary" disabled={busy || otp.trim().length < 6}>{busy ? 'Checking…' : 'Sign in'}</button>
-            <p className="muted small center" style={{ marginTop: 14 }}><button type="button" className="link" onClick={() => setMode('login')}>Back</button></p>
+            <p className="muted small center" style={{ marginTop: 14 }}><button type="button" className="link" onClick={() => { setSsoCode(''); setMode('login') }}>Back</button></p>
           </>}
           {(mode === 'forgot' || mode === 'sent') && <>
             {mode === 'forgot' && <>

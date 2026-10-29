@@ -40,9 +40,11 @@ type Config struct {
 	WebDir        string
 	NoWeb         bool
 	// Assistant proxy (docs/11): an OpenAI-compatible endpoint the server forwards chat requests to.
-	AIBaseURL        string
-	AIAPIKey         string
-	AIModel          string
+	AIBaseURL string
+	AIAPIKey  string
+	AIModel   string
+	// AIModels are the other models people may ask for; with AIModel set, anything else gets AIModel.
+	AIModels         []string
 	AITimeout        time.Duration
 	AIConnectOrigins []string
 
@@ -71,6 +73,8 @@ type Config struct {
 	ReminderHour int
 	// MaxAttachmentMB is the largest receipt or bill file accepted.
 	MaxAttachmentMB int
+	// MaxLedgerStorageMB caps the attachment files one book may hold; 0 means no cap.
+	MaxLedgerStorageMB int
 	// HistoryDays is how long the change history ("who changed what") is kept; 0 keeps it forever.
 	HistoryDays int
 	// TrashDays is how long deleted items stay in the Trash before they are removed for good; 0 keeps them forever.
@@ -81,6 +85,7 @@ type Config struct {
 
 	oidcScopesRaw *string
 	aiOriginsRaw  *string
+	aiModelsRaw   *string
 
 	corsRaw *string
 	envErrs []string
@@ -121,6 +126,7 @@ func Register(fs *flag.FlagSet) *Config {
 	fs.StringVar(&c.AIBaseURL, "ai-base-url", env("LEKHAMINT_AI_BASE_URL", ""), "OpenAI-compatible API for the assistant, e.g. http://localhost:11434/v1 (empty disables the proxy)")
 	fs.StringVar(&c.AIAPIKey, "ai-api-key", env("LEKHAMINT_AI_API_KEY", ""), "API key sent to the assistant endpoint (prefer the environment variable)")
 	fs.StringVar(&c.AIModel, "ai-model", env("LEKHAMINT_AI_MODEL", ""), "default model for the assistant")
+	c.aiModelsRaw = fs.String("ai-models", env("LEKHAMINT_AI_MODELS", ""), "other models people may pick for the assistant (comma-separated); with --ai-model set, any other request uses that model")
 	fs.DurationVar(&c.AITimeout, "ai-timeout", envDuration("LEKHAMINT_AI_TIMEOUT", 2*time.Minute), "time limit for one assistant request")
 	c.aiOriginsRaw = fs.String("ai-connect-origins", env("LEKHAMINT_AI_CONNECT_ORIGINS", ""), "extra origins the web app may call directly for the assistant (comma-separated)")
 	fs.StringVar(&c.PublicURL, "public-url", env("LEKHAMINT_PUBLIC_URL", ""), "address people use to reach this server, e.g. https://money.example.com (needed for single sign-on)")
@@ -142,6 +148,7 @@ func Register(fs *flag.FlagSet) *Config {
 	fs.StringVar(&c.GotifyURL, "gotify-url", env("LEKHAMINT_GOTIFY_URL", ""), "Gotify server, e.g. https://gotify.example.com (empty disables Gotify)")
 	fs.IntVar(&c.ReminderHour, "reminder-hour", envInt("LEKHAMINT_REMINDER_HOUR", 8), "hour of day (server time, 0-23) for bill and budget reminders; -1 turns them off")
 	fs.IntVar(&c.MaxAttachmentMB, "max-attachment-mb", envInt("LEKHAMINT_MAX_ATTACHMENT_MB", 10), "largest receipt or bill file accepted, in MB")
+	fs.IntVar(&c.MaxLedgerStorageMB, "max-ledger-storage-mb", envInt("LEKHAMINT_MAX_LEDGER_STORAGE_MB", 5120), "attachment storage one book may use, in MB (0 for no limit)")
 	fs.IntVar(&c.HistoryDays, "history-days", envInt("LEKHAMINT_HISTORY_DAYS", 365), "days to keep the change history of records (0 keeps it forever)")
 	fs.IntVar(&c.TrashDays, "trash-days", envInt("LEKHAMINT_TRASH_DAYS", 0), "days deleted items stay in the Trash before they are removed for good (0 keeps them forever)")
 	fs.StringVar(&c.FXURL, "fx-url", env("LEKHAMINT_FX_URL", "https://api.frankfurter.app"), "exchange rate service used by \"Fetch today's rates\" (off disables it)")
@@ -170,6 +177,13 @@ func (c *Config) Finish() error {
 					continue
 				}
 				c.AIConnectOrigins = append(c.AIConnectOrigins, strings.TrimRight(o, "/"))
+			}
+		}
+	}
+	if c.aiModelsRaw != nil {
+		for _, m := range strings.Split(*c.aiModelsRaw, ",") {
+			if m = strings.TrimSpace(m); m != "" {
+				c.AIModels = append(c.AIModels, m)
 			}
 		}
 	}
@@ -265,6 +279,9 @@ func (c *Config) Finish() error {
 	}
 	if c.SessionTTL < time.Hour {
 		bad("LEKHAMINT_SESSION_TTL (--session-ttl) must be at least 1h")
+	}
+	if c.MaxLedgerStorageMB < 0 {
+		bad("LEKHAMINT_MAX_LEDGER_STORAGE_MB (--max-ledger-storage-mb) must be 0 (no limit) or more")
 	}
 	if c.MaxAttachmentMB < 1 || c.MaxAttachmentMB > 100 {
 		bad("LEKHAMINT_MAX_ATTACHMENT_MB (--max-attachment-mb) must be between 1 and 100")

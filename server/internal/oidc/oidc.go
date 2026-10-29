@@ -71,8 +71,8 @@ type pending struct {
 }
 
 type grant struct {
-	token string
-	at    time.Time
+	userID, device string
+	at             time.Time
 }
 
 // ErrFlow is returned for a sign-in attempt that cannot continue. Its message
@@ -233,9 +233,15 @@ func (c *Client) Finish(ctx context.Context, state, code string) (Identity, stri
 	return id, p.device, nil
 }
 
-// StashToken keeps a session token for a minute and returns the one-time code the
-// browser exchanges for it, so the token never appears in a URL.
-func (c *Client) StashToken(token string) string {
+// GrantTTL is how long the browser has to trade a one-time sign-in code, long enough
+// to type a two-step code when the account has one.
+const GrantTTL = 5 * time.Minute
+
+// StashUser remembers who the provider signed in, on which device, and returns the
+// one-time code the browser trades for a session. No session exists until then, so
+// nothing usable appears in a URL, and an account with two-step sign-in can be asked
+// for its code first.
+func (c *Client) StashUser(userID, device string) string {
 	code := randString(24)
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -244,24 +250,42 @@ func (c *Client) StashToken(token string) string {
 	}
 	now := time.Now()
 	for k, g := range c.codes {
-		if now.Sub(g.at) > time.Minute {
+		if now.Sub(g.at) > GrantTTL {
 			delete(c.codes, k)
 		}
 	}
-	c.codes[code] = grant{token: token, at: now}
+	c.codes[code] = grant{userID: userID, device: device, at: now}
 	return code
 }
 
-// TakeToken returns the token for a one-time code, once.
-func (c *Client) TakeToken(code string) (string, bool) {
+// TakeUser returns who a one-time code signs in and ends the code, so two requests
+// cannot both use it. PutBack returns it for a retry (after a wrong two-step code)
+// with its original expiry.
+func (c *Client) TakeUser(code string) (Grant, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	g, ok := c.codes[code]
 	delete(c.codes, code)
-	if !ok || time.Since(g.at) > time.Minute {
-		return "", false
+	if !ok || time.Since(g.at) > GrantTTL {
+		return Grant{}, false
 	}
-	return g.token, true
+	return Grant{UserID: g.userID, Device: g.device, at: g.at}, true
+}
+
+// PutBack makes a code taken by TakeUser usable again until it would have expired.
+func (c *Client) PutBack(code string, g Grant) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.codes == nil {
+		c.codes = map[string]grant{}
+	}
+	c.codes[code] = grant{userID: g.UserID, device: g.Device, at: g.at}
+}
+
+// Grant is who a one-time sign-in code is for.
+type Grant struct {
+	UserID, Device string
+	at             time.Time
 }
 
 func firstNonEmpty(s ...string) string {

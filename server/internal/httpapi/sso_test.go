@@ -211,3 +211,53 @@ func TestNotificationPreferences(t *testing.T) {
 	c.do("PUT", "/api/v1/notifications", map[string]any{"ev_due": false}, 200)
 	c.do("POST", "/api/v1/notifications/test", map[string]any{"channel": "gotify"}, 200)
 }
+
+// ssoCode runs the provider round trip and returns the one-time code for the exchange.
+func ssoCode(t *testing.T, base string) string {
+	t.Helper()
+	hc := noRedirect()
+	resp, err := hc.Get(base + "/api/v1/auth/oidc/start")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc, _ := url.Parse(resp.Header.Get("Location"))
+	resp, err = hc.Get(base + "/api/v1/auth/oidc/callback?state=" + loc.Query().Get("state") + "&code=good-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	loc, _ = url.Parse(resp.Header.Get("Location"))
+	frag, _ := url.Parse(strings.TrimPrefix(loc.Fragment, "/"))
+	code := frag.Query().Get("code")
+	if code == "" {
+		t.Fatalf("callback redirect = %s", resp.Header.Get("Location"))
+	}
+	return code
+}
+
+// Single sign-on stands in for the password, not for two-step sign-in: an account
+// with it on is asked for a code before any session exists.
+func TestSingleSignOnAsksForTwoStepCode(t *testing.T) {
+	idp := fakeProvider(t, "asha@example.com", true)
+	base, _ := ssoServer(t, idp.URL, true, false, nil)
+	c := &client{t: t, base: base}
+	c.token = c.do("POST", "/api/v1/auth/oidc/exchange", map[string]string{"code": ssoCode(t, base)}, 200)["token"].(string)
+
+	secret := c.do("POST", "/api/v1/auth/2fa/setup", map[string]any{}, 200)["secret"].(string)
+	now, _ := auth.TOTPCode(secret, time.Now())
+	recovery := c.do("POST", "/api/v1/auth/2fa/enable", map[string]string{"code": now}, 200)["recovery_codes"].([]any)
+
+	anon := &client{t: t, base: base}
+	code := ssoCode(t, base)
+	if e := anon.do("POST", "/api/v1/auth/oidc/exchange", map[string]string{"code": code}, 401)["error"].(map[string]any); e["code"] != "otp_required" {
+		t.Fatalf("without a code: %v", e)
+	}
+	if e := anon.do("POST", "/api/v1/auth/oidc/exchange", map[string]string{"code": code, "otp": "000000"}, 401)["error"].(map[string]any); e["code"] != "invalid_otp" {
+		t.Fatalf("wrong code: %v", e)
+	}
+	out := anon.do("POST", "/api/v1/auth/oidc/exchange", map[string]string{"code": code, "otp": recovery[0].(string)}, 200)
+	if out["token"] == "" {
+		t.Fatalf("exchange = %v", out)
+	}
+	// The sign-in code works once.
+	anon.do("POST", "/api/v1/auth/oidc/exchange", map[string]string{"code": code, "otp": recovery[1].(string)}, 401)
+}

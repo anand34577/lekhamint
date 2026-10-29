@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -22,6 +23,10 @@ type AIProxy struct {
 	BaseURL string // up to /v1
 	APIKey  string
 	Model   string // used when the request names none
+	// Models are the others a request may name. When Model is set, a request for any
+	// other model is sent with Model instead, so signed-in people cannot spend the
+	// server's key on a model the administrator did not choose.
+	Models  []string
 	Timeout time.Duration
 	Client  *http.Client
 }
@@ -72,7 +77,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "bad_request", "messages is required", nil)
 		return
 	}
-	if m, _ := body["model"].(string); m == "" {
+	if m, _ := body["model"].(string); m == "" || (s.AI.Model != "" && m != s.AI.Model && !slices.Contains(s.AI.Models, m)) {
 		if s.AI.Model == "" {
 			writeError(w, http.StatusBadRequest, "bad_request", "no model given and the server has no default (LEKHAMINT_AI_MODEL)", nil)
 			return

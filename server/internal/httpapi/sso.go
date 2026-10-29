@@ -71,7 +71,7 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		fail("Your email address is not verified at the identity provider. Administrators of providers that never send the claim can set LEKHAMINT_OIDC_ALLOW_UNVERIFIED_EMAIL=true.")
 		return
 	}
-	u, token, err := s.Auth.SSOLogin(r.Context(), id.Email, id.Name, id.Subject, device, s.OIDCAutoCreate)
+	u, err := s.Auth.SSOUser(r.Context(), id.Email, id.Name, id.Subject, s.OIDCAutoCreate)
 	if err != nil {
 		switch {
 		case errors.Is(err, auth.ErrSSOClosed), errors.Is(err, auth.ErrAccountDisabled), errors.Is(err, auth.ErrInvalidEmail), errors.Is(err, auth.ErrSSOMismatch):
@@ -82,11 +82,13 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	s.securityNotice(u, "New sign-in", "Your account was just signed in through "+s.OIDC.DisplayName+" on "+device+" at "+time.Now().Format("2 Jan 2006 15:04 MST")+". If this was not you, sign out other devices under Settings and change your provider password.")
-	ssoRedirect(w, r, "sso", url.Values{"code": {s.OIDC.StashToken(token)}})
+	// The session is made when the browser trades this code, after a two-step code if the account has one.
+	ssoRedirect(w, r, "sso", url.Values{"code": {s.OIDC.StashUser(u.ID, device)}})
 }
 
-// oidcExchange trades the one-time code from the redirect for the session token.
+// oidcExchange trades the one-time code from the redirect for a session. An account
+// with two-step sign-in answers otp_required first; the code stays valid for the retry
+// with otp (wrong codes count towards the account's lockout).
 func (s *Server) oidcExchange(w http.ResponseWriter, r *http.Request) {
 	if s.OIDC == nil {
 		writeError(w, http.StatusNotFound, "not_found", "single sign-on is not set up on this server", nil)
@@ -94,21 +96,27 @@ func (s *Server) oidcExchange(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Code string `json:"code"`
+		OTP  string `json:"otp"`
 	}
 	if err := decode(w, r, smallBody, &in); err != nil {
 		s.fail(w, r, err)
 		return
 	}
-	token, ok := s.OIDC.TakeToken(in.Code)
+	g, ok := s.OIDC.TakeUser(in.Code)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, "invalid_credentials", "the sign-in link expired; try again", nil)
 		return
 	}
-	u, _, err := s.Auth.Authenticate(r.Context(), token)
+	device := g.Device
+	u, token, err := s.Auth.SSOSession(r.Context(), g.UserID, in.OTP, device)
 	if err != nil {
+		if errors.Is(err, auth.ErrOTPRequired) || errors.Is(err, auth.ErrInvalidOTP) {
+			s.OIDC.PutBack(in.Code, g) // ask for the code, or let them type it again
+		}
 		s.fail(w, r, err)
 		return
 	}
+	s.securityNotice(u, "New sign-in", "Your account was just signed in through "+s.OIDC.DisplayName+" on "+device+" at "+time.Now().Format("2 Jan 2006 15:04 MST")+". If this was not you, sign out other devices under Settings and change your provider password.")
 	s.setSessionCookie(w, r, token)
 	writeJSON(w, http.StatusOK, map[string]any{"user": u, "token": token})
 }

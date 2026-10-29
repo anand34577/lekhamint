@@ -53,3 +53,41 @@ func TestOTPLockoutPerAccount(t *testing.T) {
 		t.Fatalf("after the lock: %v", err)
 	}
 }
+
+// A signed-in session changing two-step settings gets the same five wrong codes, so a stolen
+// session cannot guess its way to new recovery codes.
+func TestOTPLockoutCoversSettings(t *testing.T) {
+	ctx := context.Background()
+	d := testutil.NewDB(t)
+	now := time.Date(2026, 10, 26, 10, 0, 0, 0, time.UTC)
+	s := auth.NewService(d, true, time.Hour)
+	s.Now = func() time.Time { return now }
+	u, err := s.CreateUser(ctx, "a@example.com", "A", "password123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, _, err := s.StartTOTP(ctx, u, "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	u, _ = store.UserByEmail(ctx, d, u.Email)
+	code, _ := auth.TOTPCode(secret, now)
+	if _, err := s.EnableTOTP(ctx, u, "", code); err != nil {
+		t.Fatal(err)
+	}
+	u, _ = store.UserByEmail(ctx, d, u.Email)
+	now = now.Add(2 * time.Minute)
+
+	for i := 0; i < 5; i++ {
+		if _, err := s.NewRecoveryCodesFor(ctx, u, "000000"); !errors.Is(err, auth.ErrInvalidOTP) {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+	}
+	good, _ := auth.TOTPCode(secret, now)
+	if _, err := s.NewRecoveryCodesFor(ctx, u, good); !errors.Is(err, auth.ErrOTPLocked) {
+		t.Fatalf("locked account made recovery codes: %v", err)
+	}
+	if err := s.DisableTOTP(ctx, u, "password123", good); !errors.Is(err, auth.ErrOTPLocked) {
+		t.Fatalf("locked account turned two-step off: %v", err)
+	}
+}

@@ -274,7 +274,7 @@ func TestLedgerIsolationAndRoles(t *testing.T) {
 	// Bob cannot see, sync or claim Alice's ledger.
 	bob.do("GET", L, nil, http.StatusNotFound)
 	bob.do("GET", L+"/sync/pull", nil, http.StatusNotFound)
-	bob.do("POST", "/api/v1/ledgers", map[string]any{"id": lid, "name": "Mine", "base_currency": "INR"}, http.StatusForbidden)
+	bob.do("POST", "/api/v1/ledgers", map[string]any{"id": lid, "name": "Mine", "base_currency": "INR"}, http.StatusNotFound)
 
 	// As a viewer he can read but not write.
 	alice.do("POST", L+"/members", map[string]any{"email": "bob@example.com", "role": "viewer"}, http.StatusOK)

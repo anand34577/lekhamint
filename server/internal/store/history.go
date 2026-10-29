@@ -68,6 +68,26 @@ func History(ctx context.Context, q db.Querier, ledgerID, entityName, recordID s
 	return out, rows.Err()
 }
 
+// VersionAt returns a record as it stood at Unix ms at (server time), from the change
+// history. ok is false when the history does not reach back that far (imports are not
+// recorded, and old versions are pruned).
+func VersionAt(ctx context.Context, q db.Querier, ledgerID, entityName, recordID string, at int64) (entity.Data, bool, error) {
+	var data string
+	err := q.QueryRowContext(ctx, `SELECT data FROM record_history WHERE ledger_id = ? AND record_id = ? AND entity = ? AND at <= ?
+		ORDER BY seq DESC LIMIT 1`, ledgerID, recordID, entityName, at).Scan(&data)
+	if db.IsNoRows(err) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var d entity.Data
+	if err := json.Unmarshal([]byte(data), &d); err != nil {
+		return nil, false, nil
+	}
+	return d, true, nil
+}
+
 // PruneHistory removes versions saved before the cutoff (Unix ms).
 func PruneHistory(ctx context.Context, q db.Querier, before int64) (int64, error) {
 	res, err := q.ExecContext(ctx, "DELETE FROM record_history WHERE at < ?", before)

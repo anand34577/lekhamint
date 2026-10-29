@@ -212,19 +212,25 @@ func (s *Service) LoginOTP(ctx context.Context, email, password, otp, device str
 		if strings.TrimSpace(otp) == "" {
 			return store.User{}, "", ErrOTPRequired
 		}
-		if s.otpLocked(u.ID) {
-			return store.User{}, "", ErrOTPLocked
-		}
-		if err := s.checkSecondFactor(ctx, u, otp); err != nil {
-			if errors.Is(err, ErrInvalidOTP) {
-				s.otpResult(u.ID, false)
-			}
+		if err := s.secondFactor(ctx, u, otp); err != nil {
 			return store.User{}, "", err
 		}
-		s.otpResult(u.ID, true)
 	}
 	token, err := s.newSession(ctx, u.ID, device)
 	return u, token, err
+}
+
+// secondFactor is checkSecondFactor behind the per-account lockout, so wrong codes
+// count the same at sign-in and when a signed-in session changes two-step settings.
+func (s *Service) secondFactor(ctx context.Context, u store.User, otp string) error {
+	if s.otpLocked(u.ID) {
+		return ErrOTPLocked
+	}
+	err := s.checkSecondFactor(ctx, u, otp)
+	if err == nil || errors.Is(err, ErrInvalidOTP) {
+		s.otpResult(u.ID, err == nil)
+	}
+	return err
 }
 
 // checkSecondFactor accepts a current authenticator code (once) or an unused
@@ -308,7 +314,7 @@ func (s *Service) DisableTOTP(ctx context.Context, u store.User, password, code 
 	if err := s.confirmIdentity(u, password); err != nil {
 		return err
 	}
-	if err := s.checkSecondFactor(ctx, u, code); err != nil {
+	if err := s.secondFactor(ctx, u, code); err != nil {
 		return err
 	}
 	return store.SetTOTP(ctx, s.DB, u.ID, "", false, "")
@@ -319,7 +325,7 @@ func (s *Service) NewRecoveryCodesFor(ctx context.Context, u store.User, code st
 	if !u.TOTPEnabled {
 		return nil, ErrTOTPNotSetUp
 	}
-	if err := s.checkSecondFactor(ctx, u, code); err != nil {
+	if err := s.secondFactor(ctx, u, code); err != nil {
 		return nil, err
 	}
 	fresh, err := store.UserByID(ctx, s.DB, u.ID) // the check may have used a recovery code
@@ -407,29 +413,40 @@ func (s *Service) ResetPassword(ctx context.Context, token, password string) (st
 // must present the same subject, so another identity bearing the same email
 // cannot take the account over. Otherwise an account is created when
 // autoCreate allows it. The first user of a fresh server becomes admin.
+// SSOLogin then opens a session; see SSOSession for accounts with two-step sign-in.
 func (s *Service) SSOLogin(ctx context.Context, email, name, subject, device string, autoCreate bool) (store.User, string, error) {
+	u, err := s.SSOUser(ctx, email, name, subject, autoCreate)
+	if err != nil {
+		return store.User{}, "", err
+	}
+	return s.SSOSession(ctx, u.ID, "", device)
+}
+
+// SSOUser finds or creates the account for an identity the provider vouched for,
+// with the binding rules described at SSOLogin. It opens no session.
+func (s *Service) SSOUser(ctx context.Context, email, name, subject string, autoCreate bool) (store.User, error) {
 	email = store.NormalizeEmail(email)
 	u, err := store.UserByEmail(ctx, s.DB, email)
 	switch {
 	case err == nil:
 		if u.SSOSub != "" {
 			if u.SSOSub != subject {
-				return store.User{}, "", ErrSSOMismatch
+				return store.User{}, ErrSSOMismatch
 			}
 		} else if err := store.BindUserSSO(ctx, s.DB, u.ID, subject); err != nil {
-			return store.User{}, "", err
+			return store.User{}, err
 		}
 	case errors.Is(err, store.ErrNotFound):
 		n, cerr := store.CountUsers(ctx, s.DB)
 		if cerr != nil {
-			return store.User{}, "", cerr
+			return store.User{}, cerr
 		}
 		if !autoCreate && n > 0 {
-			return store.User{}, "", ErrSSOClosed
+			return store.User{}, ErrSSOClosed
 		}
 		addr, perr := mail.ParseAddress(email)
 		if perr != nil || addr.Address != email || len(email) > 254 {
-			return store.User{}, "", ErrInvalidEmail
+			return store.User{}, ErrInvalidEmail
 		}
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -455,20 +472,46 @@ func (s *Service) SSOLogin(ctx context.Context, email, name, subject, device str
 			if err == nil {
 				// Someone else just created it; apply the same binding rules.
 				if u.SSOSub != "" && u.SSOSub != subject {
-					return store.User{}, "", ErrSSOMismatch
+					return store.User{}, ErrSSOMismatch
 				} else if u.SSOSub == "" {
 					err = store.BindUserSSO(ctx, s.DB, u.ID, subject)
 				}
 			}
 		}
 		if err != nil {
-			return store.User{}, "", err
+			return store.User{}, err
 		}
 	default:
+		return store.User{}, err
+	}
+	if u.Disabled {
+		return store.User{}, ErrAccountDisabled
+	}
+	return u, nil
+}
+
+// SSOSession opens a session for a person the provider signed in. The provider's
+// sign-in stands in for the password, not for this server's two-step sign-in: an
+// account that has it on must also give a current code or a recovery code, with the
+// same lockout as a password sign-in.
+func (s *Service) SSOSession(ctx context.Context, userID, otp, device string) (store.User, string, error) {
+	u, err := store.UserByID(ctx, s.DB, userID)
+	if errors.Is(err, store.ErrNotFound) {
+		return store.User{}, "", ErrUnauthenticated
+	}
+	if err != nil {
 		return store.User{}, "", err
 	}
 	if u.Disabled {
 		return store.User{}, "", ErrAccountDisabled
+	}
+	if u.TOTPEnabled {
+		if strings.TrimSpace(otp) == "" {
+			return store.User{}, "", ErrOTPRequired
+		}
+		if err := s.secondFactor(ctx, u, otp); err != nil {
+			return store.User{}, "", err
+		}
 	}
 	token, err := s.newSession(ctx, u.ID, device)
 	return u, token, err

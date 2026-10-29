@@ -221,10 +221,11 @@ func serve(cfg *config.Config, d *db.DB, log *slog.Logger, before func(context.C
 		Log: log, Version: version, CORSOrigins: cfg.CORSOrigins, TrustProxy: cfg.TrustProxy,
 		MaxImportSize: cfg.MaxImportSize,
 		PublicURL:     cfg.PublicURL, MaxAttachment: int64(cfg.MaxAttachmentMB) << 20, FXURL: cfg.FXURL,
-		HTTPClient: &http.Client{Timeout: 20 * time.Second},
+		MaxLedgerStorage: int64(cfg.MaxLedgerStorageMB) << 20,
+		HTTPClient:       &http.Client{Timeout: 20 * time.Second},
 	}
 	if cfg.AIBaseURL != "" {
-		api.AI = &httpapi.AIProxy{BaseURL: cfg.AIBaseURL, APIKey: cfg.AIAPIKey, Model: cfg.AIModel, Timeout: cfg.AITimeout}
+		api.AI = &httpapi.AIProxy{BaseURL: cfg.AIBaseURL, APIKey: cfg.AIAPIKey, Model: cfg.AIModel, Models: cfg.AIModels, Timeout: cfg.AITimeout}
 		log.Info("assistant proxy enabled", "endpoint", httpapi.RedactURL(cfg.AIBaseURL), "model", cfg.AIModel)
 	}
 	notifier := buildNotifier(cfg)

@@ -50,7 +50,8 @@ export function flushOutbox(): Promise<number> {
         const next = read<Queued>(KEY)[0]
         if (!next) break
         try {
-          await api.batch(next.ledgerId, next.ops)
+          // Updates say when they were made, so a field someone else changed since keeps their newer value.
+          await api.batch(next.ledgerId, next.ops.map((o) => (o.op === 'update' ? { ...o, edited_at: next.at } : o)))
           sent++
         } catch (e) {
           if (isOffline(e)) break
